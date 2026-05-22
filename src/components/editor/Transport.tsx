@@ -4,10 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useServerFn } from "@tanstack/react-start";
 import { get } from "idb-keyval";
 import { toast } from "sonner";
-import { transcribeAudio } from "@/lib/lyrics/transcribe.functions";
 import { alignLyrics } from "@/lib/lyrics/align";
 import type { Project } from "@/lib/project/types";
 
@@ -30,7 +28,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [duration, setDuration] = useState(0);
   const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
   const [syncing, setSyncing] = useState(false);
-  const transcribe = useServerFn(transcribeAudio);
+  
 
   useEffect(() => {
     const el = audioRef.current; if (!el) return;
@@ -97,18 +95,15 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     setSyncing(true);
     const toastId = toast.loading("Analyzing audio with ElevenLabs…");
     try {
-      const buf = await blob.arrayBuffer();
-      // chunk-safe base64
-      const bytes = new Uint8Array(buf);
-      let bin = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
-      }
-      const audioBase64 = btoa(bin);
-      const { words } = await transcribe({
-        data: { audioBase64, filename: project.audio.name || "audio.mp3", mime: project.audio.type || blob.type || "audio/mpeg" },
-      });
+      const filename = project.audio.name || "audio.mp3";
+      const mime = project.audio.type || blob.type || "audio/mpeg";
+      const fd = new FormData();
+      fd.append("file", new Blob([blob], { type: mime }), filename);
+      fd.append("filename", filename);
+      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      const json = (await res.json()) as { words?: Array<{ text: string; start: number; end: number }>; error?: string };
+      if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
+      const words = json.words ?? [];
       if (!words.length) throw new Error("No words detected in audio.");
       const aligned = alignLyrics(rawLines, words);
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
