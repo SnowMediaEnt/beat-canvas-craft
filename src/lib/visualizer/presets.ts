@@ -285,7 +285,7 @@ const liquidBlob: Preset = {
     ctx.beginPath();
     for (let i = 0; i <= points; i++) {
       const a = (i / points) * Math.PI * 2;
-      const v = audio.freq[Math.floor((i / points) * audio.freq.length * 0.4)] / 255;
+      const v = freqAt(audio.freq, Math.floor((i / points) * audio.freq.length * 0.4), cfg);
       const r = base + v * 60 + Math.sin(t * 2 + i * 0.3) * 12;
       const x = cx + Math.cos(a) * r; const y = cy + Math.sin(a) * r;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
