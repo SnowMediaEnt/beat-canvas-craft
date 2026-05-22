@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { Play, Pause, SkipBack, Plus } from "lucide-react";
+import { Play, Pause, SkipBack, Plus, Wand2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useServerFn } from "@tanstack/react-start";
+import { get } from "idb-keyval";
+import { toast } from "sonner";
+import { transcribeAudio } from "@/lib/lyrics/transcribe.functions";
+import { alignLyrics } from "@/lib/lyrics/align";
 import type { Project } from "@/lib/project/types";
 
 const fmt = (s: number) => {
