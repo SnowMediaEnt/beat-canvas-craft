@@ -29,6 +29,15 @@ function EditorPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nav = useNavigate();
 
+  // Log codec support once so we can see what Safari reports
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    console.log("[audio] canPlayType audio/mpeg:", el.canPlayType("audio/mpeg"));
+    console.log("[audio] canPlayType audio/mp4:", el.canPlayType("audio/mp4"));
+    console.log("[audio] canPlayType audio/wav:", el.canPlayType("audio/wav"));
+  }, []);
+
   if (!loaded) {
     return <div className="min-h-screen grid place-items-center text-muted-foreground text-sm">Loading project…</div>;
   }
@@ -44,14 +53,6 @@ function EditorPage() {
     );
   }
 
-  // Log codec support once so we can see what Safari reports
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    console.log("[audio] canPlayType audio/mpeg:", el.canPlayType("audio/mpeg"));
-    console.log("[audio] canPlayType audio/mp4:", el.canPlayType("audio/mp4"));
-    console.log("[audio] canPlayType audio/wav:", el.canPlayType("audio/wav"));
-  }, []);
 
   const togglePlay = async () => {
     const el = audioRef.current;
