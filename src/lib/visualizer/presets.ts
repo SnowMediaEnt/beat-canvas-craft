@@ -41,27 +41,36 @@ const center = (d: DrawContext) => ({
  * equalizer instead of raw, noisy FFT bins. Default 12 bands covers sub-bass
  * through presence; `upper` clips the very top end where most music is silent.
  */
+function bandMulFor(frac: number, cfg?: VisualizerConfig): number {
+  const master = cfg?.sensitivity ?? 1;
+  const bassMul = cfg?.bassSensitivity ?? 1;
+  const midMul = cfg?.midSensitivity ?? 1;
+  const trebMul = cfg?.trebleSensitivity ?? 1;
+  const band = frac < 0.25 ? bassMul : frac < 0.6 ? midMul : trebMul;
+  return master * band;
+}
+
+/** Sample a frequency bin (0..1) scaled by sensitivity config. */
+function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig): number {
+  const i = Math.max(0, Math.min(freq.length - 1, idx | 0));
+  return (freq[i] / 255) * bandMulFor(i / freq.length, cfg);
+}
+
 function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
   const out = new Array(count);
   const lo = 2;
   const hi = Math.max(lo + count, Math.floor(freq.length * upper));
   const logLo = Math.log(lo), logHi = Math.log(hi);
-  const master = cfg?.sensitivity ?? 1;
-  const bassMul = cfg?.bassSensitivity ?? 1;
-  const midMul = cfg?.midSensitivity ?? 1;
-  const trebMul = cfg?.trebleSensitivity ?? 1;
   for (let i = 0; i < count; i++) {
     const a = Math.floor(Math.exp(logLo + (i / count) * (logHi - logLo)));
     const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / count) * (logHi - logLo))));
     let s = 0; for (let k = a; k < b; k++) s += freq[k];
     const tilt = 1 + (i / count) * 0.6;
-    const f = i / count;
-    const bandMul = f < 0.25 ? bassMul : f < 0.6 ? midMul : trebMul;
-    // No upper cap so sensitivity=3 visibly pushes bars further than =1.
-    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * master * bandMul);
+    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * bandMulFor(i / count, cfg));
   }
   return out;
 }
+
 
 // 1. Circular spectrum
 const circular: Preset = {
@@ -74,7 +83,7 @@ const circular: Preset = {
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness;
     for (let i = 0; i < bars; i++) {
-      const v = freq[Math.floor((i / bars) * freq.length * 0.6)] / 255;
+      const v = freqAt(freq, Math.floor((i / bars) * freq.length * 0.6), cfg);
       const len = v * 120 * cfg.size + 4;
       const a = (i / bars) * Math.PI * 2 + cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
@@ -104,7 +113,7 @@ const doubleCircular: Preset = {
     ctx.lineWidth = cfg.thickness * 0.7;
     ctx.strokeStyle = cfg.secondary;
     for (let i = 0; i < bars; i++) {
-      const v = audio.freq[Math.floor((i / bars) * audio.freq.length * 0.5)] / 255;
+      const v = freqAt(audio.freq, Math.floor((i / bars) * audio.freq.length * 0.5), cfg);
       const len = v * 80 * cfg.size + 2;
       const a = -(i / bars) * Math.PI * 2 - cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
@@ -276,7 +285,7 @@ const liquidBlob: Preset = {
     ctx.beginPath();
     for (let i = 0; i <= points; i++) {
       const a = (i / points) * Math.PI * 2;
-      const v = audio.freq[Math.floor((i / points) * audio.freq.length * 0.4)] / 255;
+      const v = freqAt(audio.freq, Math.floor((i / points) * audio.freq.length * 0.4), cfg);
       const r = base + v * 60 + Math.sin(t * 2 + i * 0.3) * 12;
       const x = cx + Math.cos(a) * r; const y = cy + Math.sin(a) * r;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -316,7 +325,7 @@ const ribbons: Preset = {
       ctx.beginPath();
       for (let x = 0; x <= w; x += 6) {
         const i = Math.floor((x / w) * audio.freq.length * 0.5);
-        const v = audio.freq[i] / 255;
+        const v = freqAt(audio.freq, i, cfg);
         const y = h / 2 + Math.sin(x * 0.01 + t * (1 + l * 0.3)) * (40 + v * 80) * cfg.size + (l - layers / 2) * 18;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
@@ -341,7 +350,7 @@ const tunnel: Preset = {
       const verts = 60;
       for (let v = 0; v <= verts; v++) {
         const a = (v / verts) * Math.PI * 2;
-        const f = audio.freq[(v * 4) % audio.freq.length] / 255;
+        const f = freqAt(audio.freq, (v * 4) % audio.freq.length, cfg);
         const rr = r + f * 30;
         const x = cx + Math.cos(a) * rr; const y = cy + Math.sin(a) * rr;
         v === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -394,7 +403,7 @@ const bottomWave: Preset = {
     ctx.beginPath(); ctx.moveTo(0, h);
     for (let x = 0; x <= w; x += 4) {
       const i = Math.floor((x / w) * audio.freq.length * 0.5);
-      const v = audio.freq[i] / 255;
+      const v = freqAt(audio.freq, i, cfg);
       const y = baseY - v * 90 * cfg.size;
       ctx.lineTo(x, y);
     }
@@ -462,7 +471,7 @@ const lightWave: Preset = {
       ctx.lineWidth = cfg.thickness * (3 - l) + audio.volume * 10;
       ctx.beginPath();
       for (let x = 0; x <= w; x += 5) {
-        const v = audio.freq[Math.floor((x / w) * audio.freq.length * 0.3)] / 255;
+        const v = freqAt(audio.freq, Math.floor((x / w) * audio.freq.length * 0.3), cfg);
         const y = h / 2 + Math.sin(x * 0.005 + t * 1.5 + l) * (60 + v * 100) + (l - 1) * 30;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
