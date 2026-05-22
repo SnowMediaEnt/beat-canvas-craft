@@ -23,10 +23,14 @@ export const Route = createFileRoute("/editor/$projectId")({
 
 function EditorPage() {
   const { projectId } = Route.useParams();
-  const { project, update } = useProject(projectId);
+  const { project, update, loaded } = useProject(projectId);
   const audioRef = useRef<HTMLAudioElement>(null);
   const engineRef = useRef<AudioEngine | null>(null);
   const nav = useNavigate();
+
+  if (!loaded) {
+    return <div className="min-h-screen grid place-items-center text-muted-foreground text-sm">Loading project…</div>;
+  }
 
   if (!project) {
     return (
