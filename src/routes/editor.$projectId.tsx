@@ -26,6 +26,7 @@ function EditorPage() {
   const { project, update, loaded } = useProject(projectId);
   const audioRef = useRef<HTMLAudioElement>(null);
   const engineRef = useRef<AudioEngine | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const nav = useNavigate();
 
   if (!loaded) {
@@ -70,14 +71,14 @@ function EditorPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground hidden md:inline">Auto-saved</span>
-          <ExportDialog project={project} update={update} />
+          <ExportDialog project={project} update={update} canvasRef={canvasRef} audioRef={audioRef} engineRef={engineRef} />
         </div>
       </header>
 
       <div className="flex-1 flex gap-3 min-h-0">
         <LeftPanel project={project} update={update} />
         <main className="flex-1 panel rounded-xl overflow-hidden min-w-0">
-          <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} />
+          <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} canvasRef={canvasRef} />
         </main>
         <RightPanel project={project} update={update} />
       </div>

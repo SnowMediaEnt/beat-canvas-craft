@@ -17,10 +17,12 @@ interface Props {
   project: Project;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   engineRef: React.RefObject<AudioEngine | null>;
+  canvasRef?: React.RefObject<HTMLCanvasElement | null>;
 }
 
-export function VisualizerCanvas({ project, audioRef, engineRef }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: externalCanvasRef }: Props) {
+  const internalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const containerRef = useRef<HTMLDivElement>(null);
   const logoRef = useRef<HTMLImageElement | null>(null);
   const bgImgRef = useRef<HTMLImageElement | null>(null);

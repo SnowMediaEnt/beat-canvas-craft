@@ -16,6 +16,7 @@ export class AudioEngine {
   el: HTMLAudioElement;
   analyser: AnalyserNode;
   src: MediaElementAudioSourceNode;
+  dest: MediaStreamAudioDestinationNode;
   freq: U8;
   wave: U8;
   private lastBass = 0;
@@ -28,7 +29,9 @@ export class AudioEngine {
     this.analyser = this.ctx.createAnalyser();
     this.analyser.fftSize = 2048;
     this.analyser.smoothingTimeConstant = smoothing;
+    this.dest = this.ctx.createMediaStreamDestination();
     this.src.connect(this.analyser);
+    this.src.connect(this.dest);
     this.analyser.connect(this.ctx.destination);
     this.freq = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
     this.wave = new Uint8Array(new ArrayBuffer(this.analyser.fftSize));
