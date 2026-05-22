@@ -1,4 +1,6 @@
 import { PRESETS } from "@/lib/visualizer/presets";
+import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
 import type { Project } from "@/lib/project/types";
 import { UploadField } from "./UploadField";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +33,62 @@ export function LeftPanel({ project, update }: Props) {
               onChange={(a) => update(p => ({ ...p, logo: a }))} />
             <UploadField label="Background" accept="image/*,video/*" value={project.background}
               onChange={(a) => update(p => ({ ...p, background: a }))} />
+          </section>
+
+          <Separator />
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Theme Packages</h3>
+              <span className="text-[10px] text-muted-foreground">{PACKAGES.length}</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground -mt-1">One-tap presets — background, colors & visualizer combined. Tweak after.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {PACKAGES.map(pkg => {
+                const bg = PRESET_BACKGROUNDS.find(b => b.id === pkg.backgroundId);
+                const active = project.background?.id === `${PRESET_BG_PREFIX}${pkg.backgroundId}` && project.visualizer.presetId === pkg.presetId;
+                return (
+                  <button
+                    key={pkg.id}
+                    onClick={() => update(p => applyPackage(p, pkg))}
+                    className={cn(
+                      "group relative overflow-hidden rounded-lg border text-left aspect-video transition-all",
+                      active ? "border-primary shadow-[0_0_0_1px_var(--color-primary)]" : "border-border hover:border-foreground/30"
+                    )}
+                  >
+                    {bg && <img src={bg.url} alt={pkg.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 p-1.5">
+                      <div className="text-[11px] font-medium text-white truncate">{pkg.name}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <Separator />
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Background Library</h3>
+            <div className="grid grid-cols-3 gap-1.5">
+              {PRESET_BACKGROUNDS.map(bg => {
+                const active = project.background?.id === `${PRESET_BG_PREFIX}${bg.id}`;
+                return (
+                  <button
+                    key={bg.id}
+                    onClick={() => update(p => ({ ...p, background: presetBackgroundRef(bg.id) }))}
+                    title={`${bg.name} · ${bg.mood}`}
+                    className={cn(
+                      "relative overflow-hidden rounded-md aspect-video border transition-all",
+                      active ? "border-primary ring-1 ring-primary" : "border-border hover:border-foreground/40"
+                    )}
+                  >
+                    <img src={bg.url} alt={bg.name} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                  </button>
+                );
+              })}
+            </div>
           </section>
 
           <Separator />
