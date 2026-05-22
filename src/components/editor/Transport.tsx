@@ -100,9 +100,26 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       const fd = new FormData();
       fd.append("file", new Blob([blob], { type: mime }), filename);
       fd.append("filename", filename);
-      const res = await fetch("/api/public/transcribe", { method: "POST", body: fd });
-      const json = (await res.json()) as { words?: Array<{ text: string; start: number; end: number }>; error?: string };
-      if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
+      const transcribeUrl = (() => {
+        if (typeof window === "undefined") return "/api/public/transcribe";
+        const url = new URL("/api/public/transcribe", window.location.origin);
+        const previewToken = new URLSearchParams(window.location.search).get("__lovable_token");
+        if (previewToken) url.searchParams.set("__lovable_token", previewToken);
+        return url.toString();
+      })();
+      const res = await fetch(transcribeUrl, { method: "POST", body: fd });
+      const raw = await res.text();
+      let json: { words?: Array<{ text: string; start: number; end: number }>; error?: string } | null = null;
+      try {
+        json = raw ? JSON.parse(raw) as { words?: Array<{ text: string; start: number; end: number }>; error?: string } : null;
+      } catch {
+        json = null;
+      }
+      if (!res.ok) {
+        const fallback = raw.trim().slice(0, 200) || `Request failed (${res.status})`;
+        throw new Error(json?.error || fallback);
+      }
+      if (json?.error) throw new Error(json.error);
       const words = json.words ?? [];
       if (!words.length) throw new Error("No words detected in audio.");
       const aligned = alignLyrics(rawLines, words);
