@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from "react";
 import { PRESETS } from "@/lib/visualizer/presets";
 import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib/visualizer/backgrounds";
 import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
@@ -6,6 +7,8 @@ import { UploadField } from "./UploadField";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -20,28 +23,40 @@ const RATIOS = [
   { value: "4:5", label: "4:5 Feed" },
 ] as const;
 
+function Section({ title, defaultOpen = true, count, children }: { title: string; defaultOpen?: boolean; count?: number; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="space-y-3">
+      <CollapsibleTrigger className="w-full flex items-center justify-between group">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+          {title}{count != null && <span className="ml-2 text-[10px] text-muted-foreground/70 normal-case font-normal">{count}</span>}
+        </h3>
+        <ChevronDown className={cn("size-3.5 text-muted-foreground transition-transform", open && "rotate-180")} />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function LeftPanel({ project, update }: Props) {
   return (
     <aside className="w-72 shrink-0 panel rounded-xl overflow-hidden flex flex-col">
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-5">
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Assets</h3>
+          <Section title="Assets" defaultOpen>
             <UploadField label="Audio" accept="audio/*" value={project.audio}
               onChange={(a) => update(p => ({ ...p, audio: a }))} />
             <UploadField label="Logo" accept="image/png,image/svg+xml,image/jpeg" value={project.logo}
               onChange={(a) => update(p => ({ ...p, logo: a }))} />
             <UploadField label="Background" accept="image/*,video/*" value={project.background}
               onChange={(a) => update(p => ({ ...p, background: a }))} />
-          </section>
+          </Section>
 
           <Separator />
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Themes</h3>
-              <span className="text-[10px] text-muted-foreground">{PACKAGES.length}</span>
-            </div>
+          <Section title="Themes" count={PACKAGES.length} defaultOpen={false}>
             <p className="text-[11px] text-muted-foreground -mt-1">Background + color palette only — pick an equalizer below to combine.</p>
             <div className="grid grid-cols-2 gap-2">
               {PACKAGES.map(pkg => {
@@ -66,12 +81,11 @@ export function LeftPanel({ project, update }: Props) {
                 );
               })}
             </div>
-          </section>
+          </Section>
 
           <Separator />
 
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Background Library</h3>
+          <Section title="Background Library" count={PRESET_BACKGROUNDS.length} defaultOpen={false}>
             <div className="grid grid-cols-3 gap-1.5">
               {PRESET_BACKGROUNDS.map(bg => {
                 const active = project.background?.id === `${PRESET_BG_PREFIX}${bg.id}`;
@@ -90,12 +104,11 @@ export function LeftPanel({ project, update }: Props) {
                 );
               })}
             </div>
-          </section>
+          </Section>
 
           <Separator />
 
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Canvas</h3>
+          <Section title="Canvas" defaultOpen>
             <div className="space-y-1.5">
               <div className="text-xs text-muted-foreground">Aspect ratio</div>
               <Select value={project.aspectRatio} onValueChange={(v) => update(p => ({ ...p, aspectRatio: v as Project["aspectRatio"] }))}>
@@ -105,12 +118,11 @@ export function LeftPanel({ project, update }: Props) {
                 </SelectContent>
               </Select>
             </div>
-          </section>
+          </Section>
 
           <Separator />
 
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Equalizer</h3>
+          <Section title="Equalizer" count={PRESETS.length} defaultOpen>
             <p className="text-[11px] text-muted-foreground -mt-1">Choose the visualizer style — works with any theme above.</p>
             <div className="grid grid-cols-2 gap-2">
               {PRESETS.map(p => (
@@ -129,7 +141,7 @@ export function LeftPanel({ project, update }: Props) {
                 </button>
               ))}
             </div>
-          </section>
+          </Section>
         </div>
       </ScrollArea>
     </aside>
