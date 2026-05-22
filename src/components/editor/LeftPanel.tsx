@@ -110,7 +110,8 @@ export function LeftPanel({ project, update }: Props) {
           <Separator />
 
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Presets</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Equalizer</h3>
+            <p className="text-[11px] text-muted-foreground -mt-1">Choose the visualizer style — works with any theme above.</p>
             <div className="grid grid-cols-2 gap-2">
               {PRESETS.map(p => (
                 <button
