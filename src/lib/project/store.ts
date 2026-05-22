@@ -108,14 +108,27 @@ export function useProjects() {
   return { projects, refresh };
 }
 
+function migrateProject(p: Project): Project {
+  const dv = defaultVisualizer();
+  const dl = defaultLyrics();
+  const de = defaultEffects();
+  return {
+    ...p,
+    visualizer: { ...dv, ...p.visualizer, position: { ...dv.position, ...(p.visualizer?.position || {}) }, logoPosition: { ...dv.logoPosition, ...(p.visualizer?.logoPosition || {}) } },
+    lyrics: { ...dl, ...(p.lyrics || {}) },
+    effects: { ...de, ...(p.effects || {}), particles: { ...de.particles, ...((p.effects?.particles) || {}) } },
+  };
+}
+
 async function hydrateProject(p: Project | undefined): Promise<Project | undefined> {
   if (!p) return p;
+  const migrated = migrateProject(p);
   const [audio, logo, background] = await Promise.all([
-    hydrateAsset(p.audio),
-    hydrateAsset(p.logo),
-    hydrateAsset(p.background),
+    hydrateAsset(migrated.audio),
+    hydrateAsset(migrated.logo),
+    hydrateAsset(migrated.background),
   ]);
-  return { ...p, audio, logo, background };
+  return { ...migrated, audio, logo, background };
 }
 
 export function useProject(id: string) {
