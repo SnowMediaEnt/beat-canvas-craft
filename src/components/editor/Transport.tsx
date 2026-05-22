@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
-import { Play, Pause, SkipBack, Plus } from "lucide-react";
+import { Play, Pause, SkipBack, Plus, Wand2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useServerFn } from "@tanstack/react-start";
+import { get } from "idb-keyval";
+import { toast } from "sonner";
+import { transcribeAudio } from "@/lib/lyrics/transcribe.functions";
+import { alignLyrics } from "@/lib/lyrics/align";
 import type { Project } from "@/lib/project/types";
 
 const fmt = (s: number) => {
@@ -24,6 +29,8 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
+  const [syncing, setSyncing] = useState(false);
+  const transcribe = useServerFn(transcribeAudio);
 
   useEffect(() => {
     const el = audioRef.current; if (!el) return;
@@ -80,6 +87,41 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     update(p => ({ ...p, lyrics: { ...p.lyrics, lines: parsed, enabled: true } }));
   };
 
+  const autoSync = async (text: string) => {
+    if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
+    const blob = await get<Blob>(`asset:${project.audio.id}`);
+    if (!blob) { toast.error("Audio file not found in local storage."); return; }
+    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) { toast.error("Paste the lyrics first."); return; }
+
+    setSyncing(true);
+    const toastId = toast.loading("Analyzing audio with ElevenLabs…");
+    try {
+      const buf = await blob.arrayBuffer();
+      // chunk-safe base64
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+      }
+      const audioBase64 = btoa(bin);
+      const { words } = await transcribe({
+        data: { audioBase64, filename: project.audio.name || "audio.mp3", mime: project.audio.type || blob.type || "audio/mpeg" },
+      });
+      if (!words.length) throw new Error("No words detected in audio.");
+      const aligned = alignLyrics(rawLines, words);
+      update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
+      const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
+      setLyricsText(formatted);
+      toast.success(`Synced ${aligned.length} lines to ${words.length} detected words.`, { id: toastId });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed.", { id: toastId });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div className="panel rounded-xl px-4 py-3 flex items-center gap-3">
       <Button size="icon" variant="ghost" onClick={() => { const el = audioRef.current; if (el) el.currentTime = 0; }}>
@@ -114,7 +156,13 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
               placeholder={"[Intro]\nFirst line of the song\nSecond line\n\n[Verse]\nKeep going..."}
               className="h-64 font-mono text-xs bg-elevated/40"
             />
-            <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="w-full">Apply</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => autoSync(lyricsText)} disabled={syncing} className="flex-1 gap-1.5">
+                {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+                Auto-sync to audio
+              </Button>
+              <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="flex-1">Apply</Button>
+            </div>
           </div>
         </PopoverContent>
       </Popover>
