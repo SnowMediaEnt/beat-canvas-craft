@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { storeAsset } from "@/lib/project/assets";
 import type { AssetRef } from "@/lib/project/types";
 import { toast } from "sonner";
+import { transcribeInBackground } from "@/lib/transcribe/elevenlabs";
 
 interface Props {
   label: string;
@@ -24,6 +25,10 @@ export function UploadField({ label, accept, value, onChange }: Props) {
     try {
       const asset = await storeAsset(file);
       onChange(asset);
+      // Kick off background transcription for audio uploads — don't await.
+      if (accept.startsWith("audio/") || file.type.startsWith("audio/")) {
+        transcribeInBackground(asset.id, file, file.name);
+      }
     } catch (err) {
       console.error("Upload failed", err);
       toast.error(`Couldn't load ${label.toLowerCase()}: ${(err as Error).message}`);
