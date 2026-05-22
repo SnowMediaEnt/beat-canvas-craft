@@ -89,6 +89,14 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
     const blob = await get<Blob>(`asset:${project.audio.id}`);
     if (!blob) { toast.error("Audio file not found in local storage."); return; }
+
+    // Frontend size guard (before upload)
+    const MAX = 100 * 1024 * 1024;
+    if (blob.size > MAX) {
+      toast.error(`Audio file is ${(blob.size / 1024 / 1024).toFixed(1)}MB — max is 100MB.`);
+      return;
+    }
+
     const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (rawLines.length === 0) { toast.error("Paste the lyrics first."); return; }
 
@@ -100,23 +108,29 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       const fd = new FormData();
       fd.append("file", new Blob([blob], { type: mime }), filename);
       fd.append("filename", filename);
+
+      // The IDE preview host (*.lovableproject.com) sits behind an auth gate that
+      // 302-redirects POST requests to lovable.dev/auth-bridge — that's what
+      // Safari surfaces as "TypeError: Load failed". The stable URL
+      // (project--{id}-dev.lovable.app) serves /api/public/* without that gate.
       const transcribeUrl = (() => {
         if (typeof window === "undefined") return "/api/public/transcribe";
-        const url = new URL("/api/public/transcribe", window.location.origin);
-        const previewToken = new URLSearchParams(window.location.search).get("__lovable_token");
-        if (previewToken) url.searchParams.set("__lovable_token", previewToken);
-        return url.toString();
+        const host = window.location.hostname;
+        const m = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
+        if (m) {
+          return `https://project--${m[1]}-dev.lovable.app/api/public/transcribe`;
+        }
+        return new URL("/api/public/transcribe", window.location.origin).toString();
       })();
+      console.log(`[autoSync] POST ${transcribeUrl} (${(blob.size / 1024 / 1024).toFixed(2)}MB)`);
+
       const res = await fetch(transcribeUrl, { method: "POST", body: fd });
       const raw = await res.text();
-      let json: { words?: Array<{ text: string; start: number; end: number }>; error?: string } | null = null;
-      try {
-        json = raw ? JSON.parse(raw) as { words?: Array<{ text: string; start: number; end: number }>; error?: string } : null;
-      } catch {
-        json = null;
-      }
+      let json: { words?: Array<{ text: string; start: number; end: number }>; error?: string; stack?: string } | null = null;
+      try { json = raw ? JSON.parse(raw) : null; } catch { json = null; }
       if (!res.ok) {
         const fallback = raw.trim().slice(0, 200) || `Request failed (${res.status})`;
+        console.error("[autoSync] error response:", res.status, json ?? raw);
         throw new Error(json?.error || fallback);
       }
       if (json?.error) throw new Error(json.error);
@@ -128,11 +142,14 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       setLyricsText(formatted);
       toast.success(`Synced ${aligned.length} lines to ${words.length} detected words.`, { id: toastId });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sync failed.", { id: toastId });
+      const msg = e instanceof Error ? e.message : "Sync failed.";
+      console.error("[autoSync] failed:", e);
+      toast.error(msg, { id: toastId });
     } finally {
       setSyncing(false);
     }
   };
+
 
   return (
     <div className="panel rounded-xl px-4 py-3 flex items-center gap-3">

@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useProject } from "@/lib/project/store";
 import { LeftPanel } from "@/components/editor/LeftPanel";
 import { RightPanel } from "@/components/editor/RightPanel";
@@ -44,13 +44,62 @@ function EditorPage() {
     );
   }
 
+  // Log codec support once so we can see what Safari reports
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    console.log("[audio] canPlayType audio/mpeg:", el.canPlayType("audio/mpeg"));
+    console.log("[audio] canPlayType audio/mp4:", el.canPlayType("audio/mp4"));
+    console.log("[audio] canPlayType audio/wav:", el.canPlayType("audio/wav"));
+  }, []);
+
   const togglePlay = async () => {
-    const el = audioRef.current; if (!el || !project.audio) return;
+    const el = audioRef.current;
+    if (!el || !project.audio) return;
     if (!engineRef.current) {
-      try { engineRef.current = new AudioEngine(el, project.visualizer.smoothing); } catch { /* ignore */ }
+      try { engineRef.current = new AudioEngine(el, project.visualizer.smoothing); } catch (err) { console.warn("[audio] engine init failed:", err); }
     }
     await engineRef.current?.resume();
-    if (el.paused) await el.play(); else el.pause();
+
+    if (!el.paused) { el.pause(); return; }
+
+    // Wait for the element to be decoded enough to play through (Safari otherwise
+    // throws "The operation is not supported" when play() is called too early).
+    if (el.readyState < 3) {
+      console.log("[audio] not ready (readyState=" + el.readyState + "), waiting for canplaythrough");
+      await new Promise<void>((resolve, reject) => {
+        const onReady = () => { cleanup(); resolve(); };
+        const onError = () => { cleanup(); reject(new Error("Audio failed to load")); };
+        const cleanup = () => {
+          el.removeEventListener("canplaythrough", onReady);
+          el.removeEventListener("loadeddata", onReady);
+          el.removeEventListener("error", onError);
+        };
+        el.addEventListener("canplaythrough", onReady, { once: true });
+        el.addEventListener("loadeddata", onReady, { once: true });
+        el.addEventListener("error", onError, { once: true });
+        // Safety: don't hang forever
+        setTimeout(() => { cleanup(); resolve(); }, 5000);
+      });
+    }
+
+    try {
+      await el.play();
+    } catch (err) {
+      const mediaErr = el.error;
+      console.error("[audio] play() rejected:", err, {
+        mediaErrorCode: mediaErr?.code,
+        mediaErrorMessage: mediaErr?.message,
+        src: el.currentSrc?.slice(0, 80),
+        readyState: el.readyState,
+        networkState: el.networkState,
+      });
+      const codeLabel = mediaErr
+        ? ["", "ABORTED", "NETWORK", "DECODE", "SRC_NOT_SUPPORTED"][mediaErr.code] || `code ${mediaErr.code}`
+        : "unknown";
+      const { toast } = await import("sonner");
+      toast.error(`Playback failed (${codeLabel}). ${mediaErr?.message || (err instanceof Error ? err.message : "")}`);
+    }
   };
 
   return (
