@@ -107,12 +107,13 @@ export const PACKAGES: ThemePackage[] = [
 ];
 
 export function applyPackage(p: Project, pkg: ThemePackage): Project {
+  // Themes only change background + colors. The equalizer (preset) is chosen
+  // separately so the user can mix any theme with any visualizer.
   return {
     ...p,
     background: presetBackgroundRef(pkg.backgroundId) ?? p.background,
     visualizer: {
       ...p.visualizer,
-      presetId: pkg.presetId,
       primary: pkg.colors.primary,
       secondary: pkg.colors.secondary,
       accent: pkg.colors.accent,

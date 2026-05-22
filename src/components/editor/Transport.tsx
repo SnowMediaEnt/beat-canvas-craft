@@ -44,15 +44,40 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   }, [audioRef, project.audio]);
 
   const parseLyrics = (text: string) => {
-    const lines = text.split("\n").map(line => {
-      const m = line.match(/^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/);
+    const dur = duration || audioRef.current?.duration || 180;
+    const raw = text.split(/\r?\n/).map(l => l.trim());
+    const tsRe = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/;
+    const sectionRe = /^\[[^\]]+\]$/; // [Verse 1], [Chorus], etc.
+    const parsed: { time: number; text: string }[] = [];
+    let hasTs = false;
+    for (const line of raw) {
+      if (!line) continue;
+      const m = line.match(tsRe);
       if (m) {
+        hasTs = true;
         const t = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3] ? parseFloat("0." + m[3]) : 0);
-        return { time: t, text: m[4] };
+        if (m[4]) parsed.push({ time: t, text: m[4] });
+        continue;
       }
-      return { time: 0, text: line.trim() };
-    }).filter(l => l.text);
-    update(p => ({ ...p, lyrics: { ...p.lyrics, lines, enabled: true } }));
+      if (sectionRe.test(line)) continue; // skip section headers
+      parsed.push({ time: -1, text: line });
+    }
+    if (!hasTs && parsed.length) {
+      const intro = Math.min(4, dur * 0.04);
+      const span = Math.max(1, dur - intro - dur * 0.05);
+      parsed.forEach((l, i) => { l.time = intro + (i / parsed.length) * span; });
+    } else {
+      // interpolate missing times between known timestamps
+      let lastT = 0;
+      for (let i = 0; i < parsed.length; i++) {
+        if (parsed[i].time >= 0) { lastT = parsed[i].time; continue; }
+        let nIdx = -1;
+        for (let j = i + 1; j < parsed.length; j++) if (parsed[j].time >= 0) { nIdx = j; break; }
+        if (nIdx === -1) { parsed[i].time = lastT + 2; lastT = parsed[i].time; }
+        else { const gap = (parsed[nIdx].time - lastT) / (nIdx - i + 1); parsed[i].time = lastT + gap; lastT = parsed[i].time; }
+      }
+    }
+    update(p => ({ ...p, lyrics: { ...p.lyrics, lines: parsed, enabled: true } }));
   };
 
   return (
@@ -78,14 +103,16 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
             <Plus className="size-3.5" /> Lyrics
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-96 p-3 panel" align="end">
+        <PopoverContent className="w-[28rem] p-3 panel" align="end">
           <div className="space-y-2">
-            <div className="text-xs text-muted-foreground">Format: <span className="font-mono">[0:12] line text</span></div>
+            <div className="text-xs text-muted-foreground">
+              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped, and lines without timestamps are auto-spread across the song. Optional format: <span className="font-mono">[0:12] line text</span>
+            </div>
             <Textarea
               value={lyricsText}
               onChange={(e) => setLyricsText(e.target.value)}
-              placeholder={"[0:00] First line\n[0:08] Second line"}
-              className="h-48 font-mono text-xs bg-elevated/40"
+              placeholder={"[Intro]\nFirst line of the song\nSecond line\n\n[Verse]\nKeep going..."}
+              className="h-64 font-mono text-xs bg-elevated/40"
             />
             <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="w-full">Apply</Button>
           </div>

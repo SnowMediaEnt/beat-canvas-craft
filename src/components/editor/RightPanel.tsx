@@ -128,6 +128,16 @@ export function RightPanel({ project, update }: Props) {
                   <SelectContent><SelectItem value="subtitle">Subtitle</SelectItem><SelectItem value="karaoke">Karaoke</SelectItem></SelectContent>
                 </Select>
               </div>
+              <div className="space-y-1.5">
+                <div className="text-xs text-muted-foreground">Font</div>
+                <Select value={L.fontFamily} onValueChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, fontFamily: v } }))}>
+                  <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["Space Grotesk","Inter","Bebas Neue","Anton","Oswald","Montserrat","Playfair Display","Lobster","Pacifico","Permanent Marker","Russo One","Press Start 2P","Rubik Mono One","Archivo Black","Cinzel","Dancing Script"].map(f =>
+                      <SelectItem key={f} value={f} style={{ fontFamily: `${f}, sans-serif` }}>{f}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <SliderField label="Font size" value={L.fontSize} min={16} max={120} step={1} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, fontSize: v } }))} format={(n) => `${n.toFixed(0)}px`} />
               <ColorField label="Color" value={L.color} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, color: v } }))} />
               <Toggle label="Outline" value={L.outline} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, outline: v } }))} />
