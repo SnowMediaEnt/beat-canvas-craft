@@ -87,10 +87,36 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     update(p => ({ ...p, lyrics: { ...p.lyrics, lines: parsed, enabled: true } }));
   };
 
+  const groupWordsIntoLines = (
+    words: { text: string; start: number; end: number }[],
+  ): { time: number; text: string }[] => {
+    const lines: { time: number; text: string }[] = [];
+    const GAP = 0.7; // seconds of silence => new line
+    const MAX_WORDS = 9;
+    let buf: { text: string; start: number; end: number }[] = [];
+    const flush = () => {
+      if (!buf.length) return;
+      lines.push({
+        time: buf[0].start,
+        text: buf.map(w => w.text).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim(),
+      });
+      buf = [];
+    };
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      const prev = words[i - 1];
+      const gap = prev ? w.start - prev.end : 0;
+      if (buf.length >= MAX_WORDS || (prev && gap > GAP)) flush();
+      buf.push(w);
+    }
+    flush();
+    return lines;
+  };
+
   const autoSync = async (text: string) => {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
     const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (rawLines.length === 0) { toast.error("Paste the lyrics first."); return; }
+    const hasUserLyrics = rawLines.length > 0;
 
     const assetId = project.audio.id;
     const filename = project.audio.name || "audio.mp3";
@@ -98,7 +124,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     setSyncing(true);
     const entry = getEntry(assetId);
     const initialMsg =
-      entry?.status === "ready" ? "Aligning lyrics…" :
+      entry?.status === "ready" ? (hasUserLyrics ? "Aligning lyrics…" : "Building lyrics from audio…") :
       entry?.status === "transcribing" ? "Finishing audio analysis…" :
       entry?.status === "error" ? "Retrying audio analysis…" :
       "Preparing audio…";
@@ -113,11 +139,20 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         words = await ensureTranscription(assetId, blob, filename);
       }
       if (!words || !words.length) throw new Error("No words detected in audio.");
-      const aligned = alignLyrics(rawLines, words);
+
+      const aligned = hasUserLyrics
+        ? alignLyrics(rawLines, words)
+        : groupWordsIntoLines(words);
+
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
       const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
       setLyricsText(formatted);
-      toast.success(`Synced ${aligned.length} lines to ${words.length} detected words.`, { id: toastId });
+      toast.success(
+        hasUserLyrics
+          ? `Synced ${aligned.length} lines to ${words.length} detected words.`
+          : `Generated ${aligned.length} lines from audio transcript.`,
+        { id: toastId },
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sync failed.";
       console.error("[autoSync] failed:", e);
