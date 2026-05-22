@@ -16,7 +16,7 @@ const ratioToWH = (r: string) => {
 interface Props {
   project: Project;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  engineRef: React.MutableRefObject<AudioEngine | null>;
+  engineRef: React.RefObject<AudioEngine | null>;
 }
 
 export function VisualizerCanvas({ project, audioRef, engineRef }: Props) {
