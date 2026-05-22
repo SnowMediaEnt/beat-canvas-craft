@@ -44,15 +44,40 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   }, [audioRef, project.audio]);
 
   const parseLyrics = (text: string) => {
-    const lines = text.split("\n").map(line => {
-      const m = line.match(/^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/);
+    const dur = duration || audioRef.current?.duration || 180;
+    const raw = text.split(/\r?\n/).map(l => l.trim());
+    const tsRe = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/;
+    const sectionRe = /^\[[^\]]+\]$/; // [Verse 1], [Chorus], etc.
+    const parsed: { time: number; text: string }[] = [];
+    let hasTs = false;
+    for (const line of raw) {
+      if (!line) continue;
+      const m = line.match(tsRe);
       if (m) {
+        hasTs = true;
         const t = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3] ? parseFloat("0." + m[3]) : 0);
-        return { time: t, text: m[4] };
+        if (m[4]) parsed.push({ time: t, text: m[4] });
+        continue;
       }
-      return { time: 0, text: line.trim() };
-    }).filter(l => l.text);
-    update(p => ({ ...p, lyrics: { ...p.lyrics, lines, enabled: true } }));
+      if (sectionRe.test(line)) continue; // skip section headers
+      parsed.push({ time: -1, text: line });
+    }
+    if (!hasTs && parsed.length) {
+      const intro = Math.min(4, dur * 0.04);
+      const span = Math.max(1, dur - intro - dur * 0.05);
+      parsed.forEach((l, i) => { l.time = intro + (i / parsed.length) * span; });
+    } else {
+      // interpolate missing times between known timestamps
+      let lastT = 0;
+      for (let i = 0; i < parsed.length; i++) {
+        if (parsed[i].time >= 0) { lastT = parsed[i].time; continue; }
+        let nIdx = -1;
+        for (let j = i + 1; j < parsed.length; j++) if (parsed[j].time >= 0) { nIdx = j; break; }
+        if (nIdx === -1) { parsed[i].time = lastT + 2; lastT = parsed[i].time; }
+        else { const gap = (parsed[nIdx].time - lastT) / (nIdx - i + 1); parsed[i].time = lastT + gap; lastT = parsed[i].time; }
+      }
+    }
+    update(p => ({ ...p, lyrics: { ...p.lyrics, lines: parsed, enabled: true } }));
   };
 
   return (
