@@ -173,8 +173,8 @@ const eqBars: Preset = {
   id: "eq-bars", name: "Equalizer Bars", category: "Bars",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const bars = 12;
-    const levels = bandLevels(audio.freq, bars);
+    const bars = Math.max(2, cfg.bandCount || 12);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
     const slot = w / bars;
     const bw = slot * 0.7;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
@@ -195,8 +195,8 @@ const mirroredBars: Preset = {
   id: "mirrored-bars", name: "Mirrored Bars", category: "Bars",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const bars = 12;
-    const levels = bandLevels(audio.freq, bars);
+    const bars = Math.max(2, cfg.bandCount || 12);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
     const mid = h / 2 + cfg.position.y * h / 2;
     const slot = w / bars;
     const bw = slot * 0.7;
@@ -219,8 +219,8 @@ const radialBars: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio } = d;
     const { cx, cy } = center(d);
-    const bars = 12; const radius = Math.min(d.w, d.h) * 0.15 * cfg.size;
-    const levels = bandLevels(audio.freq, bars);
+    const bars = Math.max(3, cfg.bandCount || 12); const radius = Math.min(d.w, d.h) * 0.15 * cfg.size;
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness * 2.2; ctx.lineCap = "round";
     for (let i = 0; i < bars; i++) {
