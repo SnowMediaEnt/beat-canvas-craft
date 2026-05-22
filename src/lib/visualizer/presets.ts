@@ -41,18 +41,17 @@ const center = (d: DrawContext) => ({
  * equalizer instead of raw, noisy FFT bins. Default 12 bands covers sub-bass
  * through presence; `upper` clips the very top end where most music is silent.
  */
-function bandLevels(freq: Uint8Array, count = 12, upper = 0.7): number[] {
+function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, gain = 1): number[] {
   const out = new Array(count);
-  const lo = 2; // skip DC bin
+  const lo = 2;
   const hi = Math.max(lo + count, Math.floor(freq.length * upper));
   const logLo = Math.log(lo), logHi = Math.log(hi);
   for (let i = 0; i < count; i++) {
     const a = Math.floor(Math.exp(logLo + (i / count) * (logHi - logLo)));
     const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / count) * (logHi - logLo))));
     let s = 0; for (let k = a; k < b; k++) s += freq[k];
-    // perceptual boost on higher bands (they're naturally quieter)
     const tilt = 1 + (i / count) * 0.6;
-    out[i] = Math.min(1, ((s / (b - a)) / 255) * tilt);
+    out[i] = Math.min(1, ((s / (b - a)) / 255) * tilt * gain);
   }
   return out;
 }
