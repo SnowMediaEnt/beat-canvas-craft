@@ -87,6 +87,41 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     update(p => ({ ...p, lyrics: { ...p.lyrics, lines: parsed, enabled: true } }));
   };
 
+  const autoSync = async (text: string) => {
+    if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
+    const blob = await get<Blob>(`asset:${project.audio.id}`);
+    if (!blob) { toast.error("Audio file not found in local storage."); return; }
+    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (rawLines.length === 0) { toast.error("Paste the lyrics first."); return; }
+
+    setSyncing(true);
+    const toastId = toast.loading("Analyzing audio with ElevenLabs…");
+    try {
+      const buf = await blob.arrayBuffer();
+      // chunk-safe base64
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+      }
+      const audioBase64 = btoa(bin);
+      const { words } = await transcribe({
+        data: { audioBase64, filename: project.audio.name || "audio.mp3", mime: project.audio.type || blob.type || "audio/mpeg" },
+      });
+      if (!words.length) throw new Error("No words detected in audio.");
+      const aligned = alignLyrics(rawLines, words);
+      update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
+      const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
+      setLyricsText(formatted);
+      toast.success(`Synced ${aligned.length} lines to ${words.length} detected words.`, { id: toastId });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed.", { id: toastId });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div className="panel rounded-xl px-4 py-3 flex items-center gap-3">
       <Button size="icon" variant="ghost" onClick={() => { const el = audioRef.current; if (el) el.currentTime = 0; }}>
