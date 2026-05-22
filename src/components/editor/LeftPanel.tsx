@@ -1,4 +1,6 @@
 import { PRESETS } from "@/lib/visualizer/presets";
+import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
 import type { Project } from "@/lib/project/types";
 import { UploadField } from "./UploadField";
 import { ScrollArea } from "@/components/ui/scroll-area";

@@ -1,5 +1,6 @@
 import { get, set, del } from "idb-keyval";
 import type { AssetRef } from "./types";
+import { PRESET_BG_PREFIX, getPresetBackground } from "@/lib/visualizer/backgrounds";
 
 const urlCache = new Map<string, string>();
 
@@ -13,6 +14,11 @@ export async function storeAsset(file: File): Promise<AssetRef> {
 
 export async function hydrateAsset(ref: AssetRef | undefined): Promise<AssetRef | undefined> {
   if (!ref) return ref;
+  // Built-in preset background — resolve URL from bundled asset catalog.
+  if (ref.id.startsWith(PRESET_BG_PREFIX)) {
+    const bg = getPresetBackground(ref.id.slice(PRESET_BG_PREFIX.length));
+    return bg ? { ...ref, url: bg.url } : { ...ref, url: "" };
+  }
   if (ref.url && urlCache.get(ref.id) === ref.url) return ref;
   const cached = urlCache.get(ref.id);
   if (cached) return { ...ref, url: cached };
