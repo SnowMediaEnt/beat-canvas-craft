@@ -1,9 +1,11 @@
 export type AspectRatio = "16:9" | "1:1" | "9:16" | "4:5";
 
 export interface AssetRef {
+  id: string;
   name: string;
   type: string;
-  dataUrl: string; // base64; fine for MVP
+  /** Transient object URL — regenerated on load, never persisted. */
+  url: string;
 }
 
 export interface VisualizerConfig {

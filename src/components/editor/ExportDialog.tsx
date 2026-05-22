@@ -31,7 +31,7 @@ export function ExportDialog({ project, update }: Props) {
       p += Math.random() * 8 + 2;
       if (p >= 100) {
         p = 100;
-        const done: RenderJob = { ...j, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: project.audio?.dataUrl };
+        const done: RenderJob = { ...j, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: project.audio?.url };
         saveJob(done); setJob(done); setProgress(100);
         toast.success("Render complete");
         return;

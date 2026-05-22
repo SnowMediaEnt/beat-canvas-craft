@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig } from "./types";
+import { hydrateAsset, stripAssetUrl } from "./assets";
 
 const KEY = "mv.projects.v1";
 const JOBS_KEY = "mv.jobs.v1";
@@ -73,7 +74,14 @@ export const saveProject = (p: Project) => {
   const all = listProjects();
   const i = all.findIndex(x => x.id === p.id);
   p.updatedAt = Date.now();
-  if (i >= 0) all[i] = p; else all.unshift(p);
+  // Don't persist transient object URLs — they're regenerated on load.
+  const persisted: Project = {
+    ...p,
+    audio: stripAssetUrl(p.audio),
+    logo: stripAssetUrl(p.logo),
+    background: stripAssetUrl(p.background),
+  };
+  if (i >= 0) all[i] = persisted; else all.unshift(persisted);
   write(KEY, all);
 };
 export const deleteProject = (id: string) => write(KEY, listProjects().filter(p => p.id !== id));
@@ -98,12 +106,28 @@ export function useProjects() {
   return { projects, refresh };
 }
 
+async function hydrateProject(p: Project | undefined): Promise<Project | undefined> {
+  if (!p) return p;
+  const [audio, logo, background] = await Promise.all([
+    hydrateAsset(p.audio),
+    hydrateAsset(p.logo),
+    hydrateAsset(p.background),
+  ]);
+  return { ...p, audio, logo, background };
+}
+
 export function useProject(id: string) {
-  const [project, setProject] = useState<Project | undefined>(() =>
-    typeof window === "undefined" ? undefined : getProject(id),
-  );
-  const [loaded, setLoaded] = useState<boolean>(typeof window !== "undefined");
-  useEffect(() => { setProject(getProject(id)); setLoaded(true); }, [id]);
+  const [project, setProject] = useState<Project | undefined>();
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    hydrateProject(getProject(id)).then(p => {
+      if (cancelled) return;
+      setProject(p);
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [id]);
   const update = useCallback((updater: (p: Project) => Project) => {
     setProject(prev => {
       if (!prev) return prev;
@@ -114,3 +138,4 @@ export function useProject(id: string) {
   }, []);
   return { project, setProject, update, loaded };
 }
+
