@@ -103,14 +103,16 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
             <Plus className="size-3.5" /> Lyrics
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-96 p-3 panel" align="end">
+        <PopoverContent className="w-[28rem] p-3 panel" align="end">
           <div className="space-y-2">
-            <div className="text-xs text-muted-foreground">Format: <span className="font-mono">[0:12] line text</span></div>
+            <div className="text-xs text-muted-foreground">
+              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped, and lines without timestamps are auto-spread across the song. Optional format: <span className="font-mono">[0:12] line text</span>
+            </div>
             <Textarea
               value={lyricsText}
               onChange={(e) => setLyricsText(e.target.value)}
-              placeholder={"[0:00] First line\n[0:08] Second line"}
-              className="h-48 font-mono text-xs bg-elevated/40"
+              placeholder={"[Intro]\nFirst line of the song\nSecond line\n\n[Verse]\nKeep going..."}
+              className="h-64 font-mono text-xs bg-elevated/40"
             />
             <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="w-full">Apply</Button>
           </div>
