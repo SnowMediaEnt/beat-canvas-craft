@@ -1,0 +1,446 @@
+import type { AudioData } from "./audioEngine";
+import type { VisualizerConfig } from "../project/types";
+
+export interface DrawContext {
+  ctx: CanvasRenderingContext2D;
+  w: number;
+  h: number;
+  cfg: VisualizerConfig;
+  audio: AudioData;
+  t: number; // seconds elapsed
+  logo?: HTMLImageElement;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  category: string;
+  draw: (d: DrawContext) => void;
+}
+
+const hexA = (hex: string, a: number) => {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+};
+
+const setGlow = (ctx: CanvasRenderingContext2D, color: string, intensity: number) => {
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 20 * intensity;
+};
+
+const center = (d: DrawContext) => ({
+  cx: d.w / 2 + d.cfg.position.x * d.w / 2,
+  cy: d.h / 2 + d.cfg.position.y * d.h / 2,
+});
+
+// 1. Circular spectrum
+const circular: Preset = {
+  id: "circular-spectrum", name: "Circular Spectrum", category: "Circular",
+  draw: ({ ctx, w, h, cfg, audio }) => {
+    const { cx, cy } = center({ ctx, w, h, cfg, audio, t: 0 } as DrawContext);
+    const radius = Math.min(w, h) * 0.22 * cfg.size;
+    const bars = 96;
+    const freq = audio.freq;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.lineWidth = cfg.thickness;
+    for (let i = 0; i < bars; i++) {
+      const v = freq[Math.floor((i / bars) * freq.length * 0.6)] / 255;
+      const len = v * 120 * cfg.size + 4;
+      const a = (i / bars) * Math.PI * 2 + cfg.rotation;
+      const x1 = cx + Math.cos(a) * radius;
+      const y1 = cy + Math.sin(a) * radius;
+      const x2 = cx + Math.cos(a) * (radius + len);
+      const y2 = cy + Math.sin(a) * (radius + len);
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, cfg.primary);
+      g.addColorStop(1, cfg.accent);
+      ctx.strokeStyle = g;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 2. Double circular
+const doubleCircular: Preset = {
+  id: "double-circular", name: "Double Circular", category: "Circular",
+  draw: (d) => {
+    circular.draw(d);
+    const { ctx, w, h, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const radius = Math.min(w, h) * 0.34 * cfg.size;
+    const bars = 64;
+    setGlow(ctx, cfg.secondary, cfg.glowIntensity * 0.8);
+    ctx.lineWidth = cfg.thickness * 0.7;
+    ctx.strokeStyle = cfg.secondary;
+    for (let i = 0; i < bars; i++) {
+      const v = audio.freq[Math.floor((i / bars) * audio.freq.length * 0.5)] / 255;
+      const len = v * 80 * cfg.size + 2;
+      const a = -(i / bars) * Math.PI * 2 - cfg.rotation;
+      const x1 = cx + Math.cos(a) * radius;
+      const y1 = cy + Math.sin(a) * radius;
+      const x2 = cx + Math.cos(a) * (radius + len);
+      const y2 = cy + Math.sin(a) * (radius + len);
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 3. Pulsing ring
+const pulsingRing: Preset = {
+  id: "pulsing-ring", name: "Pulsing Ring", category: "Circular",
+  draw: (d) => {
+    const { ctx, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const base = Math.min(d.w, d.h) * 0.22 * cfg.size;
+    const r = base + audio.bass * 80 * cfg.size;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass));
+    ctx.lineWidth = cfg.thickness + audio.volume * 8;
+    ctx.strokeStyle = cfg.primary;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = cfg.thickness * 0.5;
+    ctx.strokeStyle = hexA(cfg.accent, 0.6);
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.2 + audio.mid * 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 4. Soft bass glow
+const bassGlow: Preset = {
+  id: "bass-glow", name: "Soft Bass Glow", category: "Ambient",
+  draw: (d) => {
+    const { ctx, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const r = Math.min(d.w, d.h) * (0.25 + audio.bass * 0.3) * cfg.size;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, hexA(cfg.primary, 0.6 * cfg.glowIntensity));
+    g.addColorStop(0.6, hexA(cfg.accent, 0.2 * cfg.glowIntensity));
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, d.w, d.h);
+  },
+};
+
+// 5. Horizontal waveform
+const waveform: Preset = {
+  id: "waveform", name: "Horizontal Waveform", category: "Wave",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const cy = h / 2 + cfg.position.y * h / 2;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.lineWidth = cfg.thickness;
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+    ctx.strokeStyle = g;
+    ctx.beginPath();
+    const wave = audio.wave;
+    for (let i = 0; i < wave.length; i++) {
+      const x = (i / wave.length) * w;
+      const v = (wave[i] - 128) / 128;
+      const y = cy + v * h * 0.3 * cfg.size;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 6. Vertical EQ bars
+const eqBars: Preset = {
+  id: "eq-bars", name: "Equalizer Bars", category: "Bars",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const bars = 64;
+    const bw = w / bars;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
+    for (let i = 0; i < bars; i++) {
+      const v = audio.freq[Math.floor((i / bars) * audio.freq.length * 0.7)] / 255;
+      const bh = v * h * 0.7 * cfg.size;
+      const g = ctx.createLinearGradient(0, h, 0, h - bh);
+      g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+      ctx.fillStyle = g;
+      ctx.fillRect(i * bw + bw * 0.15, h - bh, bw * 0.7, bh);
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 7. Mirrored bars
+const mirroredBars: Preset = {
+  id: "mirrored-bars", name: "Mirrored Bars", category: "Bars",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const bars = 64; const bw = w / bars; const mid = h / 2 + cfg.position.y * h / 2;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
+    for (let i = 0; i < bars; i++) {
+      const v = audio.freq[Math.floor((i / bars) * audio.freq.length * 0.7)] / 255;
+      const bh = v * h * 0.4 * cfg.size;
+      const g = ctx.createLinearGradient(0, mid - bh, 0, mid + bh);
+      g.addColorStop(0, cfg.accent); g.addColorStop(0.5, cfg.primary); g.addColorStop(1, cfg.accent);
+      ctx.fillStyle = g;
+      ctx.fillRect(i * bw + bw * 0.15, mid - bh, bw * 0.7, bh * 2);
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 8. Radial bars
+const radialBars: Preset = {
+  id: "radial-bars", name: "Radial Bars", category: "Circular",
+  draw: (d) => {
+    const { ctx, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const bars = 48; const radius = Math.min(d.w, d.h) * 0.15 * cfg.size;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.lineWidth = cfg.thickness * 1.6; ctx.lineCap = "round";
+    for (let i = 0; i < bars; i++) {
+      const v = audio.freq[Math.floor((i / bars) * audio.freq.length * 0.5)] / 255;
+      const len = 20 + v * 180 * cfg.size;
+      const a = (i / bars) * Math.PI * 2 + cfg.rotation;
+      const x1 = cx + Math.cos(a) * radius, y1 = cy + Math.sin(a) * radius;
+      const x2 = cx + Math.cos(a) * (radius + len), y2 = cy + Math.sin(a) * (radius + len);
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+      ctx.strokeStyle = g;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.lineCap = "butt";
+  },
+};
+
+// 9. Particle burst — handled by effects but here as preset
+const particleBurst: Preset = {
+  id: "particle-burst", name: "Particle Burst", category: "Particles",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const count = 60;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2;
+      const dist = (50 + ((t * 80 + i * 9) % 300)) * (0.5 + audio.volume);
+      const x = cx + Math.cos(a) * dist; const y = cy + Math.sin(a) * dist;
+      const size = 2 + audio.bass * 6;
+      ctx.fillStyle = hexA(i % 2 ? cfg.primary : cfg.accent, Math.max(0, 1 - dist / 350));
+      ctx.beginPath(); ctx.arc(x, y, size, 0, Math.PI * 2); ctx.fill();
+    }
+  },
+};
+
+// 10. Liquid blob
+const liquidBlob: Preset = {
+  id: "liquid-blob", name: "Liquid Blob", category: "Morph",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const base = Math.min(d.w, d.h) * 0.2 * cfg.size;
+    const points = 80;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.fillStyle = hexA(cfg.primary, 0.7);
+    ctx.beginPath();
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2;
+      const v = audio.freq[Math.floor((i / points) * audio.freq.length * 0.4)] / 255;
+      const r = base + v * 60 + Math.sin(t * 2 + i * 0.3) * 12;
+      const x = cx + Math.cos(a) * r; const y = cy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 11. Oscilloscope
+const oscilloscope: Preset = {
+  id: "oscilloscope", name: "Oscilloscope", category: "Wave",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.lineWidth = cfg.thickness; ctx.strokeStyle = cfg.primary;
+    ctx.beginPath();
+    const wave = audio.wave;
+    for (let i = 0; i < wave.length; i++) {
+      const x = (i / wave.length) * w;
+      const y = h / 2 + ((wave[i] - 128) / 128) * h * 0.45 * cfg.size;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+  },
+};
+
+// 12. Multi wave ribbons
+const ribbons: Preset = {
+  id: "ribbons", name: "Wave Ribbons", category: "Wave",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const layers = 5;
+    for (let l = 0; l < layers; l++) {
+      ctx.strokeStyle = hexA(l % 2 ? cfg.primary : cfg.accent, 0.4 + l * 0.1);
+      ctx.lineWidth = cfg.thickness * (0.5 + l * 0.2);
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 6) {
+        const i = Math.floor((x / w) * audio.freq.length * 0.5);
+        const v = audio.freq[i] / 255;
+        const y = h / 2 + Math.sin(x * 0.01 + t * (1 + l * 0.3)) * (40 + v * 80) * cfg.size + (l - layers / 2) * 18;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  },
+};
+
+// 13. Frequency tunnel
+const tunnel: Preset = {
+  id: "tunnel", name: "Frequency Tunnel", category: "3D",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const rings = 14;
+    for (let i = 0; i < rings; i++) {
+      const p = ((i + (t * 0.5) % 1) / rings);
+      const r = p * Math.min(d.w, d.h) * 0.7 * cfg.size;
+      ctx.strokeStyle = hexA(i % 2 ? cfg.primary : cfg.accent, 1 - p);
+      ctx.lineWidth = (1 - p) * cfg.thickness * 2;
+      ctx.beginPath();
+      const verts = 60;
+      for (let v = 0; v <= verts; v++) {
+        const a = (v / verts) * Math.PI * 2;
+        const f = audio.freq[(v * 4) % audio.freq.length] / 255;
+        const rr = r + f * 30;
+        const x = cx + Math.cos(a) * rr; const y = cy + Math.sin(a) * rr;
+        v === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+  },
+};
+
+// 14. Diamond frame
+const diamond: Preset = {
+  id: "diamond-frame", name: "Diamond Frame", category: "Shapes",
+  draw: (d) => {
+    const { ctx, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const size = Math.min(d.w, d.h) * 0.3 * cfg.size + audio.bass * 60;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    ctx.strokeStyle = cfg.primary; ctx.lineWidth = cfg.thickness + audio.volume * 6;
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(Math.PI / 4 + cfg.rotation);
+    ctx.strokeRect(-size, -size, size * 2, size * 2);
+    ctx.strokeStyle = hexA(cfg.accent, 0.6); ctx.strokeRect(-size * 1.15, -size * 1.15, size * 2.3, size * 2.3);
+    ctx.restore(); ctx.shadowBlur = 0;
+  },
+};
+
+// 15. Logo outline
+const logoOutline: Preset = {
+  id: "logo-outline", name: "Logo Outline", category: "Logo",
+  draw: (d) => {
+    const { ctx, cfg, audio } = d;
+    const { cx, cy } = center(d);
+    const r = Math.min(d.w, d.h) * 0.2 * cfg.size + audio.volume * 40;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 1.4);
+    ctx.lineWidth = cfg.thickness + 2;
+    const g = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 16. Minimal bottom waveform
+const bottomWave: Preset = {
+  id: "bottom-wave", name: "Minimal Bottom Wave", category: "Wave",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const baseY = h - 60;
+    ctx.fillStyle = hexA(cfg.primary, 0.85);
+    ctx.beginPath(); ctx.moveTo(0, h);
+    for (let x = 0; x <= w; x += 4) {
+      const i = Math.floor((x / w) * audio.freq.length * 0.5);
+      const v = audio.freq[i] / 255;
+      const y = baseY - v * 90 * cfg.size;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+  },
+};
+
+// 17. Ambient pulse
+const ambient: Preset = {
+  id: "ambient-pulse", name: "Ambient Pulse", category: "Ambient",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h));
+    g.addColorStop(0, hexA(cfg.primary, 0.25 + audio.volume * 0.4));
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  },
+};
+
+// 18. Floating orb
+const floatingOrb: Preset = {
+  id: "floating-orb", name: "Floating Orb", category: "Ambient",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const x = cx + Math.sin(t * 0.7) * 80;
+    const y = cy + Math.cos(t * 0.5) * 50;
+    const r = 80 * cfg.size + audio.bass * 60;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, hexA(cfg.primary, 0.9));
+    g.addColorStop(0.4, hexA(cfg.accent, 0.5));
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  },
+};
+
+// 19. Snow particles preset
+const snowField: Preset = {
+  id: "snow-field", name: "Snow Field", category: "Particles",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const count = 120;
+    for (let i = 0; i < count; i++) {
+      const seed = i * 37.3;
+      const x = ((seed * 91 + t * 30) % w + w) % w;
+      const y = ((seed * 53 + t * 60 * (1 + audio.bass)) % h + h) % h;
+      const r = 1 + (Math.sin(seed) + 1) * 2;
+      ctx.fillStyle = hexA(cfg.primary, 0.5 + Math.sin(seed) * 0.3);
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+  },
+};
+
+// 20. Cinematic light wave
+const lightWave: Preset = {
+  id: "light-wave", name: "Cinematic Light Wave", category: "Wave",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    for (let l = 0; l < 3; l++) {
+      const grad = ctx.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0, "rgba(0,0,0,0)");
+      grad.addColorStop(0.5, hexA(l === 0 ? cfg.primary : l === 1 ? cfg.accent : cfg.secondary, 0.6));
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = cfg.thickness * (3 - l) + audio.volume * 10;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 5) {
+        const v = audio.freq[Math.floor((x / w) * audio.freq.length * 0.3)] / 255;
+        const y = h / 2 + Math.sin(x * 0.005 + t * 1.5 + l) * (60 + v * 100) + (l - 1) * 30;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+  },
+};
+
+export const PRESETS: Preset[] = [
+  circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
+  radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
+  logoOutline, bottomWave, ambient, floatingOrb, snowField, lightWave,
+];
+
+export const getPreset = (id: string) => PRESETS.find(p => p.id === id) || PRESETS[0];
