@@ -43,6 +43,7 @@
     "@remotion/cli": "^4.0.464",
     "@remotion/lambda": "^4.0.464",
     "@remotion/lambda-client": "^4.0.464",
+    "@remotion/media-utils": "^4.0.464",
     "@supabase/supabase-js": "^2.106.1",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.83.0",
