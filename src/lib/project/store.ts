@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig } from "./types";
+import { hydrateAsset, stripAssetUrl } from "./assets";
 
 const KEY = "mv.projects.v1";
 const JOBS_KEY = "mv.jobs.v1";
@@ -73,7 +74,14 @@ export const saveProject = (p: Project) => {
   const all = listProjects();
   const i = all.findIndex(x => x.id === p.id);
   p.updatedAt = Date.now();
-  if (i >= 0) all[i] = p; else all.unshift(p);
+  // Don't persist transient object URLs — they're regenerated on load.
+  const persisted: Project = {
+    ...p,
+    audio: stripAssetUrl(p.audio),
+    logo: stripAssetUrl(p.logo),
+    background: stripAssetUrl(p.background),
+  };
+  if (i >= 0) all[i] = persisted; else all.unshift(persisted);
   write(KEY, all);
 };
 export const deleteProject = (id: string) => write(KEY, listProjects().filter(p => p.id !== id));
