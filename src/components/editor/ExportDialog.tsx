@@ -30,7 +30,7 @@ const pickMime = (): { mime: string; ext: string } => {
   return { mime: "", ext: "webm" };
 };
 
-export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props) {
+export function ExportDialog({ project, update, canvasRef, audioRef, engineRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
@@ -142,14 +142,14 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">FPS</label>
-              <Select value={String(project.export.fps)} onValueChange={(v) => saveJob}>
+              <Select value={String(project.export.fps)} onValueChange={(v) => update(p => ({ ...p, export: { ...p.export, fps: Number(v) as 30 | 60 } }))}>
                 <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="60">60 fps</SelectItem><SelectItem value="30">30 fps</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">Quality</label>
-              <Select value={project.export.quality} onValueChange={() => {}}>
+              <Select value={project.export.quality} onValueChange={(v) => update(p => ({ ...p, export: { ...p.export, quality: v as "high" | "standard" } }))}>
                 <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
                 <SelectContent><SelectItem value="high">High (12 Mbps)</SelectItem><SelectItem value="standard">Standard (6 Mbps)</SelectItem></SelectContent>
               </Select>
