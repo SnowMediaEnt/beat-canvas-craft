@@ -19,10 +19,12 @@ interface Props {
 
 const pickMime = (): { mime: string; ext: string } => {
   const candidates = [
+    { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", ext: "mp4" },
+    { mime: "video/mp4;codecs=avc1,mp4a", ext: "mp4" },
+    { mime: "video/mp4", ext: "mp4" },
     { mime: "video/webm;codecs=vp9,opus", ext: "webm" },
     { mime: "video/webm;codecs=vp8,opus", ext: "webm" },
     { mime: "video/webm", ext: "webm" },
-    { mime: "video/mp4", ext: "mp4" },
   ];
   for (const c of candidates) {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c.mime)) return c;
