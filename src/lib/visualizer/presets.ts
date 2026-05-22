@@ -83,7 +83,7 @@ const circular: Preset = {
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness;
     for (let i = 0; i < bars; i++) {
-      const v = freq[Math.floor((i / bars) * freq.length * 0.6)] / 255;
+      const v = freqAt(freq, Math.floor((i / bars) * freq.length * 0.6), cfg);
       const len = v * 120 * cfg.size + 4;
       const a = (i / bars) * Math.PI * 2 + cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
