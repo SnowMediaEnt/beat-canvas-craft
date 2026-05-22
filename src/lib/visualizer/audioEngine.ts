@@ -1,6 +1,7 @@
+type U8 = Uint8Array<ArrayBuffer>;
 export interface AudioData {
-  freq: Uint8Array;
-  wave: Uint8Array;
+  freq: U8;
+  wave: U8;
   bass: number;   // 0..1
   mid: number;
   treble: number;
@@ -15,8 +16,8 @@ export class AudioEngine {
   el: HTMLAudioElement;
   analyser: AnalyserNode;
   src: MediaElementAudioSourceNode;
-  freq: Uint8Array;
-  wave: Uint8Array;
+  freq: U8;
+  wave: U8;
   private lastBass = 0;
   private beatCooldown = 0;
 
