@@ -35,6 +35,8 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
   shadow: 0.4,
   border: 0,
   blendMode: "source-over",
+  reactivity: 1,
+  bandCount: 12,
 });
 
 export const defaultLyrics = (): LyricsConfig => ({

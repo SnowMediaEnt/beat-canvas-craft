@@ -38,6 +38,8 @@ export interface VisualizerConfig {
   shadow: number;
   border: number;
   blendMode: GlobalCompositeOperation;
+  reactivity: number; // visual amplitude multiplier (0..3)
+  bandCount: number;  // number of equalizer bands (3,5,7,10,12,16,24,32)
 }
 
 export interface LyricLine { time: number; text: string; }
