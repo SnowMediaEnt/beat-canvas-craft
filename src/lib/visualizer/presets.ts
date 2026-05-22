@@ -325,7 +325,7 @@ const ribbons: Preset = {
       ctx.beginPath();
       for (let x = 0; x <= w; x += 6) {
         const i = Math.floor((x / w) * audio.freq.length * 0.5);
-        const v = audio.freq[i] / 255;
+        const v = freqAt(audio.freq, i, cfg);
         const y = h / 2 + Math.sin(x * 0.01 + t * (1 + l * 0.3)) * (40 + v * 80) * cfg.size + (l - layers / 2) * 18;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
