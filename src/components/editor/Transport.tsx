@@ -156,7 +156,13 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
               placeholder={"[Intro]\nFirst line of the song\nSecond line\n\n[Verse]\nKeep going..."}
               className="h-64 font-mono text-xs bg-elevated/40"
             />
-            <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="w-full">Apply</Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => autoSync(lyricsText)} disabled={syncing} className="flex-1 gap-1.5">
+                {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <Wand2 className="size-3.5" />}
+                Auto-sync to audio
+              </Button>
+              <Button size="sm" onClick={() => parseLyrics(lyricsText)} className="flex-1">Apply</Button>
+            </div>
           </div>
         </PopoverContent>
       </Popover>
