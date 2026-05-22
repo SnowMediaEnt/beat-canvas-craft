@@ -100,7 +100,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       const fd = new FormData();
       fd.append("file", new Blob([blob], { type: mime }), filename);
       fd.append("filename", filename);
-      const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+      const res = await fetch("/api/public/transcribe", { method: "POST", body: fd });
       const json = (await res.json()) as { words?: Array<{ text: string; start: number; end: number }>; error?: string };
       if (!res.ok || json.error) throw new Error(json.error || `Request failed (${res.status})`);
       const words = json.words ?? [];
