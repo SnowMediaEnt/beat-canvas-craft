@@ -120,7 +120,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         throw new Error(json?.error || fallback);
       }
       if (json?.error) throw new Error(json.error);
-      const words = json.words ?? [];
+      const words = json?.words ?? [];
       if (!words.length) throw new Error("No words detected in audio.");
       const aligned = alignLyrics(rawLines, words);
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
