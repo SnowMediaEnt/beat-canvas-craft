@@ -464,10 +464,165 @@ const lightWave: Preset = {
   },
 };
 
+// 21. Rolling wave with bars perpendicular to the line
+const rollingWave: Preset = {
+  id: "rolling-wave", name: "Rolling Wave Bars", category: "Unconventional",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const bars = Math.max(8, cfg.bandCount || 12) * 4;
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg.reactivity ?? 1);
+    const baseY = h / 2 + cfg.position.y * h / 2;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+    ctx.lineCap = "round";
+    for (let i = 0; i < bars; i++) {
+      const px = (i / (bars - 1)) * w;
+      const phase = (px * 0.012) - t * 2.2;
+      const y = baseY + Math.sin(phase) * 80 * cfg.size + Math.sin(phase * 0.5) * 20;
+      const slope = Math.cos(phase) * 0.012;
+      const nx = -Math.sin(Math.atan(slope * 100));
+      const ny = Math.cos(Math.atan(slope * 100));
+      const len = 10 + levels[i] * 180 * cfg.size;
+      const g = ctx.createLinearGradient(px, y, px + nx * len, y - ny * len);
+      g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+      ctx.strokeStyle = g; ctx.lineWidth = cfg.thickness;
+      ctx.beginPath();
+      ctx.moveTo(px - nx * len * 0.3, y + ny * len * 0.3);
+      ctx.lineTo(px + nx * len, y - ny * len);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt"; ctx.shadowBlur = 0;
+  },
+};
+
+// 22. Spiral bars expanding outward
+const spiralBars: Preset = {
+  id: "spiral-bars", name: "Spiral Bars", category: "Unconventional",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const bars = Math.max(40, (cfg.bandCount || 12) * 8);
+    const levels = bandLevels(audio.freq, bars, 0.85, cfg.reactivity ?? 1);
+    const turns = 4;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
+    ctx.lineCap = "round";
+    for (let i = 0; i < bars; i++) {
+      const p = i / bars;
+      const a = p * Math.PI * 2 * turns + t * 0.6 + cfg.rotation;
+      const r = 10 + p * Math.min(d.w, d.h) * 0.45 * cfg.size;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      const len = 6 + levels[i] * 90 * cfg.size;
+      const tx = Math.cos(a + Math.PI / 2), ty = Math.sin(a + Math.PI / 2);
+      const hue = ctx.createLinearGradient(x, y, x + tx * len, y + ty * len);
+      hue.addColorStop(0, hexA(cfg.primary, 0.9)); hue.addColorStop(1, hexA(cfg.accent, 0.5));
+      ctx.strokeStyle = hue; ctx.lineWidth = cfg.thickness * (1 - p * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(x - tx * len * 0.3, y - ty * len * 0.3);
+      ctx.lineTo(x + tx * len, y + ty * len);
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt"; ctx.shadowBlur = 0;
+  },
+};
+
+// 23. Recursive fractal tree
+const fractalTree: Preset = {
+  id: "fractal-tree", name: "Fractal Tree", category: "Unconventional",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const baseLen = Math.min(d.w, d.h) * 0.16 * cfg.size + audio.bass * 30;
+    const sway = Math.sin(t * 1.2) * 0.15 + audio.mid * 0.3 * (cfg.reactivity ?? 1);
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
+    const branch = (x: number, y: number, len: number, ang: number, depth: number) => {
+      if (depth === 0 || len < 2) return;
+      const x2 = x + Math.cos(ang) * len;
+      const y2 = y + Math.sin(ang) * len;
+      const tcol = ctx.createLinearGradient(x, y, x2, y2);
+      tcol.addColorStop(0, cfg.primary); tcol.addColorStop(1, cfg.accent);
+      ctx.strokeStyle = tcol;
+      ctx.lineWidth = Math.max(0.5, depth * 0.6 + cfg.thickness * 0.3);
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+      const next = len * 0.72;
+      branch(x2, y2, next, ang - 0.45 - sway, depth - 1);
+      branch(x2, y2, next, ang + 0.45 + sway, depth - 1);
+    };
+    const depth = 9;
+    branch(cx, cy + baseLen, baseLen, -Math.PI / 2 + cfg.rotation, depth);
+    branch(cx, cy + baseLen, baseLen * 0.7, -Math.PI / 2 + cfg.rotation + 0.6, depth - 2);
+    branch(cx, cy + baseLen, baseLen * 0.7, -Math.PI / 2 + cfg.rotation - 0.6, depth - 2);
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 24. Leaf/petal border that orbits the logo
+const leafBorder: Preset = {
+  id: "leaf-border", name: "Leaf Border", category: "Unconventional",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const leaves = Math.max(12, (cfg.bandCount || 12) * 2);
+    const levels = bandLevels(audio.freq, leaves, 0.7, cfg.reactivity ?? 1);
+    const baseR = Math.min(d.w, d.h) * (0.18 + cfg.logoSize * 0.3) * cfg.size;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
+    for (let i = 0; i < leaves; i++) {
+      const a = (i / leaves) * Math.PI * 2 + t * 0.25 + cfg.rotation;
+      const v = levels[i];
+      const r = baseR + 6 + v * 70 * cfg.size;
+      const lw = 14 + v * 40;
+      const ll = 38 + v * 80;
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(a + Math.PI / 2);
+      const g = ctx.createLinearGradient(0, -ll / 2, 0, ll / 2);
+      g.addColorStop(0, hexA(cfg.accent, 0.95)); g.addColorStop(1, hexA(cfg.primary, 0.6));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, -ll / 2);
+      ctx.quadraticCurveTo(lw / 2, 0, 0, ll / 2);
+      ctx.quadraticCurveTo(-lw / 2, 0, 0, -ll / 2);
+      ctx.fill();
+      // mid vein
+      ctx.strokeStyle = hexA(cfg.glow, 0.6); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -ll / 2); ctx.lineTo(0, ll / 2); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 25. Lissajous knot — figure-eight orbital pattern, audio-bent
+const lissajous: Preset = {
+  id: "lissajous", name: "Lissajous Knot", category: "Unconventional",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const R = Math.min(d.w, d.h) * 0.32 * cfg.size;
+    const steps = 360;
+    const a = 3 + Math.floor(audio.bass * 3);
+    const b = 2 + Math.floor(audio.mid * 4);
+    setGlow(ctx, cfg.glow, cfg.glowIntensity);
+    const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+    g.addColorStop(0, cfg.primary); g.addColorStop(1, cfg.accent);
+    ctx.strokeStyle = g; ctx.lineWidth = cfg.thickness;
+    ctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const u = (i / steps) * Math.PI * 2;
+      const wob = 1 + audio.volume * 0.4 * (cfg.reactivity ?? 1);
+      const x = cx + Math.sin(a * u + t) * R * wob;
+      const y = cy + Math.sin(b * u + t * 0.7) * R * wob * 0.75;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+  },
+};
+
 export const PRESETS: Preset[] = [
   circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
   radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
   logoOutline, bottomWave, ambient, floatingOrb, snowField, lightWave,
+  rollingWave, spiralBars, fractalTree, leafBorder, lissajous,
 ];
 
 export const getPreset = (id: string) => PRESETS.find(p => p.id === id) || PRESETS[0];
