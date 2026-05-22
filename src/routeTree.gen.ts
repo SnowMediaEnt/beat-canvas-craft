@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
 import { Route as ApiPublicTranscribeRouteImport } from './routes/api/public/transcribe'
+import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,34 +29,56 @@ const ApiPublicTranscribeRoute = ApiPublicTranscribeRouteImport.update({
   path: '/api/public/transcribe',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
+  id: '/api/public/elevenlabs-key',
+  path: '/api/public/elevenlabs-key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
+  '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/transcribe': typeof ApiPublicTranscribeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
+  '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/transcribe': typeof ApiPublicTranscribeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
+  '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/transcribe': typeof ApiPublicTranscribeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/editor/$projectId' | '/api/public/transcribe'
+  fullPaths:
+    | '/'
+    | '/editor/$projectId'
+    | '/api/public/elevenlabs-key'
+    | '/api/public/transcribe'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/editor/$projectId' | '/api/public/transcribe'
-  id: '__root__' | '/' | '/editor/$projectId' | '/api/public/transcribe'
+  to:
+    | '/'
+    | '/editor/$projectId'
+    | '/api/public/elevenlabs-key'
+    | '/api/public/transcribe'
+  id:
+    | '__root__'
+    | '/'
+    | '/editor/$projectId'
+    | '/api/public/elevenlabs-key'
+    | '/api/public/transcribe'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EditorProjectIdRoute: typeof EditorProjectIdRoute
+  ApiPublicElevenlabsKeyRoute: typeof ApiPublicElevenlabsKeyRoute
   ApiPublicTranscribeRoute: typeof ApiPublicTranscribeRoute
 }
 
@@ -82,14 +105,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicTranscribeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/elevenlabs-key': {
+      id: '/api/public/elevenlabs-key'
+      path: '/api/public/elevenlabs-key'
+      fullPath: '/api/public/elevenlabs-key'
+      preLoaderRoute: typeof ApiPublicElevenlabsKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EditorProjectIdRoute: EditorProjectIdRoute,
+  ApiPublicElevenlabsKeyRoute: ApiPublicElevenlabsKeyRoute,
   ApiPublicTranscribeRoute: ApiPublicTranscribeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

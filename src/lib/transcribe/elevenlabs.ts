@@ -1,0 +1,149 @@
+import type { TranscribedWord } from "@/lib/lyrics/types";
+
+export type TranscribeStatus = "idle" | "uploading" | "transcribing" | "ready" | "error";
+
+interface Entry {
+  status: TranscribeStatus;
+  words?: TranscribedWord[];
+  error?: string;
+  promise?: Promise<TranscribedWord[]>;
+}
+
+const cache = new Map<string, Entry>();
+const listeners = new Set<() => void>();
+let cachedKey: string | null = null;
+let keyPromise: Promise<string> | null = null;
+
+function notify() {
+  for (const l of listeners) l();
+}
+
+export function subscribe(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+export function getEntry(assetId: string | undefined): Entry | undefined {
+  if (!assetId) return undefined;
+  return cache.get(assetId);
+}
+
+function getKeyUrl() {
+  if (typeof window === "undefined") return "/api/public/elevenlabs-key";
+  const host = window.location.hostname;
+  const m = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
+  if (m) return `https://project--${m[1]}-dev.lovable.app/api/public/elevenlabs-key`;
+  return new URL("/api/public/elevenlabs-key", window.location.origin).toString();
+}
+
+async function fetchKey(): Promise<string> {
+  if (cachedKey) return cachedKey;
+  if (keyPromise) return keyPromise;
+  const url = getKeyUrl();
+  keyPromise = (async () => {
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.error("[elevenlabs-direct] key fetch failed", res.status, t);
+      keyPromise = null;
+      throw new Error(`Key fetch failed (${res.status})`);
+    }
+    const json = (await res.json()) as { key?: string; error?: string };
+    if (!json.key) {
+      keyPromise = null;
+      throw new Error(json.error || "Key missing from response");
+    }
+    console.log("[elevenlabs-direct] Key fetched from /api/public/elevenlabs-key (success)");
+    cachedKey = json.key;
+    return cachedKey;
+  })();
+  return keyPromise;
+}
+
+async function runTranscription(file: Blob, filename: string): Promise<TranscribedWord[]> {
+  const key = await fetchKey();
+  const fd = new FormData();
+  fd.append("file", file, filename);
+  fd.append("model_id", "scribe_v1");
+  fd.append("timestamps_granularity", "word");
+  fd.append("diarize", "false");
+  fd.append("tag_audio_events", "false");
+
+  console.log(`[elevenlabs-direct] POST starting | size=${(file.size / 1024 / 1024).toFixed(2)}MB | filename=${filename}`);
+  const t0 = Date.now();
+  const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+    method: "POST",
+    headers: { "xi-api-key": key },
+    body: fd,
+  });
+  const dt = Date.now() - t0;
+  console.log(`[elevenlabs-direct] Response received | status=${res.status} | duration=${dt}ms`);
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`ElevenLabs ${res.status}: ${errText.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as {
+    text?: string;
+    words?: Array<{ text: string; start: number; end: number; type?: string }>;
+  };
+  const words: TranscribedWord[] = (data.words ?? [])
+    .filter((w) => (w.type ?? "word") === "word" && typeof w.start === "number")
+    .map((w) => ({ text: w.text, start: w.start, end: w.end }));
+  console.log(`[elevenlabs-direct] ${words.length} words returned, stored in cache`);
+  return words;
+}
+
+/**
+ * Kick off transcription in the background. Safe to call repeatedly —
+ * returns the existing promise/result if one is already in flight or ready.
+ */
+export function transcribeInBackground(assetId: string, file: Blob, filename: string): Promise<TranscribedWord[]> {
+  const existing = cache.get(assetId);
+  if (existing?.status === "ready" && existing.words) return Promise.resolve(existing.words);
+  if (existing?.promise) return existing.promise;
+
+  const entry: Entry = { status: "uploading" };
+  cache.set(assetId, entry);
+  notify();
+
+  const promise = (async () => {
+    try {
+      entry.status = "transcribing";
+      notify();
+      const words = await runTranscription(file, filename);
+      entry.status = "ready";
+      entry.words = words;
+      entry.error = undefined;
+      notify();
+      return words;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[elevenlabs-direct] error:", msg);
+      entry.status = "error";
+      entry.error = msg;
+      notify();
+      throw e;
+    } finally {
+      entry.promise = undefined;
+    }
+  })();
+
+  entry.promise = promise;
+  // swallow unhandled rejection — consumers handle via status
+  promise.catch(() => {});
+  return promise;
+}
+
+export function retryTranscription(assetId: string, file: Blob, filename: string) {
+  cache.delete(assetId);
+  notify();
+  return transcribeInBackground(assetId, file, filename);
+}
+
+export async function ensureTranscription(assetId: string, file: Blob, filename: string): Promise<TranscribedWord[]> {
+  const existing = cache.get(assetId);
+  if (existing?.status === "ready" && existing.words) return existing.words;
+  if (existing?.promise) return existing.promise;
+  return transcribeInBackground(assetId, file, filename);
+}
