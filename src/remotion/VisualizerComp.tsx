@@ -1,13 +1,6 @@
 import { z } from "zod";
-import {
-  AbsoluteFill,
-  Audio,
-  Img,
-  useCurrentFrame,
-  useVideoConfig,
-  useAudioData,
-  visualizeAudio,
-} from "remotion";
+import { AbsoluteFill, Audio, Img, useCurrentFrame, useVideoConfig } from "remotion";
+import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
