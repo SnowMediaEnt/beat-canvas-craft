@@ -99,8 +99,11 @@ export function useProjects() {
 }
 
 export function useProject(id: string) {
-  const [project, setProject] = useState<Project | undefined>();
-  useEffect(() => { setProject(getProject(id)); }, [id]);
+  const [project, setProject] = useState<Project | undefined>(() =>
+    typeof window === "undefined" ? undefined : getProject(id),
+  );
+  const [loaded, setLoaded] = useState<boolean>(typeof window !== "undefined");
+  useEffect(() => { setProject(getProject(id)); setLoaded(true); }, [id]);
   const update = useCallback((updater: (p: Project) => Project) => {
     setProject(prev => {
       if (!prev) return prev;
@@ -109,5 +112,5 @@ export function useProject(id: string) {
       return next;
     });
   }, []);
-  return { project, setProject, update };
+  return { project, setProject, update, loaded };
 }
