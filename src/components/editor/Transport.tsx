@@ -8,6 +8,8 @@ import { get } from "idb-keyval";
 import { toast } from "sonner";
 import { alignLyrics } from "@/lib/lyrics/align";
 import type { Project } from "@/lib/project/types";
+import { ensureTranscription, getEntry } from "@/lib/transcribe/elevenlabs";
+import { TranscriptionStatus } from "./TranscriptionStatus";
 
 const fmt = (s: number) => {
   if (!isFinite(s)) return "0:00";
@@ -87,55 +89,30 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const autoSync = async (text: string) => {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
-    const blob = await get<Blob>(`asset:${project.audio.id}`);
-    if (!blob) { toast.error("Audio file not found in local storage."); return; }
-
-    // Frontend size guard (before upload)
-    const MAX = 100 * 1024 * 1024;
-    if (blob.size > MAX) {
-      toast.error(`Audio file is ${(blob.size / 1024 / 1024).toFixed(1)}MB — max is 100MB.`);
-      return;
-    }
-
     const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (rawLines.length === 0) { toast.error("Paste the lyrics first."); return; }
 
+    const assetId = project.audio.id;
+    const filename = project.audio.name || "audio.mp3";
+
     setSyncing(true);
-    const toastId = toast.loading("Analyzing audio with ElevenLabs…");
+    const entry = getEntry(assetId);
+    const initialMsg =
+      entry?.status === "ready" ? "Aligning lyrics…" :
+      entry?.status === "transcribing" ? "Finishing audio analysis…" :
+      entry?.status === "error" ? "Retrying audio analysis…" :
+      "Preparing audio…";
+    const toastId = toast.loading(initialMsg);
     try {
-      const filename = project.audio.name || "audio.mp3";
-      const mime = project.audio.type || blob.type || "audio/mpeg";
-      const fd = new FormData();
-      fd.append("file", new Blob([blob], { type: mime }), filename);
-      fd.append("filename", filename);
-
-      // The IDE preview host (*.lovableproject.com) sits behind an auth gate that
-      // 302-redirects POST requests to lovable.dev/auth-bridge — that's what
-      // Safari surfaces as "TypeError: Load failed". The stable URL
-      // (project--{id}-dev.lovable.app) serves /api/public/* without that gate.
-      const transcribeUrl = (() => {
-        if (typeof window === "undefined") return "/api/public/transcribe";
-        const host = window.location.hostname;
-        const m = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
-        if (m) {
-          return `https://project--${m[1]}-dev.lovable.app/api/public/transcribe`;
-        }
-        return new URL("/api/public/transcribe", window.location.origin).toString();
-      })();
-      console.log(`[autoSync] POST ${transcribeUrl} (${(blob.size / 1024 / 1024).toFixed(2)}MB)`);
-
-      const res = await fetch(transcribeUrl, { method: "POST", body: fd });
-      const raw = await res.text();
-      let json: { words?: Array<{ text: string; start: number; end: number }>; error?: string; stack?: string } | null = null;
-      try { json = raw ? JSON.parse(raw) : null; } catch { json = null; }
-      if (!res.ok) {
-        const fallback = raw.trim().slice(0, 200) || `Request failed (${res.status})`;
-        console.error("[autoSync] error response:", res.status, json ?? raw);
-        throw new Error(json?.error || fallback);
+      let words = entry?.status === "ready" ? entry.words : undefined;
+      if (!words) {
+        const blob = await get<Blob>(`asset:${assetId}`);
+        if (!blob) throw new Error("Audio file not found in local storage.");
+        const MAX = 100 * 1024 * 1024;
+        if (blob.size > MAX) throw new Error(`Audio is ${(blob.size / 1024 / 1024).toFixed(1)}MB — max 100MB.`);
+        words = await ensureTranscription(assetId, blob, filename);
       }
-      if (json?.error) throw new Error(json.error);
-      const words = json?.words ?? [];
-      if (!words.length) throw new Error("No words detected in audio.");
+      if (!words || !words.length) throw new Error("No words detected in audio.");
       const aligned = alignLyrics(rawLines, words);
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
       const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");

@@ -11,7 +11,10 @@ interface Props {
 
 export function TranscriptionStatus({ audio }: Props) {
   const [, force] = useState(0);
-  useEffect(() => subscribe(() => force((n) => n + 1)), []);
+  useEffect(() => {
+    const unsub = subscribe(() => force((n) => n + 1));
+    return () => { unsub(); };
+  }, []);
 
   if (!audio?.id) return null;
   const entry = getEntry(audio.id);
