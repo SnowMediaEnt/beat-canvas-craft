@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
+import { Route as ApiTranscribeRouteImport } from './routes/api/transcribe'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,30 +23,39 @@ const EditorProjectIdRoute = EditorProjectIdRouteImport.update({
   path: '/editor/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTranscribeRoute = ApiTranscribeRouteImport.update({
+  id: '/api/transcribe',
+  path: '/api/transcribe',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/transcribe': typeof ApiTranscribeRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/editor/$projectId'
+  fullPaths: '/' | '/api/transcribe' | '/editor/$projectId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/editor/$projectId'
-  id: '__root__' | '/' | '/editor/$projectId'
+  to: '/' | '/api/transcribe' | '/editor/$projectId'
+  id: '__root__' | '/' | '/api/transcribe' | '/editor/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiTranscribeRoute: typeof ApiTranscribeRoute
   EditorProjectIdRoute: typeof EditorProjectIdRoute
 }
 
@@ -65,11 +75,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/transcribe': {
+      id: '/api/transcribe'
+      path: '/api/transcribe'
+      fullPath: '/api/transcribe'
+      preLoaderRoute: typeof ApiTranscribeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiTranscribeRoute: ApiTranscribeRoute,
   EditorProjectIdRoute: EditorProjectIdRoute,
 }
 export const routeTree = rootRouteImport

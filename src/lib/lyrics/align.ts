@@ -1,4 +1,4 @@
-import type { TranscribedWord } from "./transcribe.functions";
+import type { TranscribedWord } from "./types";
 
 const norm = (s: string) =>
   s.toLowerCase().replace(/[''`]/g, "'").replace(/[^a-z0-9' ]/g, " ").replace(/\s+/g, " ").trim();
