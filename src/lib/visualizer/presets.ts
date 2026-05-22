@@ -350,7 +350,7 @@ const tunnel: Preset = {
       const verts = 60;
       for (let v = 0; v <= verts; v++) {
         const a = (v / verts) * Math.PI * 2;
-        const f = audio.freq[(v * 4) % audio.freq.length] / 255;
+        const f = freqAt(audio.freq, (v * 4) % audio.freq.length, cfg);
         const rr = r + f * 30;
         const x = cx + Math.cos(a) * rr; const y = cy + Math.sin(a) * rr;
         v === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
