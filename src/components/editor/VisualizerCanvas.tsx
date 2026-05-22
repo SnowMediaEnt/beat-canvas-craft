@@ -47,25 +47,25 @@ export function VisualizerCanvas({ project, audioRef, engineRef }: Props) {
 
   // Load logo
   useEffect(() => {
-    if (!project.logo) { logoRef.current = null; return; }
+    if (!project.logo?.url) { logoRef.current = null; return; }
     const img = new Image();
     img.onload = () => { logoRef.current = img; };
-    img.src = project.logo.dataUrl;
+    img.src = project.logo.url;
   }, [project.logo]);
 
   // Load background
   useEffect(() => {
     bgImgRef.current = null; bgVidRef.current = null;
-    if (!project.background) return;
+    if (!project.background?.url) return;
     if (project.background.type.startsWith("video")) {
       const v = document.createElement("video");
-      v.src = project.background.dataUrl; v.muted = true; v.loop = true; v.playsInline = true;
+      v.src = project.background.url; v.muted = true; v.loop = true; v.playsInline = true;
       v.play().catch(() => {});
       bgVidRef.current = v;
     } else {
       const img = new Image();
       img.onload = () => { bgImgRef.current = img; };
-      img.src = project.background.dataUrl;
+      img.src = project.background.url;
     }
   }, [project.background]);
 
@@ -181,9 +181,8 @@ export function VisualizerCanvas({ project, audioRef, engineRef }: Props) {
 
   // Hidden audio el wired to engine
   useEffect(() => {
-    const el = audioRef.current; if (!el || !project.audio) return;
-    el.src = project.audio.dataUrl;
-    el.crossOrigin = "anonymous";
+    const el = audioRef.current; if (!el || !project.audio?.url) return;
+    el.src = project.audio.url;
     if (!engineRef.current) {
       try { engineRef.current = new AudioEngine(el, project.visualizer.smoothing); } catch { /* will try after user gesture */ }
     } else {
