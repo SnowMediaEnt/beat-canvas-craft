@@ -106,12 +106,28 @@ export function useProjects() {
   return { projects, refresh };
 }
 
+async function hydrateProject(p: Project | undefined): Promise<Project | undefined> {
+  if (!p) return p;
+  const [audio, logo, background] = await Promise.all([
+    hydrateAsset(p.audio),
+    hydrateAsset(p.logo),
+    hydrateAsset(p.background),
+  ]);
+  return { ...p, audio, logo, background };
+}
+
 export function useProject(id: string) {
-  const [project, setProject] = useState<Project | undefined>(() =>
-    typeof window === "undefined" ? undefined : getProject(id),
-  );
-  const [loaded, setLoaded] = useState<boolean>(typeof window !== "undefined");
-  useEffect(() => { setProject(getProject(id)); setLoaded(true); }, [id]);
+  const [project, setProject] = useState<Project | undefined>();
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    hydrateProject(getProject(id)).then(p => {
+      if (cancelled) return;
+      setProject(p);
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [id]);
   const update = useCallback((updater: (p: Project) => Project) => {
     setProject(prev => {
       if (!prev) return prev;
@@ -122,3 +138,4 @@ export function useProject(id: string) {
   }, []);
   return { project, setProject, update, loaded };
 }
+
