@@ -4,6 +4,7 @@ import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib
 import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
 import type { Project } from "@/lib/project/types";
 import { UploadField } from "./UploadField";
+import { TranscriptionStatus } from "./TranscriptionStatus";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,8 +49,10 @@ export function LeftPanel({ project, update }: Props) {
           <Section title="Assets" defaultOpen>
             <UploadField label="Audio" accept="audio/*" value={project.audio}
               onChange={(a) => update(p => ({ ...p, audio: a }))} />
+            <TranscriptionStatus audio={project.audio} />
             <UploadField label="Logo" accept="image/png,image/svg+xml,image/jpeg" value={project.logo}
               onChange={(a) => update(p => ({ ...p, logo: a }))} />
+
             <UploadField label="Background" accept="image/*,video/*" value={project.background}
               onChange={(a) => update(p => ({ ...p, background: a }))} />
           </Section>
