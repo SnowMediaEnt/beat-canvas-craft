@@ -41,17 +41,24 @@ const center = (d: DrawContext) => ({
  * equalizer instead of raw, noisy FFT bins. Default 12 bands covers sub-bass
  * through presence; `upper` clips the very top end where most music is silent.
  */
-function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, gain = 1): number[] {
+function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
   const out = new Array(count);
   const lo = 2;
   const hi = Math.max(lo + count, Math.floor(freq.length * upper));
   const logLo = Math.log(lo), logHi = Math.log(hi);
+  const master = cfg?.sensitivity ?? 1;
+  const bassMul = cfg?.bassSensitivity ?? 1;
+  const midMul = cfg?.midSensitivity ?? 1;
+  const trebMul = cfg?.trebleSensitivity ?? 1;
   for (let i = 0; i < count; i++) {
     const a = Math.floor(Math.exp(logLo + (i / count) * (logHi - logLo)));
     const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / count) * (logHi - logLo))));
     let s = 0; for (let k = a; k < b; k++) s += freq[k];
     const tilt = 1 + (i / count) * 0.6;
-    out[i] = Math.min(1, ((s / (b - a)) / 255) * tilt * gain);
+    const f = i / count;
+    const bandMul = f < 0.25 ? bassMul : f < 0.6 ? midMul : trebMul;
+    // No upper cap so sensitivity=3 visibly pushes bars further than =1.
+    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * master * bandMul);
   }
   return out;
 }
@@ -174,7 +181,7 @@ const eqBars: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(2, cfg.bandCount || 12);
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
     const slot = w / bars;
     const bw = slot * 0.7;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
@@ -196,7 +203,7 @@ const mirroredBars: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(2, cfg.bandCount || 12);
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
     const mid = h / 2 + cfg.position.y * h / 2;
     const slot = w / bars;
     const bw = slot * 0.7;
@@ -220,7 +227,7 @@ const radialBars: Preset = {
     const { ctx, cfg, audio } = d;
     const { cx, cy } = center(d);
     const bars = Math.max(3, cfg.bandCount || 12); const radius = Math.min(d.w, d.h) * 0.15 * cfg.size;
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness * 2.2; ctx.lineCap = "round";
     for (let i = 0; i < bars; i++) {
@@ -470,7 +477,7 @@ const rollingWave: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
     const bars = Math.max(8, cfg.bandCount || 12) * 4;
-    const levels = bandLevels(audio.freq, bars, 0.75, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     const baseY = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
     ctx.lineCap = "round";
@@ -501,7 +508,7 @@ const spiralBars: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const bars = Math.max(40, (cfg.bandCount || 12) * 8);
-    const levels = bandLevels(audio.freq, bars, 0.85, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, bars, 0.85, cfg);
     const turns = 4;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     ctx.lineCap = "round";
@@ -562,7 +569,7 @@ const leafBorder: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const leaves = Math.max(12, (cfg.bandCount || 12) * 2);
-    const levels = bandLevels(audio.freq, leaves, 0.7, cfg.reactivity ?? 1);
+    const levels = bandLevels(audio.freq, leaves, 0.7, cfg);
     const baseR = Math.min(d.w, d.h) * (0.18 + cfg.logoSize * 0.3) * cfg.size;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     for (let i = 0; i < leaves; i++) {

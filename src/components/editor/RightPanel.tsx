@@ -69,7 +69,6 @@ export function RightPanel({ project, update }: Props) {
 
           <TabsContent value="motion" className="p-4 pt-2 space-y-4 mt-0">
             <Section title="Audio Reactivity">
-              <SliderField label="Intensity" value={V.reactivity} min={0} max={3} onChange={(v) => setV(update, "reactivity")(v)} />
               <div className="space-y-1.5">
                 <div className="text-xs text-muted-foreground">Bands (equalizer)</div>
                 <Select value={String(V.bandCount)} onValueChange={(v) => setV(update, "bandCount")(Number(v))}>
