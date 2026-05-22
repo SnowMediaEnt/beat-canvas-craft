@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Video, CheckCircle2, Loader2 } from "lucide-react";
+import { Download, Video, CheckCircle2, Loader2, Cloud } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
+import { useServerFn } from "@tanstack/react-start";
+import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
+import { uploadAssetForRender } from "@/lib/render/upload";
 import { toast } from "sonner";
 
 interface Props {
@@ -17,118 +20,106 @@ interface Props {
   engineRef: React.RefObject<AudioEngine | null>;
 }
 
-const pickMime = (): { mime: string; ext: string } => {
-  const candidates = [
-    { mime: "video/mp4;codecs=avc1.42E01E,mp4a.40.2", ext: "mp4" },
-    { mime: "video/mp4;codecs=avc1,mp4a", ext: "mp4" },
-    { mime: "video/mp4", ext: "mp4" },
-    { mime: "video/webm;codecs=vp9,opus", ext: "webm" },
-    { mime: "video/webm;codecs=vp8,opus", ext: "webm" },
-    { mime: "video/webm", ext: "webm" },
-  ];
-  for (const c of candidates) {
-    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(c.mime)) return c;
-  }
-  return { mime: "", ext: "webm" };
-};
+const RES_DIMS = {
+  "16:9": { "1080p": [1920, 1080], "720p": [1280, 720] },
+  "1:1":  { "1080p": [1080, 1080], "720p": [720, 720] },
+  "9:16": { "1080p": [1080, 1920], "720p": [720, 1280] },
+  "4:5":  { "1080p": [1080, 1350], "720p": [864, 1080] },
+} as const;
 
-export function ExportDialog({ project, update, canvasRef, audioRef, engineRef }: Props) {
+export function ExportDialog({ project, audioRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [ext, setExt] = useState("webm");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const rafRef = useRef<number | null>(null);
+  const [stage, setStage] = useState<string>("");
+  const pollRef = useRef<number | null>(null);
 
-  useEffect(() => () => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    if (recorderRef.current && recorderRef.current.state !== "inactive") recorderRef.current.stop();
-    if (downloadUrl) URL.revokeObjectURL(downloadUrl);
-  }, [downloadUrl]);
+  const startRender = useServerFn(startLambdaRender);
+  const pollProgress = useServerFn(getLambdaProgress);
 
-  const startRender = async () => {
-    const canvas = canvasRef.current;
+  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
+
+  const onRender = async () => {
+    if (!project.audio) { toast.error("Upload an audio file first"); return; }
     const audioEl = audioRef.current;
-    if (!canvas) { toast.error("Canvas not ready"); return; }
-    if (!project.audio || !audioEl) { toast.error("Upload an audio file first"); return; }
-
-    // Ensure audio engine exists (for the audio destination stream)
-    if (!engineRef.current) {
-      try { engineRef.current = new AudioEngine(audioEl, project.visualizer.smoothing); }
-      catch { toast.error("Could not initialize audio"); return; }
-    }
-    const engine = engineRef.current!;
-    await engine.resume();
-
-    const { mime, ext: outExt } = pickMime();
-    setExt(outExt);
-
-    const fps = project.export.fps;
-    const videoStream = canvas.captureStream(fps);
-    const audioTracks = engine.dest.stream.getAudioTracks();
-    const stream = new MediaStream([...videoStream.getVideoTracks(), ...audioTracks]);
-
-    const bitsPerSecond = project.export.quality === "high" ? 12_000_000 : 6_000_000;
-    let recorder: MediaRecorder;
-    try {
-      recorder = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: bitsPerSecond } : { videoBitsPerSecond: bitsPerSecond });
-    } catch (e) {
-      toast.error("Recording not supported in this browser");
-      console.error(e);
-      return;
-    }
-
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    const duration = audioEl?.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
+    if (!duration) { toast.error("Press play once so the audio duration loads"); return; }
 
     const j: RenderJob = {
       id: crypto.randomUUID(),
       projectId: project.id, projectName: project.name,
-      status: "rendering", progress: 0, createdAt: Date.now(),
+      status: "queued", progress: 0, createdAt: Date.now(),
       config: project.export, aspectRatio: project.aspectRatio,
     };
     setJob(j); saveJob(j); setProgress(0); setDownloadUrl(null);
 
-    recorder.onstop = () => {
-      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
-      const blob = new Blob(chunks, { type: mime || "video/webm" });
-      const url = URL.createObjectURL(blob);
-      setDownloadUrl(url);
-      const done: RenderJob = { ...j, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: url };
-      saveJob(done); setJob(done); setProgress(100);
-      toast.success("Render complete — click Download");
-    };
+    try {
+      setStage("Uploading assets…");
+      const [audioUrl, backgroundUrl, logoUrl] = await Promise.all([
+        uploadAssetForRender(project.audio),
+        uploadAssetForRender(project.background),
+        uploadAssetForRender(project.logo),
+      ]);
+      if (!audioUrl) throw new Error("Audio upload failed");
 
-    recorderRef.current = recorder;
+      const [w, h] = RES_DIMS[project.aspectRatio][project.export.resolution];
 
-    // Rewind & play through
-    try { audioEl.currentTime = 0; } catch { /* ignore */ }
-    audioEl.onended = () => {
-      // Tail to flush last frames
-      setTimeout(() => { if (recorder.state !== "inactive") recorder.stop(); }, 300);
-    };
+      setStage("Starting Lambda render…");
+      const v = project.visualizer;
+      const l = project.lyrics;
+      const { renderId, bucketName } = await startRender({
+        data: {
+          audioUrl, durationSeconds: duration,
+          fps: project.export.fps, width: w, height: h,
+          backgroundUrl: backgroundUrl ?? null,
+          logoUrl: logoUrl ?? null,
+          primary: v.primary, secondary: v.secondary, accent: v.accent, glow: v.glow,
+          bandCount: v.bandCount, sensitivity: v.sensitivity,
+          thickness: v.thickness, reactivity: v.reactivity,
+          lyrics: l.lines, lyricsEnabled: l.enabled, lyricsColor: l.color,
+          lyricsFontFamily: l.fontFamily, lyricsFontSize: l.fontSize,
+        },
+      });
 
-    recorder.start(500);
-    try { await audioEl.play(); } catch { toast.error("Press play on the track first, then export"); recorder.stop(); return; }
+      setStage("Rendering on AWS Lambda…");
+      const running: RenderJob = { ...j, status: "rendering" };
+      setJob(running); saveJob(running);
 
-    toast.success("Recording in real time", { description: "Keep this tab focused until the track finishes" });
-
-    const tick = () => {
-      const dur = audioEl.duration || 1;
-      const p = Math.min(99, (audioEl.currentTime / dur) * 100);
-      setProgress(p);
-      const upd: RenderJob = { ...j, status: "rendering", progress: p };
-      saveJob(upd);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-  };
-
-  const cancel = () => {
-    const r = recorderRef.current;
-    if (r && r.state !== "inactive") r.stop();
-    const a = audioRef.current; if (a) a.pause();
+      await new Promise<void>((resolve, reject) => {
+        pollRef.current = window.setInterval(async () => {
+          try {
+            const p = await pollProgress({ data: { renderId, bucketName } });
+            const pct = Math.round((p.overallProgress || 0) * 100);
+            setProgress(pct);
+            saveJob({ ...running, progress: pct });
+            if (p.fatalErrorEncountered) {
+              const msg = p.errors[0]?.message || "Lambda render failed";
+              window.clearInterval(pollRef.current!); pollRef.current = null;
+              reject(new Error(msg)); return;
+            }
+            if (p.done && p.outputFile) {
+              window.clearInterval(pollRef.current!); pollRef.current = null;
+              setDownloadUrl(p.outputFile);
+              const done: RenderJob = { ...running, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
+              setJob(done); saveJob(done); setProgress(100);
+              setStage("Complete");
+              toast.success("Render complete");
+              resolve();
+            }
+          } catch (e: any) {
+            window.clearInterval(pollRef.current!); pollRef.current = null;
+            reject(e);
+          }
+        }, 3000);
+      });
+    } catch (e: any) {
+      console.error("[lambda-render]", e);
+      const failed: RenderJob = { ...j, status: "failed", error: e?.message || "Unknown error" };
+      setJob(failed); saveJob(failed);
+      toast.error(`Render failed: ${e?.message || "unknown"}`);
+      setStage("");
+    }
   };
 
   return (
@@ -139,28 +130,28 @@ export function ExportDialog({ project, update, canvasRef, audioRef, engineRef }
         </Button>
       </DialogTrigger>
       <DialogContent className="panel max-w-md">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Video className="size-4" /> Export Video</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Cloud className="size-4" /> Server Render (Remotion Lambda)</DialogTitle></DialogHeader>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">FPS</label>
-              <Select value={String(project.export.fps)} onValueChange={(v) => update(p => ({ ...p, export: { ...p.export, fps: Number(v) as 30 | 60 } }))}>
+              <Select value={String(project.export.fps)} disabled>
                 <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="60">60 fps</SelectItem><SelectItem value="30">30 fps</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="30">30 fps</SelectItem><SelectItem value="60">60 fps</SelectItem></SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Quality</label>
-              <Select value={project.export.quality} onValueChange={(v) => update(p => ({ ...p, export: { ...p.export, quality: v as "high" | "standard" } }))}>
+              <label className="text-xs text-muted-foreground">Resolution</label>
+              <Select value={project.export.resolution} disabled>
                 <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="high">High (12 Mbps)</SelectItem><SelectItem value="standard">Standard (6 Mbps)</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div className="flex items-center gap-1.5 text-foreground/90"><Video className="size-3.5" /> Real-time browser capture</div>
-            <p>Records the live canvas + audio into a {ext.toUpperCase()} file. Keep this tab focused for the full duration of the track.</p>
+            <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
+            <p>Uploads your audio to storage, then renders MP4 on AWS Lambda. You can close this tab once rendering starts.</p>
           </div>
 
           {job && (
@@ -168,27 +159,26 @@ export function ExportDialog({ project, update, canvasRef, audioRef, engineRef }
               <div className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5">
                   {job.status === "completed" ? <CheckCircle2 className="size-3.5 text-primary" /> : <Loader2 className="size-3.5 animate-spin" />}
-                  {job.status}
+                  {stage || job.status}
                 </span>
                 <span className="font-mono">{Math.floor(progress)}%</span>
               </div>
               <Progress value={progress} />
               {downloadUrl && (
-                <a href={downloadUrl} download={`${project.name}.${ext}`} className="block">
-                  <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download {ext.toUpperCase()}</Button>
+                <a href={downloadUrl} target="_blank" rel="noreferrer" className="block">
+                  <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download MP4</Button>
                 </a>
+              )}
+              {job.status === "failed" && job.error && (
+                <p className="text-xs text-destructive">{job.error}</p>
               )}
             </div>
           )}
 
-          <div className="flex gap-2">
-            <Button onClick={startRender} disabled={job?.status === "rendering"} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">
-              {job?.status === "rendering" ? "Recording…" : "Start Render"}
-            </Button>
-            {job?.status === "rendering" && (
-              <Button onClick={cancel} variant="outline">Stop</Button>
-            )}
-          </div>
+          <Button onClick={onRender} disabled={job?.status === "queued" || job?.status === "rendering"} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
+            <Video className="size-4" />
+            {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
+          </Button>
 
           <div className="text-[10px] text-muted-foreground">
             {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history
