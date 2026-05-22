@@ -29,6 +29,8 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
+  const [syncing, setSyncing] = useState(false);
+  const transcribe = useServerFn(transcribeAudio);
 
   useEffect(() => {
     const el = audioRef.current; if (!el) return;
