@@ -29,8 +29,8 @@ export class AudioEngine {
     this.analyser.smoothingTimeConstant = smoothing;
     this.src.connect(this.analyser);
     this.analyser.connect(this.ctx.destination);
-    this.freq = new Uint8Array(this.analyser.frequencyBinCount);
-    this.wave = new Uint8Array(this.analyser.fftSize);
+    this.freq = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
+    this.wave = new Uint8Array(new ArrayBuffer(this.analyser.fftSize));
   }
 
   setSmoothing(v: number) { this.analyser.smoothingTimeConstant = Math.max(0, Math.min(0.99, v)); }
