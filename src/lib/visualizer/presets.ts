@@ -41,27 +41,36 @@ const center = (d: DrawContext) => ({
  * equalizer instead of raw, noisy FFT bins. Default 12 bands covers sub-bass
  * through presence; `upper` clips the very top end where most music is silent.
  */
+function bandMulFor(frac: number, cfg?: VisualizerConfig): number {
+  const master = cfg?.sensitivity ?? 1;
+  const bassMul = cfg?.bassSensitivity ?? 1;
+  const midMul = cfg?.midSensitivity ?? 1;
+  const trebMul = cfg?.trebleSensitivity ?? 1;
+  const band = frac < 0.25 ? bassMul : frac < 0.6 ? midMul : trebMul;
+  return master * band;
+}
+
+/** Sample a frequency bin (0..1) scaled by sensitivity config. */
+function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig): number {
+  const i = Math.max(0, Math.min(freq.length - 1, idx | 0));
+  return (freq[i] / 255) * bandMulFor(i / freq.length, cfg);
+}
+
 function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
   const out = new Array(count);
   const lo = 2;
   const hi = Math.max(lo + count, Math.floor(freq.length * upper));
   const logLo = Math.log(lo), logHi = Math.log(hi);
-  const master = cfg?.sensitivity ?? 1;
-  const bassMul = cfg?.bassSensitivity ?? 1;
-  const midMul = cfg?.midSensitivity ?? 1;
-  const trebMul = cfg?.trebleSensitivity ?? 1;
   for (let i = 0; i < count; i++) {
     const a = Math.floor(Math.exp(logLo + (i / count) * (logHi - logLo)));
     const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / count) * (logHi - logLo))));
     let s = 0; for (let k = a; k < b; k++) s += freq[k];
     const tilt = 1 + (i / count) * 0.6;
-    const f = i / count;
-    const bandMul = f < 0.25 ? bassMul : f < 0.6 ? midMul : trebMul;
-    // No upper cap so sensitivity=3 visibly pushes bars further than =1.
-    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * master * bandMul);
+    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * bandMulFor(i / count, cfg));
   }
   return out;
 }
+
 
 // 1. Circular spectrum
 const circular: Preset = {
