@@ -403,7 +403,7 @@ const bottomWave: Preset = {
     ctx.beginPath(); ctx.moveTo(0, h);
     for (let x = 0; x <= w; x += 4) {
       const i = Math.floor((x / w) * audio.freq.length * 0.5);
-      const v = audio.freq[i] / 255;
+      const v = freqAt(audio.freq, i, cfg);
       const y = baseY - v * 90 * cfg.size;
       ctx.lineTo(x, y);
     }
