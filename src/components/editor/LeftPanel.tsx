@@ -39,14 +39,15 @@ export function LeftPanel({ project, update }: Props) {
 
           <section className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Theme Packages</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Themes</h3>
               <span className="text-[10px] text-muted-foreground">{PACKAGES.length}</span>
             </div>
-            <p className="text-[11px] text-muted-foreground -mt-1">One-tap presets — background, colors & visualizer combined. Tweak after.</p>
+            <p className="text-[11px] text-muted-foreground -mt-1">Background + color palette only — pick an equalizer below to combine.</p>
             <div className="grid grid-cols-2 gap-2">
               {PACKAGES.map(pkg => {
                 const bg = PRESET_BACKGROUNDS.find(b => b.id === pkg.backgroundId);
-                const active = project.background?.id === `${PRESET_BG_PREFIX}${pkg.backgroundId}` && project.visualizer.presetId === pkg.presetId;
+                const active = project.background?.id === `${PRESET_BG_PREFIX}${pkg.backgroundId}` &&
+                  project.visualizer.primary.toLowerCase() === pkg.colors.primary.toLowerCase();
                 return (
                   <button
                     key={pkg.id}
