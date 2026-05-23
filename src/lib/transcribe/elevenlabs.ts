@@ -67,9 +67,21 @@ function getKeyUrlCandidates() {
   candidates.add(new URL("/api/public/elevenlabs-key", window.location.origin).toString());
 
   const host = window.location.hostname;
-  const fromPreview = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
-  if (fromPreview) {
-    candidates.add(`https://project--${fromPreview[1]}-dev.lovable.app/api/public/elevenlabs-key`);
+  // Sandbox preview: <uuid>.lovableproject.com
+  const fromLovableProject = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
+  if (fromLovableProject) {
+    candidates.add(`https://project--${fromLovableProject[1]}-dev.lovable.app/api/public/elevenlabs-key`);
+  }
+  // id-preview--<uuid>.lovable.app — static preview without server routes
+  const fromIdPreview = host.match(/^id-preview--([0-9a-f-]{36})\.lovable\.app$/i);
+  if (fromIdPreview) {
+    candidates.add(`https://project--${fromIdPreview[1]}-dev.lovable.app/api/public/elevenlabs-key`);
+    candidates.add(`https://project--${fromIdPreview[1]}.lovable.app/api/public/elevenlabs-key`);
+  }
+  // Any other lovable.app/lovableproject.com host — try the published URL pattern
+  const uuidMatch = host.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  if (uuidMatch) {
+    candidates.add(`https://project--${uuidMatch[1]}.lovable.app/api/public/elevenlabs-key`);
   }
 
   return [...candidates];
