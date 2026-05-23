@@ -45,10 +45,20 @@ export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.parse(input))
   .handler(async ({ data }) => {
     console.log("[lambda-render-server] validated inputProps", data);
-
-    const { renderMediaOnLambda } = await import("@remotion/lambda-client");
-    const { region, functionName, serveUrl } = awsConfig();
+    let region: any;
+    let functionName = "";
+    let serveUrl = "";
     try {
+      ({ region, functionName, serveUrl } = awsConfig());
+      console.log("[lambda-render-server] awsConfig ok", {
+        region,
+        functionName,
+        serveUrl,
+        hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
+        hasSecret: !!process.env.AWS_SECRET_ACCESS_KEY,
+      });
+      const { renderMediaOnLambda } = await import("@remotion/lambda-client");
+      console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
       const result = await renderMediaOnLambda({
         region,
         functionName,
@@ -66,12 +76,13 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         privacy: "public",
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
       });
+      console.log("[lambda-render-server] renderMediaOnLambda result", result);
       return { renderId: result.renderId, bucketName: result.bucketName };
     } catch (error) {
       console.error("[lambda-render-server] renderMediaOnLambda failed", {
         message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : undefined,
         stack: error instanceof Error ? error.stack : undefined,
-        data,
         region,
         functionName,
         serveUrl,
