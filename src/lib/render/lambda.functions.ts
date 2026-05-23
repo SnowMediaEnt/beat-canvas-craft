@@ -57,11 +57,14 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         codec: "h264",
         inputProps: data,
         imageFormat: "jpeg",
-        // Conservative concurrency setting to ensure renders complete
-        // successfully on new AWS accounts with low burst rate limits.
-        // Renders take a few extra minutes but always succeed. Can be
-        // lowered later once AWS account matures.
-        framesPerLambda: 250,
+        // AWS account is brand new with enforced concurrency limit of 10
+        // (confirmed via npx remotion lambda quotas). framesPerLambda: 2500
+        // keeps total Lambda count at exactly 10. Renders will be much
+        // slower than normal — likely 20-30 minutes for a 6-min video —
+        // but will succeed. As AWS naturally raises this limit over the
+        // coming days/weeks, framesPerLambda can be lowered for faster
+        // renders.
+        framesPerLambda: 2500,
         maxRetries: 1,
         privacy: "public",
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
