@@ -1,3 +1,4 @@
+import { get, set, del } from "idb-keyval";
 import type { TranscribedWord } from "@/lib/lyrics/types";
 
 export type TranscribeStatus = "idle" | "uploading" | "transcribing" | "ready" | "error";
@@ -11,8 +12,11 @@ interface Entry {
 
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
+const hydrating = new Map<string, Promise<TranscribedWord[] | undefined>>();
 let cachedKey: string | null = null;
 let keyPromise: Promise<string> | null = null;
+
+const idbKey = (assetId: string) => `transcript:${assetId}`;
 
 function notify() {
   for (const l of listeners) l();
@@ -25,7 +29,35 @@ export function subscribe(fn: () => void) {
 
 export function getEntry(assetId: string | undefined): Entry | undefined {
   if (!assetId) return undefined;
-  return cache.get(assetId);
+  const existing = cache.get(assetId);
+  if (existing) return existing;
+  // Kick off async hydration from IndexedDB; subscribers notified on load.
+  hydrateFromIdb(assetId);
+  return undefined;
+}
+
+export function hydrateFromIdb(assetId: string): Promise<TranscribedWord[] | undefined> {
+  const inFlight = hydrating.get(assetId);
+  if (inFlight) return inFlight;
+  const cur = cache.get(assetId);
+  if (cur?.status === "ready" && cur.words) return Promise.resolve(cur.words);
+  const p = (async () => {
+    try {
+      const stored = await get<TranscribedWord[]>(idbKey(assetId));
+      if (stored && Array.isArray(stored) && stored.length && !cache.get(assetId)) {
+        cache.set(assetId, { status: "ready", words: stored });
+        notify();
+        console.log(`[elevenlabs-direct] hydrated ${stored.length} cached words for ${assetId}`);
+        return stored;
+      }
+    } catch (e) {
+      console.warn("[elevenlabs-direct] idb hydrate failed", e);
+    }
+    return undefined;
+  })();
+  hydrating.set(assetId, p);
+  p.finally(() => hydrating.delete(assetId));
+  return p;
 }
 
 function getKeyUrlCandidates() {
