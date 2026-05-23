@@ -29,6 +29,19 @@ export async function hydrateAsset(ref: AssetRef | undefined): Promise<AssetRef 
   return { ...ref, url };
 }
 
+export async function getAssetDownloadUrl(ref: AssetRef | undefined): Promise<string | null> {
+  if (!ref) return null;
+  const hydrated = await hydrateAsset(ref);
+  if (hydrated?.url) return hydrated.url;
+  const blob = await get<Blob>(`asset:${ref.id}`);
+  if (!blob) return null;
+  const cached = urlCache.get(ref.id);
+  if (cached) return cached;
+  const url = URL.createObjectURL(blob);
+  urlCache.set(ref.id, url);
+  return url;
+}
+
 export async function deleteAsset(ref: AssetRef | undefined) {
   if (!ref) return;
   const cached = urlCache.get(ref.id);

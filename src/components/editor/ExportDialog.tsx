@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
-import { storeAsset } from "@/lib/project/assets";
+import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
@@ -50,22 +50,15 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
   const pollProgress = useServerFn(getLambdaProgress);
 
   const downloadFile = async (url: string, filename: string) => {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-      const blob = await response.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = blobUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
-    } catch (error) {
-      console.error("[browser-record] download failed", error);
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
+    console.log("[browser-record] download click", { url, filename });
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    console.log("[browser-record] download triggered", { url, filename });
   };
 
   useEffect(() => () => {
@@ -80,8 +73,11 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
     saveJob(entry);
   };
 
+  const isRecording = recording && recorderRef.current?.state === "recording";
+
   const stopBrowserRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      setRecording(false);
       try { recorderRef.current.stop(); } catch { /* ignore */ }
     }
     if (audioRef.current) {
@@ -150,8 +146,9 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
           const fileName = `${baseName}.webm`;
           const localAsset = await storeAsset(new File([blob], fileName, { type: blob.type || "video/webm" }));
           let remoteUrl: string | undefined;
+          const localUrl = await getAssetDownloadUrl(localAsset);
 
-          setRecordUrl(localAsset.url);
+          setRecordUrl(localUrl || localAsset.url);
           setRecordProgress(100);
           setRecordStage("Saving recording…");
 
@@ -214,6 +211,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
         setRecordProgress(pct);
         if (audioEl.ended || audioEl.currentTime >= duration - 0.05) {
           if (recorderRef.current && recorderRef.current.state !== "inactive") {
+            setRecording(false);
             try { recorderRef.current.stop(); } catch { /* ignore */ }
           }
           audioEl.pause();
@@ -404,7 +402,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
               </div>
             )}
 
-            {recording ? (
+            {isRecording ? (
               <Button onClick={stopBrowserRecording} variant="destructive" className="w-full gap-2">
                 <Square className="size-4" /> Stop Recording
               </Button>
