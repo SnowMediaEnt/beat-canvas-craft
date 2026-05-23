@@ -7,6 +7,60 @@ const uploadedCache = new Map<string, string>();
 
 type UploadKind = "audio" | "background" | "logo" | "asset";
 
+function getSafeExt(name: string) {
+  return (name.split(".").pop() || "bin")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 8) || "bin";
+}
+
+export async function uploadBlobForRender({
+  assetId,
+  fileName,
+  contentType,
+  blob,
+}: {
+  assetId: string;
+  fileName: string;
+  contentType: string;
+  blob: Blob;
+}): Promise<string> {
+  const ext = getSafeExt(fileName);
+
+  console.log("[render-upload] upload start", {
+    assetId,
+    name: fileName,
+    type: contentType,
+    size: blob.size,
+  });
+
+  const res = await fetch(UPLOAD_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      "x-asset-id": assetId,
+      "x-asset-ext": ext,
+      "x-content-type": contentType || "application/octet-stream",
+    },
+    body: blob,
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    console.error("[render-upload] upload error", { status: res.status, body: txt.slice(0, 300) });
+    throw new Error(`Upload failed: ${res.status}`);
+  }
+
+  const { url } = (await res.json()) as { url?: string };
+  if (!url) {
+    console.error("[render-upload] public URL missing", { assetId, name: fileName });
+    throw new Error("Upload succeeded but no file URL was returned");
+  }
+
+  console.log("[render-upload] upload success", { assetId, name: fileName, publicUrl: url });
+  return url;
+}
+
 async function getBlob(ref: AssetRef): Promise<Blob | null> {
   const blob = await get<Blob>(`asset:${ref.id}`);
   return blob ?? null;
@@ -40,38 +94,13 @@ export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<s
     return null;
   }
 
-
-  const ext = (ref.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
-
-  console.log("[render-upload] upload start", {
+  const url = await uploadBlobForRender({
     assetId: ref.id,
-    name: ref.name,
-    type: ref.type,
-    indexedDbKey: `asset:${ref.id}`,
-    size: blob.size,
+    fileName: ref.name,
+    contentType: ref.type || "application/octet-stream",
+    blob,
   });
 
-  const res = await fetch(UPLOAD_ENDPOINT, {
-    method: "POST",
-    headers: {
-      "content-type": "application/octet-stream",
-      "x-asset-id": ref.id,
-      "x-asset-ext": ext,
-      "x-content-type": ref.type || "application/octet-stream",
-    },
-    body: blob,
-  });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    console.error("[render-upload] upload error", { status: res.status, body: txt.slice(0, 300) });
-    throw new Error(`Upload failed: ${res.status}`);
-  }
-  const { url } = (await res.json()) as { url?: string };
-  if (!url) {
-    console.error("[render-upload] public URL missing", { assetId: ref.id, name: ref.name });
-    return null;
-  }
-  console.log("[render-upload] upload success", { assetId: ref.id, name: ref.name, publicUrl: url });
   uploadedCache.set(ref.id, url);
   return url;
 }
