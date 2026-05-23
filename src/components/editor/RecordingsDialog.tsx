@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Film, Download, Trash2, HardDrive, Clock3, Cloud, CheckCircle2 } from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { deleteJob, listJobs } from "@/lib/project/store";
-import { hydrateAsset, deleteAsset } from "@/lib/project/assets";
+import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { toast } from "sonner";
 
 interface Props {
@@ -31,25 +31,6 @@ const formatDate = (ts?: number) => {
 };
 
 const getRecordingUrl = (entry: RenderJob) => entry.localAsset?.url || entry.downloadUrl || null;
-
-async function downloadFile(url: string, filename: string) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`Download failed: ${response.status}`);
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = blobUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
-  } catch (error) {
-    console.error("[recordings] download failed", error);
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-}
 
 export function RecordingsDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
@@ -80,14 +61,33 @@ export function RecordingsDialog({ project }: Props) {
   );
 
   const handleDownload = async (entry: RenderJob) => {
-    const url = getRecordingUrl(entry);
-    if (!url) {
-      toast.error("Recording file is not available yet");
-      return;
-    }
     setBusyId(entry.id);
     try {
-      await downloadFile(url, `${(entry.projectName || "render").trim() || "render"}.${entry.fileFormat || "webm"}`);
+      const filename = `${(entry.projectName || "render").trim() || "render"}.${entry.fileFormat || "webm"}`;
+      const localUrl = await getAssetDownloadUrl(entry.localAsset);
+      const href = localUrl || entry.downloadUrl;
+      console.log("[recordings] download click", {
+        entryId: entry.id,
+        hasLocalAsset: Boolean(entry.localAsset),
+        localUrlReady: Boolean(localUrl),
+        hasRemoteUrl: Boolean(entry.downloadUrl),
+        filename,
+      });
+
+      if (!href) {
+        console.error("[recordings] no download source", { entryId: entry.id, entry });
+        toast.error("Recording file is not available yet");
+        return;
+      }
+
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      console.log("[recordings] download triggered", { entryId: entry.id, href, filename });
     } finally {
       setBusyId(null);
     }
