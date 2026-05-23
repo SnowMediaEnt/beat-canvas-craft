@@ -1,3 +1,4 @@
+import { get, set, del } from "idb-keyval";
 import type { TranscribedWord } from "@/lib/lyrics/types";
 
 export type TranscribeStatus = "idle" | "uploading" | "transcribing" | "ready" | "error";
@@ -11,8 +12,11 @@ interface Entry {
 
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
+const hydrating = new Map<string, Promise<TranscribedWord[] | undefined>>();
 let cachedKey: string | null = null;
 let keyPromise: Promise<string> | null = null;
+
+const idbKey = (assetId: string) => `transcript:${assetId}`;
 
 function notify() {
   for (const l of listeners) l();
@@ -25,7 +29,35 @@ export function subscribe(fn: () => void) {
 
 export function getEntry(assetId: string | undefined): Entry | undefined {
   if (!assetId) return undefined;
-  return cache.get(assetId);
+  const existing = cache.get(assetId);
+  if (existing) return existing;
+  // Kick off async hydration from IndexedDB; subscribers notified on load.
+  hydrateFromIdb(assetId);
+  return undefined;
+}
+
+export function hydrateFromIdb(assetId: string): Promise<TranscribedWord[] | undefined> {
+  const inFlight = hydrating.get(assetId);
+  if (inFlight) return inFlight;
+  const cur = cache.get(assetId);
+  if (cur?.status === "ready" && cur.words) return Promise.resolve(cur.words);
+  const p = (async () => {
+    try {
+      const stored = await get<TranscribedWord[]>(idbKey(assetId));
+      if (stored && Array.isArray(stored) && stored.length && !cache.get(assetId)) {
+        cache.set(assetId, { status: "ready", words: stored });
+        notify();
+        console.log(`[elevenlabs-direct] hydrated ${stored.length} cached words for ${assetId}`);
+        return stored;
+      }
+    } catch (e) {
+      console.warn("[elevenlabs-direct] idb hydrate failed", e);
+    }
+    return undefined;
+  })();
+  hydrating.set(assetId, p);
+  p.finally(() => hydrating.delete(assetId));
+  return p;
 }
 
 function getKeyUrlCandidates() {
@@ -129,12 +161,23 @@ export function transcribeInBackground(assetId: string, file: Blob, filename: st
 
   const promise = (async () => {
     try {
+      // Check persistent cache first — survives reloads.
+      const stored = await get<TranscribedWord[]>(idbKey(assetId)).catch(() => undefined);
+      if (stored && Array.isArray(stored) && stored.length) {
+        entry.status = "ready";
+        entry.words = stored;
+        entry.error = undefined;
+        notify();
+        console.log(`[elevenlabs-direct] reused ${stored.length} cached words for ${assetId}`);
+        return stored;
+      }
       entry.status = "transcribing";
       notify();
       const words = await runTranscription(file, filename);
       entry.status = "ready";
       entry.words = words;
       entry.error = undefined;
+      try { await set(idbKey(assetId), words); } catch (e) { console.warn("[elevenlabs-direct] idb persist failed", e); }
       notify();
       return words;
     } catch (e) {
@@ -150,13 +193,13 @@ export function transcribeInBackground(assetId: string, file: Blob, filename: st
   })();
 
   entry.promise = promise;
-  // swallow unhandled rejection — consumers handle via status
   promise.catch(() => {});
   return promise;
 }
 
 export function retryTranscription(assetId: string, file: Blob, filename: string) {
   cache.delete(assetId);
+  del(idbKey(assetId)).catch(() => {});
   notify();
   return transcribeInBackground(assetId, file, filename);
 }
@@ -165,5 +208,7 @@ export async function ensureTranscription(assetId: string, file: Blob, filename:
   const existing = cache.get(assetId);
   if (existing?.status === "ready" && existing.words) return existing.words;
   if (existing?.promise) return existing.promise;
+  const hydrated = await hydrateFromIdb(assetId);
+  if (hydrated && hydrated.length) return hydrated;
   return transcribeInBackground(assetId, file, filename);
 }
