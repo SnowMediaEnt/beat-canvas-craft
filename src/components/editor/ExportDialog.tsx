@@ -269,61 +269,109 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
         </Button>
       </DialogTrigger>
       <DialogContent className="panel max-w-md">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Cloud className="size-4" /> Server Render (Remotion Lambda)</DialogTitle></DialogHeader>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">FPS</label>
-              <Select value={String(project.export.fps)} disabled>
-                <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="30">30 fps</SelectItem><SelectItem value="60">60 fps</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground">Resolution</label>
-              <Select value={project.export.resolution} disabled>
-                <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent>
-              </Select>
-            </div>
-          </div>
+        <DialogHeader><DialogTitle className="flex items-center gap-2"><Download className="size-4" /> Export Video</DialogTitle></DialogHeader>
 
-          <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
-            <p>Uploads your audio to storage, then renders MP4 on AWS Lambda. You can close this tab once rendering starts.</p>
-          </div>
+        <Tabs defaultValue="browser" className="w-full">
+          <TabsList className="grid grid-cols-2 w-full">
+            <TabsTrigger value="browser" className="gap-1.5"><Circle className="size-3.5" /> Browser Recording</TabsTrigger>
+            <TabsTrigger value="lambda" className="gap-1.5"><Cloud className="size-3.5" /> Lambda Render</TabsTrigger>
+          </TabsList>
 
-          {job && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="flex items-center gap-1.5">
-                  {job.status === "completed" ? <CheckCircle2 className="size-3.5 text-primary" /> : <Loader2 className="size-3.5 animate-spin" />}
-                  {stage || job.status}
-                </span>
-                <span className="font-mono">{Math.floor(progress)}%</span>
+          {/* Browser recording — works while AWS quota is low */}
+          <TabsContent value="browser" className="space-y-4 mt-4">
+            <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
+              <div className="flex items-center gap-1.5 text-foreground/90"><Circle className="size-3.5" /> Record in your browser</div>
+              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Keep this tab focused and visible for best results — recording takes as long as the song.</p>
+            </div>
+
+            {(recording || recordUrl) && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    {recordUrl
+                      ? <CheckCircle2 className="size-3.5 text-primary" />
+                      : <Loader2 className="size-3.5 animate-spin" />}
+                    {recordUrl ? "Recording complete" : "Recording…"}
+                  </span>
+                  <span className="font-mono">{recordProgress}%</span>
+                </div>
+                <Progress value={recordProgress} />
+                {recordUrl && (
+                  <a href={recordUrl} download={`${project.name || "render"}.webm`} className="block">
+                    <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download WebM</Button>
+                  </a>
+                )}
               </div>
-              <Progress value={progress} />
-              {downloadUrl && (
-                <a href={downloadUrl} target="_blank" rel="noreferrer" className="block">
-                  <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download MP4</Button>
-                </a>
-              )}
-              {job.status === "failed" && job.error && (
-                <p className="text-xs text-destructive">{job.error}</p>
-              )}
+            )}
+
+            {recording ? (
+              <Button onClick={stopBrowserRecording} variant="destructive" className="w-full gap-2">
+                <Square className="size-4" /> Stop Recording
+              </Button>
+            ) : (
+              <Button onClick={startBrowserRecording} className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
+                <Circle className="size-4" /> Start Browser Recording
+              </Button>
+            )}
+          </TabsContent>
+
+          {/* Server-side Lambda render */}
+          <TabsContent value="lambda" className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">FPS</label>
+                <Select value={String(project.export.fps)} disabled>
+                  <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="30">30 fps</SelectItem><SelectItem value="60">60 fps</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Resolution</label>
+                <Select value={project.export.resolution} disabled>
+                  <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent>
+                </Select>
+              </div>
             </div>
-          )}
 
-          <Button onClick={onRender} disabled={job?.status === "queued" || job?.status === "rendering"} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
-            <Video className="size-4" />
-            {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
-          </Button>
+            <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
+              <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
+              <p>Uploads your audio to storage, then renders MP4 on AWS Lambda. You can close this tab once rendering starts. Currently slow (~20-30 min for a 6-min video) while AWS raises the account's concurrency quota.</p>
+            </div>
 
-          <div className="text-[10px] text-muted-foreground">
-            {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history
-          </div>
-        </div>
+            {job && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="flex items-center gap-1.5">
+                    {job.status === "completed" ? <CheckCircle2 className="size-3.5 text-primary" /> : <Loader2 className="size-3.5 animate-spin" />}
+                    {stage || job.status}
+                  </span>
+                  <span className="font-mono">{Math.floor(progress)}%</span>
+                </div>
+                <Progress value={progress} />
+                {downloadUrl && (
+                  <a href={downloadUrl} target="_blank" rel="noreferrer" className="block">
+                    <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download MP4</Button>
+                  </a>
+                )}
+                {job.status === "failed" && job.error && (
+                  <p className="text-xs text-destructive">{job.error}</p>
+                )}
+              </div>
+            )}
+
+            <Button onClick={onRender} disabled={job?.status === "queued" || job?.status === "rendering"} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
+              <Video className="size-4" />
+              {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
+            </Button>
+
+            <div className="text-[10px] text-muted-foreground">
+              {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history
+            </div>
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
+
