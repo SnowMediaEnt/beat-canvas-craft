@@ -66,23 +66,17 @@ function getKeyUrlCandidates() {
   if (typeof window === "undefined") return [KEY_PATH];
 
   const candidates = new Set<string>();
+  const origin = window.location.origin;
   const host = window.location.hostname;
-  const uuidMatch = host.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  const projectId = uuidMatch?.[1];
-  const isStaticPreview = /^id-preview--[0-9a-f-]{36}\.lovable\.app$/i.test(host);
-  const isSandboxHost = /^[0-9a-f-]{36}\.lovableproject\.com$/i.test(host);
+  const projectIdMatch = host.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+  const projectId = projectIdMatch?.[1];
+
+  candidates.add(new URL(KEY_PATH, origin).toString());
 
   if (projectId) {
+    candidates.add(`https://id-preview--${projectId}.lovable.app${KEY_PATH}`);
     candidates.add(`https://project--${projectId}-dev.lovable.app${KEY_PATH}`);
     candidates.add(`https://project--${projectId}.lovable.app${KEY_PATH}`);
-  }
-
-  if (!isStaticPreview && !isSandboxHost) {
-    candidates.add(new URL(KEY_PATH, window.location.origin).toString());
-  }
-
-  if (isSandboxHost) {
-    candidates.add(new URL(KEY_PATH, window.location.origin).toString());
   }
 
   return [...candidates];
