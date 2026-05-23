@@ -20,11 +20,26 @@ export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<s
     return cached;
   }
 
-  const blob = await getBlob(ref);
+  let blob = await getBlob(ref);
+  if (!blob && ref.url) {
+    // Preset / bundled asset: no IndexedDB blob, fetch the bundled URL instead.
+    try {
+      const res = await fetch(ref.url);
+      if (res.ok) {
+        blob = await res.blob();
+        console.log("[render-upload] fetched bundled asset", { assetId: ref.id, url: ref.url, size: blob.size });
+      } else {
+        console.error("[render-upload] fetch bundled asset failed", { assetId: ref.id, url: ref.url, status: res.status });
+      }
+    } catch (e) {
+      console.error("[render-upload] fetch bundled asset error", { assetId: ref.id, url: ref.url, error: e });
+    }
+  }
   if (!blob) {
     console.error("[render-upload] missing IndexedDB blob", { assetId: ref.id, name: ref.name, type: ref.type });
     return null;
   }
+
 
   const ext = (ref.name.split(".").pop() || "bin").toLowerCase();
   const path = `${ref.id}.${ext}`;
