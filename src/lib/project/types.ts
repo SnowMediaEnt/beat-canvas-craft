@@ -94,11 +94,13 @@ export interface RenderJob {
   id: string;
   projectId: string;
   projectName: string;
+  kind?: "lambda" | "browser";
   status: "queued" | "rendering" | "completed" | "failed";
   progress: number;
   createdAt: number;
   completedAt?: number;
   downloadUrl?: string;
+  fileFormat?: "mp4" | "webm";
   config: ExportConfig;
   aspectRatio: AspectRatio;
   error?: string;
