@@ -129,7 +129,7 @@ export function RecordingsDialog({ project }: Props) {
           <ScrollArea className="max-h-[55vh] pr-3">
             <div className="space-y-3">
               {recordings.map((entry) => {
-                const available = Boolean(getRecordingUrl(entry));
+                const available = Boolean(entry.localAsset || entry.downloadUrl || getRecordingUrl(entry));
                 const uploading = entry.status === "rendering";
                 return (
                   <div key={entry.id} className="rounded-lg border border-border bg-elevated/30 p-3 space-y-3">
