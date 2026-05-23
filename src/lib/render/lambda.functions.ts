@@ -57,9 +57,14 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         codec: "h264",
         inputProps: data,
         imageFormat: "jpeg",
+        // Tuned for AWS account with 1000 concurrent execution quota and
+        // new-account burst rate limit. framesPerLambda: 100 produces ~220
+        // parallel Lambdas for a 6-min 60fps video. Lower this for faster
+        // renders once AWS naturally raises my burst limit (happens over
+        // time with usage).
+        framesPerLambda: 100,
         maxRetries: 1,
         privacy: "public",
-        concurrency: 8,
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
       });
       return { renderId: result.renderId, bucketName: result.bucketName };
