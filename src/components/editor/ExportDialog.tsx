@@ -5,9 +5,9 @@ import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square } from "l
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { AssetRef, Project, RenderJob } from "@/lib/project/types";
+import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
-import { storeAsset } from "@/lib/project/assets";
+import { hydrateAsset, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
@@ -92,7 +92,20 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
 
   useEffect(() => {
     if (!open) return;
-    setJobs(listJobs().filter((entry) => entry.projectId === project.id));
+    let cancelled = false;
+    (async () => {
+      const saved = listJobs().filter((entry) => entry.projectId === project.id);
+      const hydrated = await Promise.all(
+        saved.map(async (entry) => ({
+          ...entry,
+          localAsset: await hydrateAsset(entry.localAsset),
+        }))
+      );
+      if (!cancelled) setJobs(hydrated);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open, project.id, job, recordUrl]);
 
   const persistJob = (entry: RenderJob) => {
@@ -411,10 +424,12 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
                 </div>
                 <Progress value={recordProgress} />
                 {recordUrl && (
-                  <Button asChild variant="outline" className="w-full gap-2">
-                    <a href={recordUrl} target="_blank" rel="noreferrer">
-                      <Download className="size-4" /> Download WebM
-                    </a>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => void downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`)}
+                  >
+                    <Download className="size-4" /> Download WebM
                   </Button>
                 )}
               </div>
