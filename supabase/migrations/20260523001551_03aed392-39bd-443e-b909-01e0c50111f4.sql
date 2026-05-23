@@ -1,0 +1,2 @@
+CREATE POLICY "render-assets public update" ON storage.objects FOR UPDATE TO public USING (bucket_id = 'render-assets') WITH CHECK (bucket_id = 'render-assets');
+CREATE POLICY "render-assets public delete" ON storage.objects FOR DELETE TO public USING (bucket_id = 'render-assets');
