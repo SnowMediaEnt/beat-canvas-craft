@@ -88,7 +88,7 @@ export function LeftPanel({ project, update }: Props) {
 
           <Separator />
 
-          <Section title="Background Library" count={PRESET_BACKGROUNDS.length + 2} defaultOpen={false}>
+          <Section title="Background Library" count={PRESET_BACKGROUNDS.length + 2} defaultOpen={true}>
             <div className="grid grid-cols-3 gap-1.5">
               {/* None / Black */}
               <button
