@@ -115,7 +115,15 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const autoSync = async (text: string) => {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
-    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const tsPrefix = /^\[\d+:\d{2}(?:\.\d+)?\]\s*/;
+    const sectionOnly = /^\[[^\]]+\]\s*$/;
+    const rawLines = text
+      .split(/\r?\n/)
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(l => !sectionOnly.test(l)) // drop [Verse] markers
+      .map(l => l.replace(tsPrefix, "").trim()) // strip [0:12] prefixes
+      .filter(Boolean);
     const hasUserLyrics = rawLines.length > 0;
 
     const assetId = project.audio.id;
@@ -143,6 +151,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       const aligned = hasUserLyrics
         ? alignLyrics(rawLines, words)
         : groupWordsIntoLines(words);
+
 
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
       const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
