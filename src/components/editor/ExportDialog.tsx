@@ -10,7 +10,7 @@ import { saveJob, listJobs } from "@/lib/project/store";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
-import { assertRenderableAssetUrl, uploadAssetForRender } from "@/lib/render/upload";
+import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
 import { toast } from "sonner";
 
 
@@ -41,6 +41,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
   const [recording, setRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(0);
   const [recordUrl, setRecordUrl] = useState<string | null>(null);
+  const [recordStage, setRecordStage] = useState<string>("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordRafRef = useRef<number | null>(null);
 
@@ -84,6 +85,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
 
     try {
       await engine.resume();
+      setRecordStage("Recording…");
       const fps = project.export.fps || 60;
       const canvasStream = canvas.captureStream(fps);
       const audioStream = engine.dest.stream;
@@ -96,20 +98,44 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 8_000_000 });
       recorderRef.current = rec;
       rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-      rec.onstop = () => {
+      rec.onstop = async () => {
         if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = null; }
-        const blob = new Blob(chunks, { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        setRecordUrl(url);
-        setRecording(false);
-        setRecordProgress(100);
-        toast.success("Recording complete");
         recorderRef.current = null;
+
+        const videoTracks = canvasStream.getVideoTracks();
+        const audioTracks = audioStream.getAudioTracks();
+        [...videoTracks, ...audioTracks].forEach((track) => track.stop());
+
+        try {
+          setRecordStage("Uploading WebM…");
+          const blob = new Blob(chunks, { type: mimeType });
+          const baseName = (project.name || "render").trim() || "render";
+          const fileName = `${baseName}.webm`;
+          const remoteUrl = await uploadBlobForRender({
+            assetId: `browser-recording-${crypto.randomUUID()}`,
+            fileName,
+            contentType: blob.type || "video/webm",
+            blob,
+          });
+
+          setRecordUrl(remoteUrl);
+          setRecordProgress(100);
+          setRecordStage("Recording complete");
+          toast.success("Recording complete");
+        } catch (e: any) {
+          console.error("[browser-record] upload failed", e);
+          setRecordStage("");
+          setRecordUrl(null);
+          toast.error(`Recording upload failed: ${e?.message || "unknown"}`);
+        } finally {
+          setRecording(false);
+        }
       };
 
       // Reset audio to start, play, begin recording
       setRecordUrl(null);
       setRecordProgress(0);
+      setRecordStage("Recording…");
       audioEl.currentTime = 0;
       await audioEl.play();
       rec.start(1000);
@@ -133,6 +159,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       console.error("[browser-record]", e);
       toast.error(`Recording failed: ${e?.message || "unknown"}`);
       setRecording(false);
+      setRecordStage("");
     }
   };
 
@@ -291,25 +318,16 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
                     {recordUrl
                       ? <CheckCircle2 className="size-3.5 text-primary" />
                       : <Loader2 className="size-3.5 animate-spin" />}
-                    {recordUrl ? "Recording complete" : "Recording…"}
+                    {recordUrl ? "Recording complete" : (recordStage || "Recording…")}
                   </span>
                   <span className="font-mono">{recordProgress}%</span>
                 </div>
                 <Progress value={recordProgress} />
                 {recordUrl && (
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() => {
-                      const a = document.createElement("a");
-                      a.href = recordUrl;
-                      a.download = `${project.name || "render"}.webm`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }}
-                  >
-                    <Download className="size-4" /> Download WebM
+                  <Button asChild variant="outline" className="w-full gap-2">
+                    <a href={recordUrl} target="_blank" rel="noreferrer">
+                      <Download className="size-4" /> Download WebM
+                    </a>
                   </Button>
                 )}
               </div>
