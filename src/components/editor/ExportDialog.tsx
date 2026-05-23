@@ -29,7 +29,7 @@ const RES_DIMS = {
   "4:5":  { "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
-export function ExportDialog({ project, audioRef }: Props) {
+export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
@@ -37,10 +37,105 @@ export function ExportDialog({ project, audioRef }: Props) {
   const [stage, setStage] = useState<string>("");
   const pollRef = useRef<number | null>(null);
 
+  // Browser recording state
+  const [recording, setRecording] = useState(false);
+  const [recordProgress, setRecordProgress] = useState(0);
+  const [recordUrl, setRecordUrl] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recordRafRef = useRef<number | null>(null);
+
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
 
-  useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
+  useEffect(() => () => {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      try { recorderRef.current.stop(); } catch { /* ignore */ }
+    }
+  }, []);
+
+  const stopBrowserRecording = () => {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      try { recorderRef.current.stop(); } catch { /* ignore */ }
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+  };
+
+  const startBrowserRecording = async () => {
+    if (!project.audio) { toast.error("Upload an audio file first"); return; }
+    const canvas = canvasRef.current;
+    const audioEl = audioRef.current;
+    const engine = engineRef.current;
+    if (!canvas || !audioEl || !engine) { toast.error("Editor not ready yet"); return; }
+    const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
+    if (!duration) { toast.error("Press play once so the audio duration loads"); return; }
+
+    // Pick a supported mime type
+    const candidates = [
+      "video/webm;codecs=vp9,opus",
+      "video/webm;codecs=vp8,opus",
+      "video/webm",
+    ];
+    const mimeType = candidates.find((m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m));
+    if (!mimeType) { toast.error("Browser recording is not supported in this browser"); return; }
+
+    try {
+      await engine.resume();
+      const fps = project.export.fps || 60;
+      const canvasStream = canvas.captureStream(fps);
+      const audioStream = engine.dest.stream;
+      const combined = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioStream.getAudioTracks(),
+      ]);
+
+      const chunks: BlobPart[] = [];
+      const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 8_000_000 });
+      recorderRef.current = rec;
+      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      rec.onstop = () => {
+        if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = null; }
+        const blob = new Blob(chunks, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        setRecordUrl(url);
+        setRecording(false);
+        setRecordProgress(100);
+        toast.success("Recording complete");
+        recorderRef.current = null;
+      };
+
+      // Reset audio to start, play, begin recording
+      setRecordUrl(null);
+      setRecordProgress(0);
+      audioEl.currentTime = 0;
+      await audioEl.play();
+      rec.start(1000);
+      setRecording(true);
+
+      const tick = () => {
+        if (!audioEl) return;
+        const pct = Math.min(100, Math.round((audioEl.currentTime / duration) * 100));
+        setRecordProgress(pct);
+        if (audioEl.ended || audioEl.currentTime >= duration - 0.05) {
+          if (recorderRef.current && recorderRef.current.state !== "inactive") {
+            try { recorderRef.current.stop(); } catch { /* ignore */ }
+          }
+          audioEl.pause();
+          return;
+        }
+        recordRafRef.current = requestAnimationFrame(tick);
+      };
+      recordRafRef.current = requestAnimationFrame(tick);
+    } catch (e: any) {
+      console.error("[browser-record]", e);
+      toast.error(`Recording failed: ${e?.message || "unknown"}`);
+      setRecording(false);
+    }
+  };
+
 
   const onRender = async () => {
     if (!project.audio) { toast.error("Upload an audio file first"); return; }
