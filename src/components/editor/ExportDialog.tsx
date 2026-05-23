@@ -84,6 +84,18 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     if (!canvas || !audioEl || !engine) { toast.error("Editor not ready yet"); return; }
     const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
     if (!duration) { toast.error("Press play once so the audio duration loads"); return; }
+    const browserJobBase: RenderJob = {
+      id: crypto.randomUUID(),
+      projectId: project.id,
+      projectName: project.name,
+      kind: "browser",
+      fileFormat: "webm",
+      status: "queued",
+      progress: 0,
+      createdAt: Date.now(),
+      config: project.export,
+      aspectRatio: project.aspectRatio,
+    };
 
     // Pick a supported mime type
     const candidates = [
@@ -95,18 +107,6 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     if (!mimeType) { toast.error("Browser recording is not supported in this browser"); return; }
 
     try {
-      const browserJobBase: RenderJob = {
-        id: crypto.randomUUID(),
-        projectId: project.id,
-        projectName: project.name,
-        kind: "browser",
-        fileFormat: "webm",
-        status: "queued",
-        progress: 0,
-        createdAt: Date.now(),
-        config: project.export,
-        aspectRatio: project.aspectRatio,
-      };
       persistJob(browserJobBase);
 
       await engine.resume();
@@ -195,6 +195,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       recordRafRef.current = requestAnimationFrame(tick);
     } catch (e: any) {
       console.error("[browser-record]", e);
+      persistJob({ ...browserJobBase, status: "failed", error: e?.message || "Unknown error" });
       toast.error(`Recording failed: ${e?.message || "unknown"}`);
       setRecording(false);
       setRecordStage("");
@@ -211,6 +212,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     const j: RenderJob = {
       id: crypto.randomUUID(),
       projectId: project.id, projectName: project.name,
+      kind: "lambda", fileFormat: "mp4",
       status: "queued", progress: 0, createdAt: Date.now(),
       config: project.export, aspectRatio: project.aspectRatio,
     };
