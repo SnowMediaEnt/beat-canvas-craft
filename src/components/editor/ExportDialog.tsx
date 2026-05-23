@@ -297,9 +297,20 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
                 </div>
                 <Progress value={recordProgress} />
                 {recordUrl && (
-                  <a href={recordUrl} download={`${project.name || "render"}.webm`} className="block">
-                    <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download WebM</Button>
-                  </a>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => {
+                      const a = document.createElement("a");
+                      a.href = recordUrl;
+                      a.download = `${project.name || "render"}.webm`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                  >
+                    <Download className="size-4" /> Download WebM
+                  </Button>
                 )}
               </div>
             )}
