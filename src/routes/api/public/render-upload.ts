@@ -46,12 +46,21 @@ export const Route = createFileRoute("/api/public/render-upload")({
         }
 
         const path = `${assetId.replace(/[:.]/g, "_")}.${ext}`;
+        const body = new Blob([buf], { type: contentType });
         const { error } = await supabaseAdmin.storage
           .from(BUCKET)
-          .upload(path, buf, { contentType, upsert: true });
+          .upload(path, body, { contentType, upsert: true });
         if (error && !`${error.message}`.toLowerCase().includes("exists")) {
-          console.error("[render-upload] upload error", error.message);
-          return new Response(JSON.stringify({ error: "Upload failed" }), {
+          console.error("[render-upload] upload error", {
+            message: error.message,
+            name: (error as any).name,
+            statusCode: (error as any).statusCode,
+            assetId,
+            ext,
+            contentType,
+            size: buf.byteLength,
+          });
+          return new Response(JSON.stringify({ error: "Upload failed", detail: error.message }), {
             status: 500,
             headers: { "content-type": "application/json", ...CORS },
           });
