@@ -4,7 +4,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 const BUCKET = "render-assets";
 const MAX_BYTES = 150 * 1024 * 1024; // 150MB cap per file
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
-const SAFE_ID = /^[a-zA-Z0-9_-]{1,128}$/;
+const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -45,7 +45,7 @@ export const Route = createFileRoute("/api/public/render-upload")({
           });
         }
 
-        const path = `${assetId}.${ext}`;
+        const path = `${assetId.replace(/[:.]/g, "_")}.${ext}`;
         const { error } = await supabaseAdmin.storage
           .from(BUCKET)
           .upload(path, buf, { contentType, upsert: true });
