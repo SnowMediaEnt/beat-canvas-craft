@@ -57,15 +57,12 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         codec: "h264",
         inputProps: data,
         imageFormat: "jpeg",
-        // AWS account is brand new with enforced concurrency limit of 10
-        // (confirmed via npx remotion lambda quotas). framesPerLambda: 2500
-        // keeps total Lambda count at exactly 10. Renders will be much
-        // slower than normal — likely 20-30 minutes for a 6-min video —
-        // but will succeed. As AWS naturally raises this limit over the
-        // coming days/weeks, framesPerLambda can be lowered for faster
-        // renders.
-        framesPerLambda: 2500,
-        maxRetries: 1,
+        // MAXIMUM CONSERVATIVE concurrency. AWS account is throttled to 10
+        // concurrent Lambdas. framesPerLambda: 5000 produces ~5 parallel
+        // Lambdas total. Renders are slow (~30+ minutes) but reliable.
+        // Reduce this number once AWS quota is approved.
+        framesPerLambda: 5000,
+        maxRetries: 2,
         privacy: "public",
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
       });
