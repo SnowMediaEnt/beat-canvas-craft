@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Video, CheckCircle2, Loader2, Cloud } from "lucide-react";
+import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
@@ -11,6 +12,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender } from "@/lib/render/upload";
 import { toast } from "sonner";
+
 
 interface Props {
   project: Project;
