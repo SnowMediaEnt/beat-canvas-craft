@@ -59,6 +59,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         imageFormat: "jpeg",
         maxRetries: 1,
         privacy: "public",
+        concurrency: 8,
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
       });
       return { renderId: result.renderId, bucketName: result.bucketName };
