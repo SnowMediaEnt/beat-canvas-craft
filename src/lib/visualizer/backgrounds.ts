@@ -13,12 +13,16 @@ import synthwave from "@/assets/backgrounds/synthwave.jpg";
 import starfield from "@/assets/backgrounds/starfield.jpg";
 import smoke from "@/assets/backgrounds/smoke.jpg";
 import liquidInk from "@/assets/backgrounds/liquid-ink.jpg";
+import snowfallNight from "@/assets/backgrounds/snowfall-night.jpg";
+import snowPeaks from "@/assets/backgrounds/snow-peaks.jpg";
+import frozenAurora from "@/assets/backgrounds/frozen-aurora.jpg";
+import snowForest from "@/assets/backgrounds/snow-forest.jpg";
 
 export interface PresetBackground {
-  id: string;            // unique id (no prefix)
+  id: string;
   name: string;
   mood: string;
-  url: string;           // bundled asset URL
+  url: string;
 }
 
 export const PRESET_BACKGROUNDS: PresetBackground[] = [
@@ -37,14 +41,18 @@ export const PRESET_BACKGROUNDS: PresetBackground[] = [
   { id: "starfield",      name: "Starfield",      mood: "Cosmic",      url: starfield },
   { id: "smoke",          name: "Smoke",          mood: "Minimal",     url: smoke },
   { id: "liquid-ink",     name: "Liquid Ink",     mood: "Abstract",    url: liquidInk },
+  { id: "snowfall-night", name: "Snowfall Night", mood: "Snow",        url: snowfallNight },
+  { id: "snow-peaks",     name: "Snow Peaks",     mood: "Snow",        url: snowPeaks },
+  { id: "frozen-aurora",  name: "Frozen Aurora",  mood: "Snow",        url: frozenAurora },
+  { id: "snow-forest",    name: "Snow Forest",    mood: "Snow",        url: snowForest },
 ];
 
 export const PRESET_BG_PREFIX = "preset:";
+export const COLOR_BG_PREFIX = "color:";
 
 export const getPresetBackground = (id: string) =>
   PRESET_BACKGROUNDS.find(b => b.id === id);
 
-/** Build an AssetRef-like for a preset background. */
 export const presetBackgroundRef = (id: string) => {
   const bg = getPresetBackground(id);
   if (!bg) return undefined;
@@ -53,5 +61,25 @@ export const presetBackgroundRef = (id: string) => {
     name: bg.name,
     type: "image/jpeg",
     url: bg.url,
+  };
+};
+
+/** Solid-color background as a tiny generated PNG data URL.
+ *  Works in canvas preview and uploads cleanly for Lambda renders. */
+export const solidColorBackgroundRef = (hex: string) => {
+  const color = (hex.startsWith("#") ? hex : `#${hex}`).toLowerCase();
+  let url = "";
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 16; canvas.height = 16;
+    const ctx = canvas.getContext("2d");
+    if (ctx) { ctx.fillStyle = color; ctx.fillRect(0, 0, 16, 16); }
+    url = canvas.toDataURL("image/png");
+  }
+  return {
+    id: `${COLOR_BG_PREFIX}${color}`,
+    name: `Solid ${color.toUpperCase()}`,
+    type: "image/png",
+    url,
   };
 };
