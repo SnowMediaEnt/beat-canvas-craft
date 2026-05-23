@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Film, Download, Trash2, HardDrive, Clock3, Cloud, CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download, Trash2, HardDrive, Clock3, Cloud, Circle } from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { deleteJob, listJobs } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
@@ -30,9 +30,7 @@ const formatDate = (ts?: number) => {
   return new Date(ts).toLocaleString();
 };
 
-const getRecordingUrl = (entry: RenderJob) => entry.localAsset?.url || entry.downloadUrl || null;
-
-export function RecordingsDialog({ project }: Props) {
+export function CompletedDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<RenderJob[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -41,7 +39,7 @@ export function RecordingsDialog({ project }: Props) {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const saved = listJobs().filter((entry) => entry.projectId === project.id && entry.kind === "browser");
+      const saved = listJobs().filter((entry) => entry.projectId === project.id);
       const hydrated = await Promise.all(
         saved.map(async (entry) => ({
           ...entry,
@@ -55,28 +53,24 @@ export function RecordingsDialog({ project }: Props) {
     };
   }, [open, project.id]);
 
-  const recordings = useMemo(
-    () => entries.filter((entry) => entry.kind === "browser").sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),
+  const completed = useMemo(
+    () => entries.sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),
     [entries]
   );
 
   const handleDownload = async (entry: RenderJob) => {
     setBusyId(entry.id);
     try {
-      const filename = `${(entry.projectName || "render").trim() || "render"}.${entry.fileFormat || "webm"}`;
+      const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
+      const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
       const localUrl = await getAssetDownloadUrl(entry.localAsset);
-      const href = localUrl || entry.downloadUrl;
-      console.log("[recordings] download click", {
-        entryId: entry.id,
-        hasLocalAsset: Boolean(entry.localAsset),
-        localUrlReady: Boolean(localUrl),
-        hasRemoteUrl: Boolean(entry.downloadUrl),
-        filename,
-      });
+      // Lambda renders only have a remote downloadUrl; browser recordings prefer local.
+      const href = entry.kind === "lambda"
+        ? (entry.downloadUrl || localUrl)
+        : (localUrl || entry.downloadUrl);
 
       if (!href) {
-        console.error("[recordings] no download source", { entryId: entry.id, entry });
-        toast.error("Recording file is not available yet");
+        toast.error("File is not available yet");
         return;
       }
 
@@ -87,7 +81,6 @@ export function RecordingsDialog({ project }: Props) {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      console.log("[recordings] download triggered", { entryId: entry.id, href, filename });
     } finally {
       setBusyId(null);
     }
@@ -99,7 +92,7 @@ export function RecordingsDialog({ project }: Props) {
       await deleteAsset(entry.localAsset);
       deleteJob(entry.id);
       setEntries((current) => current.filter((item) => item.id !== entry.id));
-      toast.success("Recording removed");
+      toast.success("Entry removed");
     } finally {
       setBusyId(null);
     }
@@ -109,45 +102,46 @@ export function RecordingsDialog({ project }: Props) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" className="gap-2">
-          <Film className="size-4" /> Recordings
+          <CheckCircle2 className="size-4" /> Completed
         </Button>
       </DialogTrigger>
       <DialogContent className="panel max-w-xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Film className="size-4" /> Saved recordings</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="size-4" /> Completed renders</DialogTitle>
         </DialogHeader>
 
         <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
-          Browser recordings for this project stay here so they can be re-downloaded later, even after the export dialog closes.
+          Finished AWS Lambda renders and browser recordings for this project stay here so you can re-download them anytime.
         </div>
 
-        {recordings.length === 0 ? (
+        {completed.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No recordings saved yet.
+            No completed renders yet.
           </div>
         ) : (
           <ScrollArea className="max-h-[55vh] pr-3">
             <div className="space-y-3">
-              {recordings.map((entry) => {
-                const available = Boolean(entry.localAsset || entry.downloadUrl || getRecordingUrl(entry));
-                const uploading = entry.status === "rendering";
+              {completed.map((entry) => {
+                const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
+                const available = Boolean(entry.localAsset || entry.downloadUrl);
+                const isLambda = entry.kind === "lambda";
+                const processing = entry.status === "queued" || entry.status === "rendering";
                 return (
                   <div key={entry.id} className="rounded-lg border border-border bg-elevated/30 p-3 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-sm font-medium text-foreground">{entry.projectName || "Untitled recording"}.webm</span>
-                          {available ? <Badge variant="secondary">Ready</Badge> : <Badge variant="outline">Processing</Badge>}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="truncate text-sm font-medium text-foreground">{(entry.projectName || "Untitled").trim() || "Untitled"}.{ext}</span>
+                          {available ? <Badge variant="secondary">Ready</Badge> : <Badge variant="outline">{processing ? `${entry.progress || 0}%` : "Processing"}</Badge>}
+                          <Badge variant="outline" className="gap-1">
+                            {isLambda ? <Cloud className="size-3" /> : <Circle className="size-3" />}
+                            {isLambda ? "AWS Render" : "Browser Recording"}
+                          </Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" /> {formatDate(entry.completedAt || entry.createdAt)}</span>
                           <span className="inline-flex items-center gap-1"><HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}</span>
-                          <span className="inline-flex items-center gap-1">
-                            {entry.downloadUrl ? <Cloud className="size-3.5" /> : <CheckCircle2 className="size-3.5" />}
-                            {entry.downloadUrl ? "Cloud backup ready" : "Local copy ready"}
-                          </span>
                         </div>
-                        {uploading && <p className="text-xs text-muted-foreground">Still uploading backup copy…</p>}
                         {entry.error && <p className="text-xs text-destructive">{entry.error}</p>}
                       </div>
                     </div>

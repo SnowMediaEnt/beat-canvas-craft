@@ -375,7 +375,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
           <TabsContent value="browser" className="space-y-4 mt-4">
             <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
               <div className="flex items-center gap-1.5 text-foreground/90"><Circle className="size-3.5" /> Record in your browser</div>
-              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Finished recordings are kept in the new Recordings menu beside Export.</p>
+              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Finished recordings are kept in the Completed menu beside Export.</p>
             </div>
 
             {(recording || recordUrl) && (
