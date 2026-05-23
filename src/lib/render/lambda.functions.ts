@@ -57,12 +57,11 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         codec: "h264",
         inputProps: data,
         imageFormat: "jpeg",
-        // Tuned for AWS account with 1000 concurrent execution quota and
-        // new-account burst rate limit. framesPerLambda: 100 produces ~220
-        // parallel Lambdas for a 6-min 60fps video. Lower this for faster
-        // renders once AWS naturally raises my burst limit (happens over
-        // time with usage).
-        framesPerLambda: 100,
+        // Tuned for AWS account with 1000 concurrent execution quota.
+        // framesPerLambda: 120 keeps us under Remotion's 200-function safety
+        // cap for videos up to ~6.5 min at 60fps. For longer videos, raise
+        // this proportionally.
+        framesPerLambda: 120,
         maxRetries: 1,
         privacy: "public",
         downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
