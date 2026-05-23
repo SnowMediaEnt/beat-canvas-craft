@@ -77,11 +77,10 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   return (
     <AbsoluteFill
       style={{
-        background: props.backgroundUrl
-          ? `#000`
-          : `radial-gradient(circle at 50% 50%, ${props.primary}33, #050510 70%)`,
+        background: props.backgroundUrl ? `#000` : `#000`,
       }}
     >
+
       {props.backgroundUrl && (
         <AbsoluteFill>
           <Img

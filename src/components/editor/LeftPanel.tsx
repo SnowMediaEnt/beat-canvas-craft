@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { PRESETS } from "@/lib/visualizer/presets";
-import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX, COLOR_BG_PREFIX, solidColorBackgroundRef } from "@/lib/visualizer/backgrounds";
 import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
 import type { Project } from "@/lib/project/types";
 import { UploadField } from "./UploadField";
@@ -88,8 +88,47 @@ export function LeftPanel({ project, update }: Props) {
 
           <Separator />
 
-          <Section title="Background Library" count={PRESET_BACKGROUNDS.length} defaultOpen={false}>
+          <Section title="Background Library" count={PRESET_BACKGROUNDS.length + 2} defaultOpen={false}>
             <div className="grid grid-cols-3 gap-1.5">
+              {/* None / Black */}
+              <button
+                onClick={() => update(p => ({ ...p, background: undefined }))}
+                title="None — solid black"
+                className={cn(
+                  "relative overflow-hidden rounded-md aspect-video border transition-all bg-black flex items-center justify-center",
+                  !project.background ? "border-primary ring-1 ring-primary" : "border-border hover:border-foreground/40"
+                )}
+              >
+                <span className="text-[10px] font-medium text-white/80">None</span>
+              </button>
+
+              {/* Solid color picker */}
+              {(() => {
+                const isColor = project.background?.id.startsWith(COLOR_BG_PREFIX);
+                const currentHex = isColor
+                  ? project.background!.id.slice(COLOR_BG_PREFIX.length)
+                  : "#7c3aed";
+                return (
+                  <label
+                    title="Pick a solid color"
+                    className={cn(
+                      "relative overflow-hidden rounded-md aspect-video border transition-all cursor-pointer flex items-center justify-center",
+                      isColor ? "border-primary ring-1 ring-primary" : "border-border hover:border-foreground/40"
+                    )}
+                    style={{ backgroundColor: isColor ? currentHex : undefined,
+                             backgroundImage: isColor ? undefined : "linear-gradient(135deg,#ef4444,#f59e0b,#10b981,#3b82f6,#8b5cf6,#ec4899)" }}
+                  >
+                    <span className="text-[10px] font-medium text-white drop-shadow">Color</span>
+                    <input
+                      type="color"
+                      value={currentHex}
+                      onChange={(e) => update(p => ({ ...p, background: solidColorBackgroundRef(e.target.value) }))}
+                      className="absolute inset-0 opacity-0 cursor-pointer"
+                    />
+                  </label>
+                );
+              })()}
+
               {PRESET_BACKGROUNDS.map(bg => {
                 const active = project.background?.id === `${PRESET_BG_PREFIX}${bg.id}`;
                 return (
@@ -108,6 +147,7 @@ export function LeftPanel({ project, update }: Props) {
               })}
             </div>
           </Section>
+
 
           <Separator />
 
