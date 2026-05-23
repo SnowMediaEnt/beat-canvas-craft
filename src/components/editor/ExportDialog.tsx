@@ -44,6 +44,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
   const [recordStage, setRecordStage] = useState<string>("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordRafRef = useRef<number | null>(null);
+  const [jobs, setJobs] = useState<RenderJob[]>([]);
 
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
@@ -55,6 +56,16 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       try { recorderRef.current.stop(); } catch { /* ignore */ }
     }
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setJobs(listJobs().filter((entry) => entry.projectId === project.id));
+  }, [open, project.id, job, recordUrl]);
+
+  const persistJob = (entry: RenderJob) => {
+    saveJob(entry);
+    setJobs(listJobs().filter((saved) => saved.projectId === project.id));
+  };
 
   const stopBrowserRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
@@ -84,6 +95,20 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     if (!mimeType) { toast.error("Browser recording is not supported in this browser"); return; }
 
     try {
+      const browserJobBase: RenderJob = {
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        projectName: project.name,
+        kind: "browser",
+        fileFormat: "webm",
+        status: "queued",
+        progress: 0,
+        createdAt: Date.now(),
+        config: project.export,
+        aspectRatio: project.aspectRatio,
+      };
+      persistJob(browserJobBase);
+
       await engine.resume();
       setRecordStage("Recording…");
       const fps = project.export.fps || 60;
@@ -95,7 +120,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       ]);
 
       const chunks: BlobPart[] = [];
-      const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 8_000_000 });
+      const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 4_500_000 });
       recorderRef.current = rec;
       rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
       rec.onstop = async () => {
@@ -121,11 +146,23 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
           setRecordUrl(remoteUrl);
           setRecordProgress(100);
           setRecordStage("Recording complete");
+          persistJob({
+            ...browserJobBase,
+            status: "completed",
+            progress: 100,
+            completedAt: Date.now(),
+            downloadUrl: remoteUrl,
+          });
           toast.success("Recording complete");
         } catch (e: any) {
           console.error("[browser-record] upload failed", e);
           setRecordStage("");
           setRecordUrl(null);
+          persistJob({
+            ...browserJobBase,
+            status: "failed",
+            error: e?.message || "Unknown error",
+          });
           toast.error(`Recording upload failed: ${e?.message || "unknown"}`);
         } finally {
           setRecording(false);
@@ -140,6 +177,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       await audioEl.play();
       rec.start(1000);
       setRecording(true);
+      persistJob({ ...browserJobBase, status: "rendering" });
 
       const tick = () => {
         if (!audioEl) return;
@@ -176,7 +214,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       status: "queued", progress: 0, createdAt: Date.now(),
       config: project.export, aspectRatio: project.aspectRatio,
     };
-    setJob(j); saveJob(j); setProgress(0); setDownloadUrl(null);
+    setJob(j); persistJob(j); setProgress(0); setDownloadUrl(null);
 
     try {
       setStage("Uploading assets…");
@@ -250,7 +288,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
 
       setStage("Rendering on AWS Lambda…");
       const running: RenderJob = { ...j, status: "rendering" };
-      setJob(running); saveJob(running);
+      setJob(running); persistJob(running);
 
       await new Promise<void>((resolve, reject) => {
         pollRef.current = window.setInterval(async () => {
@@ -258,7 +296,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
             const p = await pollProgress({ data: { renderId, bucketName } });
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
-            saveJob({ ...running, progress: pct });
+            persistJob({ ...running, progress: pct });
             if (p.fatalErrorEncountered) {
               const msg = p.errors[0]?.message || "Lambda render failed";
               window.clearInterval(pollRef.current!); pollRef.current = null;
@@ -267,8 +305,8 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
             if (p.done && p.outputFile) {
               window.clearInterval(pollRef.current!); pollRef.current = null;
               setDownloadUrl(p.outputFile);
-              const done: RenderJob = { ...running, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
-              setJob(done); saveJob(done); setProgress(100);
+              const done: RenderJob = { ...running, kind: "lambda", fileFormat: "mp4", status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
+              setJob(done); persistJob(done); setProgress(100);
               setStage("Complete");
               toast.success("Render complete");
               resolve();
@@ -281,8 +319,8 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       });
     } catch (e: any) {
       console.error("[lambda-render]", e);
-      const failed: RenderJob = { ...j, status: "failed", error: e?.message || "Unknown error" };
-      setJob(failed); saveJob(failed);
+      const failed: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: e?.message || "Unknown error" };
+      setJob(failed); persistJob(failed);
       toast.error(`Render failed: ${e?.message || "unknown"}`);
       setStage("");
     }
@@ -341,6 +379,25 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
               <Button onClick={startBrowserRecording} className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
                 <Circle className="size-4" /> Start Browser Recording
               </Button>
+            )}
+
+            {jobs.some((entry) => entry.kind === "browser" && entry.downloadUrl) && (
+              <div className="space-y-2 rounded-lg border border-border bg-elevated/30 p-3">
+                <div className="text-xs text-muted-foreground">Saved browser recordings</div>
+                <div className="space-y-2">
+                  {jobs
+                    .filter((entry) => entry.kind === "browser" && entry.downloadUrl)
+                    .slice(0, 3)
+                    .map((entry) => (
+                      <Button key={entry.id} asChild variant="outline" className="w-full justify-between gap-2">
+                        <a href={entry.downloadUrl} target="_blank" rel="noreferrer">
+                          <span className="truncate">{entry.projectName}.webm</span>
+                          <span className="text-xs text-muted-foreground">{entry.completedAt ? new Date(entry.completedAt).toLocaleString() : "Saved"}</span>
+                        </a>
+                      </Button>
+                    ))}
+                </div>
+              </div>
             )}
           </TabsContent>
 
