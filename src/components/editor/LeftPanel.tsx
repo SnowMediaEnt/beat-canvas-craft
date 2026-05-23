@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { PRESETS } from "@/lib/visualizer/presets";
-import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX, COLOR_BG_PREFIX, solidColorBackgroundRef } from "@/lib/visualizer/backgrounds";
 import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
 import type { Project } from "@/lib/project/types";
 import { UploadField } from "./UploadField";
