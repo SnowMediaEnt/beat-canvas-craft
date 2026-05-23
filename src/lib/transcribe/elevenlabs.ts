@@ -28,34 +28,54 @@ export function getEntry(assetId: string | undefined): Entry | undefined {
   return cache.get(assetId);
 }
 
-function getKeyUrl() {
-  if (typeof window === "undefined") return "/api/public/elevenlabs-key";
+function getKeyUrlCandidates() {
+  if (typeof window === "undefined") return ["/api/public/elevenlabs-key"];
+
+  const candidates = new Set<string>();
+  candidates.add(new URL("/api/public/elevenlabs-key", window.location.origin).toString());
+
   const host = window.location.hostname;
-  const m = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
-  if (m) return `https://project--${m[1]}-dev.lovable.app/api/public/elevenlabs-key`;
-  return new URL("/api/public/elevenlabs-key", window.location.origin).toString();
+  const fromPreview = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
+  if (fromPreview) {
+    candidates.add(`https://project--${fromPreview[1]}-dev.lovable.app/api/public/elevenlabs-key`);
+  }
+
+  return [...candidates];
 }
 
 async function fetchKey(): Promise<string> {
   if (cachedKey) return cachedKey;
   if (keyPromise) return keyPromise;
-  const url = getKeyUrl();
   keyPromise = (async () => {
-    const res = await fetch(url, { method: "GET" });
-    if (!res.ok) {
-      const t = await res.text().catch(() => "");
-      console.error("[elevenlabs-direct] key fetch failed", res.status, t);
-      keyPromise = null;
-      throw new Error(`Key fetch failed (${res.status})`);
+    const errors: string[] = [];
+
+    for (const url of getKeyUrlCandidates()) {
+      try {
+        console.log("[elevenlabs-direct] key fetch attempt", url);
+        const res = await fetch(url, { method: "GET" });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          console.error("[elevenlabs-direct] key fetch failed", res.status, t);
+          errors.push(`${url} -> ${res.status}`);
+          continue;
+        }
+        const json = (await res.json()) as { key?: string; error?: string };
+        if (!json.key) {
+          errors.push(`${url} -> ${json.error || "missing key"}`);
+          continue;
+        }
+        console.log("[elevenlabs-direct] Key fetched from /api/public/elevenlabs-key (success)");
+        cachedKey = json.key;
+        return cachedKey;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[elevenlabs-direct] key fetch exception", url, message);
+        errors.push(`${url} -> ${message}`);
+      }
     }
-    const json = (await res.json()) as { key?: string; error?: string };
-    if (!json.key) {
-      keyPromise = null;
-      throw new Error(json.error || "Key missing from response");
-    }
-    console.log("[elevenlabs-direct] Key fetched from /api/public/elevenlabs-key (success)");
-    cachedKey = json.key;
-    return cachedKey;
+
+    keyPromise = null;
+    throw new Error(`Key fetch failed: ${errors.join(" | ")}`);
   })();
   return keyPromise;
 }

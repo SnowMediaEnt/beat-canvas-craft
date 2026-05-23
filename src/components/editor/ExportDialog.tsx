@@ -9,7 +9,7 @@ import { saveJob, listJobs } from "@/lib/project/store";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
-import { uploadAssetForRender } from "@/lib/render/upload";
+import { assertRenderableAssetUrl, uploadAssetForRender } from "@/lib/render/upload";
 import { toast } from "sonner";
 
 interface Props {
@@ -56,30 +56,72 @@ export function ExportDialog({ project, audioRef }: Props) {
 
     try {
       setStage("Uploading assets…");
+      console.log("[lambda-render] asset upload request", {
+        audio: project.audio ? { id: project.audio.id, name: project.audio.name, indexedDbKey: `asset:${project.audio.id}` } : null,
+        background: project.background ? { id: project.background.id, name: project.background.name, indexedDbKey: `asset:${project.background.id}` } : null,
+        logo: project.logo ? { id: project.logo.id, name: project.logo.name, indexedDbKey: `asset:${project.logo.id}` } : null,
+      });
+
       const [audioUrl, backgroundUrl, logoUrl] = await Promise.all([
         uploadAssetForRender(project.audio),
         uploadAssetForRender(project.background),
         uploadAssetForRender(project.logo),
       ]);
-      if (!audioUrl) throw new Error("Audio upload failed");
+
+      console.log("[lambda-render] asset upload results", {
+        audioUrl,
+        backgroundUrl,
+        logoUrl,
+      });
+
+      const resolvedAudioUrl = assertRenderableAssetUrl("audio", audioUrl);
+      const resolvedBackgroundUrl = project.background
+        ? assertRenderableAssetUrl("background", backgroundUrl)
+        : null;
+      const resolvedLogoUrl = project.logo
+        ? assertRenderableAssetUrl("logo", logoUrl)
+        : null;
 
       const [w, h] = RES_DIMS[project.aspectRatio][project.export.resolution];
 
       setStage("Starting Lambda render…");
       const v = project.visualizer;
       const l = project.lyrics;
+      const inputProps = {
+        audioUrl: resolvedAudioUrl,
+        durationSeconds: duration,
+        fps: project.export.fps,
+        width: w,
+        height: h,
+        backgroundUrl: resolvedBackgroundUrl,
+        logoUrl: resolvedLogoUrl,
+        primary: v.primary,
+        secondary: v.secondary,
+        accent: v.accent,
+        glow: v.glow,
+        bandCount: v.bandCount,
+        sensitivity: v.sensitivity,
+        thickness: v.thickness,
+        reactivity: v.reactivity,
+        lyrics: l.lines,
+        lyricsEnabled: l.enabled,
+        lyricsColor: l.color,
+        lyricsFontFamily: l.fontFamily,
+        lyricsFontSize: l.fontSize,
+      };
+
+      const invalidFields = Object.entries(inputProps)
+        .filter(([, value]) => value === undefined || value === "")
+        .map(([key, value]) => ({ key, value }));
+
+      console.log("[lambda-render] final inputProps", inputProps);
+      if (invalidFields.length > 0) {
+        console.error("[lambda-render] invalid inputProps detected before Lambda", invalidFields);
+        throw new Error(`Invalid render input: ${invalidFields.map((f) => f.key).join(", ")}`);
+      }
+
       const { renderId, bucketName } = await startRender({
-        data: {
-          audioUrl, durationSeconds: duration,
-          fps: project.export.fps, width: w, height: h,
-          backgroundUrl: backgroundUrl ?? null,
-          logoUrl: logoUrl ?? null,
-          primary: v.primary, secondary: v.secondary, accent: v.accent, glow: v.glow,
-          bandCount: v.bandCount, sensitivity: v.sensitivity,
-          thickness: v.thickness, reactivity: v.reactivity,
-          lyrics: l.lines, lyricsEnabled: l.enabled, lyricsColor: l.color,
-          lyricsFontFamily: l.fontFamily, lyricsFontSize: l.fontSize,
-        },
+        data: inputProps,
       });
 
       setStage("Rendering on AWS Lambda…");

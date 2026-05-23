@@ -44,21 +44,35 @@ function awsConfig() {
 export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.parse(input))
   .handler(async ({ data }) => {
+    console.log("[lambda-render-server] validated inputProps", data);
+
     const { renderMediaOnLambda } = await import("@remotion/lambda-client");
     const { region, functionName, serveUrl } = awsConfig();
-    const result = await renderMediaOnLambda({
-      region,
-      functionName,
-      serveUrl,
-      composition: "Visualizer",
-      codec: "h264",
-      inputProps: data,
-      imageFormat: "jpeg",
-      maxRetries: 1,
-      privacy: "public",
-      downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
-    });
-    return { renderId: result.renderId, bucketName: result.bucketName };
+    try {
+      const result = await renderMediaOnLambda({
+        region,
+        functionName,
+        serveUrl,
+        composition: "Visualizer",
+        codec: "h264",
+        inputProps: data,
+        imageFormat: "jpeg",
+        maxRetries: 1,
+        privacy: "public",
+        downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
+      });
+      return { renderId: result.renderId, bucketName: result.bucketName };
+    } catch (error) {
+      console.error("[lambda-render-server] renderMediaOnLambda failed", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        data,
+        region,
+        functionName,
+        serveUrl,
+      });
+      throw error;
+    }
   });
 
 export const getLambdaProgress = createServerFn({ method: "POST" })
