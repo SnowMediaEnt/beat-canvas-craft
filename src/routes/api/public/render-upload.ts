@@ -45,7 +45,7 @@ export const Route = createFileRoute("/api/public/render-upload")({
           });
         }
 
-        const path = `${assetId}.${ext}`;
+        const path = `${assetId.replace(/[:.]/g, "_")}.${ext}`;
         const { error } = await supabaseAdmin.storage
           .from(BUCKET)
           .upload(path, buf, { contentType, upsert: true });
