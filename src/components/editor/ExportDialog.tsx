@@ -73,8 +73,11 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
     saveJob(entry);
   };
 
+  const isRecording = recording && recorderRef.current?.state === "recording";
+
   const stopBrowserRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      setRecording(false);
       try { recorderRef.current.stop(); } catch { /* ignore */ }
     }
     if (audioRef.current) {
@@ -208,6 +211,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
         setRecordProgress(pct);
         if (audioEl.ended || audioEl.currentTime >= duration - 0.05) {
           if (recorderRef.current && recorderRef.current.state !== "inactive") {
+            setRecording(false);
             try { recorderRef.current.stop(); } catch { /* ignore */ }
           }
           audioEl.pause();
@@ -398,7 +402,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
               </div>
             )}
 
-            {recording ? (
+            {isRecording ? (
               <Button onClick={stopBrowserRecording} variant="destructive" className="w-full gap-2">
                 <Square className="size-4" /> Stop Recording
               </Button>
