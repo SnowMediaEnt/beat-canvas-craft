@@ -324,11 +324,11 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
                 </div>
                 <Progress value={recordProgress} />
                 {recordUrl && (
-                  <a href={recordUrl} target="_blank" rel="noreferrer" className="block">
-                    <Button variant="outline" className="w-full gap-2">
+                  <Button asChild variant="outline" className="w-full gap-2">
+                    <a href={recordUrl} target="_blank" rel="noreferrer">
                       <Download className="size-4" /> Download WebM
-                    </Button>
-                  </a>
+                    </a>
+                  </Button>
                 )}
               </div>
             )}
