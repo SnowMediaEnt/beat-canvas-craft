@@ -30,7 +30,7 @@ const RES_DIMS = {
   "4:5":  { "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
-export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props) {
+export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
@@ -66,19 +66,6 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
       console.error("[browser-record] download failed", error);
       window.open(url, "_blank", "noopener,noreferrer");
     }
-  };
-
-  const getBrowserRecordingUrl = (entry: RenderJob) => entry.localAsset?.url || entry.downloadUrl || null;
-
-  const downloadBrowserRecording = async (entry: RenderJob) => {
-    const url = getBrowserRecordingUrl(entry);
-    if (!url) {
-      toast.error("Recording file is not available yet");
-      return;
-    }
-    const baseName = (entry.projectName || "render").trim() || "render";
-    const fileName = `${baseName}.${entry.fileFormat || "webm"}`;
-    await downloadFile(url, fileName);
   };
 
   useEffect(() => () => {
