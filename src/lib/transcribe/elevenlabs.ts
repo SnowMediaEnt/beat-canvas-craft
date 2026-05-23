@@ -28,14 +28,6 @@ export function getEntry(assetId: string | undefined): Entry | undefined {
   return cache.get(assetId);
 }
 
-function getKeyUrl() {
-  if (typeof window === "undefined") return "/api/public/elevenlabs-key";
-  const host = window.location.hostname;
-  const m = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
-  if (m) return `https://project--${m[1]}-dev.lovable.app/api/public/elevenlabs-key`;
-  return new URL("/api/public/elevenlabs-key", window.location.origin).toString();
-}
-
 function getKeyUrlCandidates() {
   if (typeof window === "undefined") return ["/api/public/elevenlabs-key"];
 
