@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const BUCKET = "render-assets";
-const MAX_BYTES = 150 * 1024 * 1024; // 150MB cap per file
+const MAX_BYTES = 512 * 1024 * 1024; // 512MB cap for long browser-recorded WebM files
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
