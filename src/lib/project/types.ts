@@ -100,6 +100,7 @@ export interface RenderJob {
   createdAt: number;
   completedAt?: number;
   downloadUrl?: string;
+  localAsset?: AssetRef;
   fileFormat?: "mp4" | "webm";
   config: ExportConfig;
   aspectRatio: AspectRatio;
