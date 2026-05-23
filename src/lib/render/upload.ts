@@ -41,45 +41,41 @@ export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<s
   }
 
 
-  const ext = (ref.name.split(".").pop() || "bin").toLowerCase();
-  const path = `${ref.id}.${ext}`;
+  const ext = (ref.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
 
   console.log("[render-upload] upload start", {
     assetId: ref.id,
     name: ref.name,
     type: ref.type,
     indexedDbKey: `asset:${ref.id}`,
-    bucket: BUCKET,
-    path,
     size: blob.size,
   });
 
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(path, blob, { contentType: ref.type || "application/octet-stream", upsert: true });
-  if (error && !`${error.message}`.toLowerCase().includes("exists")) {
-    console.error("[render-upload] upload error", {
-      assetId: ref.id,
-      name: ref.name,
-      path,
-      message: error.message,
-    });
-    throw error;
+  const res = await fetch(UPLOAD_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      "x-asset-id": ref.id,
+      "x-asset-ext": ext,
+      "x-content-type": ref.type || "application/octet-stream",
+    },
+    body: blob,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    console.error("[render-upload] upload error", { status: res.status, body: txt.slice(0, 300) });
+    throw new Error(`Upload failed: ${res.status}`);
   }
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  if (!data.publicUrl) {
-    console.error("[render-upload] public URL missing", { assetId: ref.id, name: ref.name, path });
+  const { url } = (await res.json()) as { url?: string };
+  if (!url) {
+    console.error("[render-upload] public URL missing", { assetId: ref.id, name: ref.name });
     return null;
   }
-  console.log("[render-upload] upload success", {
-    assetId: ref.id,
-    name: ref.name,
-    path,
-    publicUrl: data.publicUrl,
-  });
-  uploadedCache.set(ref.id, data.publicUrl);
-  return data.publicUrl;
+  console.log("[render-upload] upload success", { assetId: ref.id, name: ref.name, publicUrl: url });
+  uploadedCache.set(ref.id, url);
+  return url;
 }
+
 
 export function assertRenderableAssetUrl(kind: UploadKind, url: string | null | undefined) {
   if (typeof url === "string" && url.trim().length > 0) return url;
