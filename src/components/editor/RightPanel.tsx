@@ -74,7 +74,7 @@ export function RightPanel({ project, update }: Props) {
                 <Select value={String(V.bandCount)} onValueChange={(v) => setV(update, "bandCount")(Number(v))}>
                   <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {[3, 5, 7, 10, 12, 16, 24, 32].map(n => <SelectItem key={n} value={String(n)}>{n} bands</SelectItem>)}
+                    {[32, 48, 64, 96, 128, 192, 256].map(n => <SelectItem key={n} value={String(n)}>{n} bands</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
