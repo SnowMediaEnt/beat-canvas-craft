@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
-import { hydrateAsset, storeAsset } from "@/lib/project/assets";
+import { storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
@@ -30,7 +30,7 @@ const RES_DIMS = {
   "4:5":  { "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
-export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props) {
+export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
@@ -45,7 +45,6 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
   const [recordStage, setRecordStage] = useState<string>("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordRafRef = useRef<number | null>(null);
-  const [jobs, setJobs] = useState<RenderJob[]>([]);
 
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
@@ -69,19 +68,6 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     }
   };
 
-  const getBrowserRecordingUrl = (entry: RenderJob) => entry.localAsset?.url || entry.downloadUrl || null;
-
-  const downloadBrowserRecording = async (entry: RenderJob) => {
-    const url = getBrowserRecordingUrl(entry);
-    if (!url) {
-      toast.error("Recording file is not available yet");
-      return;
-    }
-    const baseName = (entry.projectName || "render").trim() || "render";
-    const fileName = `${baseName}.${entry.fileFormat || "webm"}`;
-    await downloadFile(url, fileName);
-  };
-
   useEffect(() => () => {
     if (pollRef.current) window.clearInterval(pollRef.current);
     if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
@@ -90,27 +76,8 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
     }
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    (async () => {
-      const saved = listJobs().filter((entry) => entry.projectId === project.id);
-      const hydrated = await Promise.all(
-        saved.map(async (entry) => ({
-          ...entry,
-          localAsset: await hydrateAsset(entry.localAsset),
-        }))
-      );
-      if (!cancelled) setJobs(hydrated);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, project.id, job, recordUrl]);
-
   const persistJob = (entry: RenderJob) => {
     saveJob(entry);
-    setJobs(listJobs().filter((saved) => saved.projectId === project.id));
   };
 
   const stopBrowserRecording = () => {
@@ -194,6 +161,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
             progress: 100,
             completedAt: Date.now(),
             localAsset,
+            sizeBytes: blob.size,
             fileFormat: "webm",
           };
           persistJob(completedEntry);
@@ -205,8 +173,9 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
               fileName,
               contentType: blob.type || "video/webm",
               blob,
+              onProgress: (pct) => setRecordProgress(pct),
             });
-            persistJob({ ...completedEntry, downloadUrl: remoteUrl });
+            persistJob({ ...completedEntry, downloadUrl: remoteUrl, status: "completed", progress: 100 });
           } catch (e: any) {
             console.error("[browser-record] remote backup upload failed", e);
             toast.error("Recording saved locally. Cloud backup upload failed.");
@@ -408,7 +377,7 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
           <TabsContent value="browser" className="space-y-4 mt-4">
             <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
               <div className="flex items-center gap-1.5 text-foreground/90"><Circle className="size-3.5" /> Record in your browser</div>
-              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Keep this tab focused and visible for best results — recording takes as long as the song.</p>
+              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Finished recordings are kept in the new Recordings menu beside Export.</p>
             </div>
 
             {(recording || recordUrl) && (
@@ -445,27 +414,6 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
               </Button>
             )}
 
-            {jobs.some((entry) => entry.kind === "browser" && (entry.localAsset?.url || entry.downloadUrl)) && (
-              <div className="space-y-2 rounded-lg border border-border bg-elevated/30 p-3">
-                <div className="text-xs text-muted-foreground">Saved browser recordings</div>
-                <div className="space-y-2">
-                  {jobs
-                    .filter((entry) => entry.kind === "browser" && (entry.localAsset?.url || entry.downloadUrl))
-                    .slice(0, 3)
-                    .map((entry) => (
-                      <Button
-                        key={entry.id}
-                        variant="outline"
-                        className="w-full justify-between gap-2"
-                        onClick={() => void downloadBrowserRecording(entry)}
-                      >
-                          <span className="truncate">{entry.projectName}.webm</span>
-                          <span className="text-xs text-muted-foreground">{entry.completedAt ? new Date(entry.completedAt).toLocaleString() : "Saved"}</span>
-                      </Button>
-                    ))}
-                </div>
-              </div>
-            )}
           </TabsContent>
 
           {/* Server-side Lambda render */}

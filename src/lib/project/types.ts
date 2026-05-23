@@ -99,6 +99,7 @@ export interface RenderJob {
   progress: number;
   createdAt: number;
   completedAt?: number;
+  sizeBytes?: number;
   downloadUrl?: string;
   localAsset?: AssetRef;
   fileFormat?: "mp4" | "webm";

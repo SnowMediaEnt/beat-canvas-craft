@@ -6,6 +6,7 @@ import { RightPanel } from "@/components/editor/RightPanel";
 import { VisualizerCanvas } from "@/components/editor/VisualizerCanvas";
 import { Transport } from "@/components/editor/Transport";
 import { ExportDialog } from "@/components/editor/ExportDialog";
+import { RecordingsDialog } from "@/components/editor/RecordingsDialog";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -121,6 +122,7 @@ function EditorPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground hidden md:inline">Auto-saved</span>
+          <RecordingsDialog project={project} />
           <ExportDialog project={project} update={update} canvasRef={canvasRef} audioRef={audioRef} engineRef={engineRef} />
         </div>
       </header>
