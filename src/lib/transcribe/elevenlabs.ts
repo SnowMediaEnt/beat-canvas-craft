@@ -60,28 +60,29 @@ export function hydrateFromIdb(assetId: string): Promise<TranscribedWord[] | und
   return p;
 }
 
+const KEY_PATH = "/api/public/elevenlabs-key";
+
 function getKeyUrlCandidates() {
-  if (typeof window === "undefined") return ["/api/public/elevenlabs-key"];
+  if (typeof window === "undefined") return [KEY_PATH];
 
   const candidates = new Set<string>();
-  candidates.add(new URL("/api/public/elevenlabs-key", window.location.origin).toString());
-
   const host = window.location.hostname;
-  // Sandbox preview: <uuid>.lovableproject.com
-  const fromLovableProject = host.match(/^([0-9a-f-]{36})\.lovableproject\.com$/i);
-  if (fromLovableProject) {
-    candidates.add(`https://project--${fromLovableProject[1]}-dev.lovable.app/api/public/elevenlabs-key`);
-  }
-  // id-preview--<uuid>.lovable.app — static preview without server routes
-  const fromIdPreview = host.match(/^id-preview--([0-9a-f-]{36})\.lovable\.app$/i);
-  if (fromIdPreview) {
-    candidates.add(`https://project--${fromIdPreview[1]}-dev.lovable.app/api/public/elevenlabs-key`);
-    candidates.add(`https://project--${fromIdPreview[1]}.lovable.app/api/public/elevenlabs-key`);
-  }
-  // Any other lovable.app/lovableproject.com host — try the published URL pattern
   const uuidMatch = host.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  if (uuidMatch) {
-    candidates.add(`https://project--${uuidMatch[1]}.lovable.app/api/public/elevenlabs-key`);
+  const projectId = uuidMatch?.[1];
+  const isStaticPreview = /^id-preview--[0-9a-f-]{36}\.lovable\.app$/i.test(host);
+  const isSandboxHost = /^[0-9a-f-]{36}\.lovableproject\.com$/i.test(host);
+
+  if (projectId) {
+    candidates.add(`https://project--${projectId}-dev.lovable.app${KEY_PATH}`);
+    candidates.add(`https://project--${projectId}.lovable.app${KEY_PATH}`);
+  }
+
+  if (!isStaticPreview && !isSandboxHost) {
+    candidates.add(new URL(KEY_PATH, window.location.origin).toString());
+  }
+
+  if (isSandboxHost) {
+    candidates.add(new URL(KEY_PATH, window.location.origin).toString());
   }
 
   return [...candidates];
@@ -96,11 +97,18 @@ async function fetchKey(): Promise<string> {
     for (const url of getKeyUrlCandidates()) {
       try {
         console.log("[elevenlabs-direct] key fetch attempt", url);
-        const res = await fetch(url, { method: "GET" });
+        const res = await fetch(url, { method: "GET", cache: "no-store" });
         if (!res.ok) {
           const t = await res.text().catch(() => "");
           console.error("[elevenlabs-direct] key fetch failed", res.status, t);
           errors.push(`${url} -> ${res.status}`);
+          continue;
+        }
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.toLowerCase().includes("application/json")) {
+          const body = await res.text().catch(() => "");
+          console.error("[elevenlabs-direct] key fetch returned non-json", url, contentType, body.slice(0, 160));
+          errors.push(`${url} -> non-json ${contentType || "unknown"}`);
           continue;
         }
         const json = (await res.json()) as { key?: string; error?: string };
