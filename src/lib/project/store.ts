@@ -97,9 +97,15 @@ export const listJobs = (): RenderJob[] => read<RenderJob[]>(JOBS_KEY, []);
 export const saveJob = (j: RenderJob) => {
   const all = listJobs();
   const i = all.findIndex(x => x.id === j.id);
-  if (i >= 0) all[i] = j; else all.unshift(j);
+  const persisted: RenderJob = {
+    ...j,
+    localAsset: stripAssetUrl(j.localAsset),
+  };
+  if (i >= 0) all[i] = persisted; else all.unshift(persisted);
   write(JOBS_KEY, all);
 };
+
+export const deleteJob = (id: string) => write(JOBS_KEY, listJobs().filter(j => j.id !== id));
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
