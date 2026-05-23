@@ -449,9 +449,13 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
                 </div>
                 <Progress value={progress} />
                 {downloadUrl && (
-                  <a href={downloadUrl} target="_blank" rel="noreferrer" className="block">
-                    <Button variant="outline" className="w-full gap-2"><Download className="size-4" /> Download MP4</Button>
-                  </a>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => void downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
+                  >
+                    <Download className="size-4" /> Download MP4
+                  </Button>
                 )}
                 {job.status === "failed" && job.error && (
                   <p className="text-xs text-destructive">{job.error}</p>
