@@ -5,8 +5,9 @@ import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square } from "l
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { Project, RenderJob } from "@/lib/project/types";
+import type { AssetRef, Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
+import { storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
@@ -48,6 +49,38 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
 
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
+
+  const downloadFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1_000);
+    } catch (error) {
+      console.error("[browser-record] download failed", error);
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const getBrowserRecordingUrl = (entry: RenderJob) => entry.localAsset?.url || entry.downloadUrl || null;
+
+  const downloadBrowserRecording = async (entry: RenderJob) => {
+    const url = getBrowserRecordingUrl(entry);
+    if (!url) {
+      toast.error("Recording file is not available yet");
+      return;
+    }
+    const baseName = (entry.projectName || "render").trim() || "render";
+    const fileName = `${baseName}.${entry.fileFormat || "webm"}`;
+    await downloadFile(url, fileName);
+  };
 
   useEffect(() => () => {
     if (pollRef.current) window.clearInterval(pollRef.current);
@@ -132,27 +165,41 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
         [...videoTracks, ...audioTracks].forEach((track) => track.stop());
 
         try {
-          setRecordStage("Uploading WebM…");
           const blob = new Blob(chunks, { type: mimeType });
           const baseName = (project.name || "render").trim() || "render";
           const fileName = `${baseName}.webm`;
-          const remoteUrl = await uploadBlobForRender({
-            assetId: `browser-recording-${crypto.randomUUID()}`,
-            fileName,
-            contentType: blob.type || "video/webm",
-            blob,
-          });
+          const localAsset = await storeAsset(new File([blob], fileName, { type: blob.type || "video/webm" }));
+          let remoteUrl: string | undefined;
 
-          setRecordUrl(remoteUrl);
+          setRecordUrl(localAsset.url);
           setRecordProgress(100);
-          setRecordStage("Recording complete");
-          persistJob({
+          setRecordStage("Saving recording…");
+
+          const completedEntry: RenderJob = {
             ...browserJobBase,
             status: "completed",
             progress: 100,
             completedAt: Date.now(),
-            downloadUrl: remoteUrl,
-          });
+            localAsset,
+            fileFormat: "webm",
+          };
+          persistJob(completedEntry);
+
+          try {
+            setRecordStage("Uploading backup copy…");
+            remoteUrl = await uploadBlobForRender({
+              assetId: `browser-recording-${crypto.randomUUID()}`,
+              fileName,
+              contentType: blob.type || "video/webm",
+              blob,
+            });
+            persistJob({ ...completedEntry, downloadUrl: remoteUrl });
+          } catch (e: any) {
+            console.error("[browser-record] remote backup upload failed", e);
+            toast.error("Recording saved locally. Cloud backup upload failed.");
+          }
+
+          setRecordStage(remoteUrl ? "Recording complete" : "Recording saved locally");
           toast.success("Recording complete");
         } catch (e: any) {
           console.error("[browser-record] upload failed", e);
@@ -383,19 +430,22 @@ export function ExportDialog({ project, canvasRef, audioRef, engineRef }: Props)
               </Button>
             )}
 
-            {jobs.some((entry) => entry.kind === "browser" && entry.downloadUrl) && (
+            {jobs.some((entry) => entry.kind === "browser" && (entry.localAsset?.url || entry.downloadUrl)) && (
               <div className="space-y-2 rounded-lg border border-border bg-elevated/30 p-3">
                 <div className="text-xs text-muted-foreground">Saved browser recordings</div>
                 <div className="space-y-2">
                   {jobs
-                    .filter((entry) => entry.kind === "browser" && entry.downloadUrl)
+                    .filter((entry) => entry.kind === "browser" && (entry.localAsset?.url || entry.downloadUrl))
                     .slice(0, 3)
                     .map((entry) => (
-                      <Button key={entry.id} asChild variant="outline" className="w-full justify-between gap-2">
-                        <a href={entry.downloadUrl} target="_blank" rel="noreferrer">
+                      <Button
+                        key={entry.id}
+                        variant="outline"
+                        className="w-full justify-between gap-2"
+                        onClick={() => void downloadBrowserRecording(entry)}
+                      >
                           <span className="truncate">{entry.projectName}.webm</span>
                           <span className="text-xs text-muted-foreground">{entry.completedAt ? new Date(entry.completedAt).toLocaleString() : "Saved"}</span>
-                        </a>
                       </Button>
                     ))}
                 </div>
