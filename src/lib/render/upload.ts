@@ -1,8 +1,8 @@
 import { get } from "idb-keyval";
 import type { AssetRef } from "@/lib/project/types";
-import { supabase } from "@/integrations/supabase/client";
 
-const BUCKET = "render-assets";
+const UPLOAD_ENDPOINT = "/api/public/render-upload";
+
 const uploadedCache = new Map<string, string>();
 
 type UploadKind = "audio" | "background" | "logo" | "asset";
