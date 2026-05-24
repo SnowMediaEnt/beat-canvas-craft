@@ -70,13 +70,13 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       });
       const { renderMediaOnLambda } = await import("@remotion/lambda-client");
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
-      // Spawn as few render lambdas as possible to stay under AWS's per-second
-      // invoke rate limit (the "Rate Exceeded" error). With framesPerLambda
-      // very high, a typical song produces only 2-3 worker lambdas + the
-      // orchestrator, which AWS will not throttle.
-      // Retry the orchestrator invoke if AWS throttles us (Rate Exceeded).
-      // maxRetries on renderMediaOnLambda only applies to per-chunk renders,
-      // not the initial invocation.
+      // IMPORTANT: do NOT set framesPerLambda high — that forces a single
+      // renderer lambda to do all frames and it hits AWS's 900s hard timeout
+      // on anything longer than ~2 minutes (the symptom: render stalls
+      // around 40% then errors out as "main function timed out after
+      // 900000ms"). Let Remotion auto-split the work across many parallel
+      // workers — its default heuristic keeps each chunk well under the
+      // 900s timeout. Retry the orchestrator invoke if AWS throttles us.
       let result;
       let attempt = 0;
       const maxAttempts = 5;
@@ -90,9 +90,9 @@ export const startLambdaRender = createServerFn({ method: "POST" })
             codec: "h264",
             inputProps: data,
             imageFormat: "jpeg",
-            framesPerLambda: 12000,
             maxRetries: 3,
             privacy: "public",
+            concurrencyPerLambda: 1,
           });
           break;
         } catch (err) {
