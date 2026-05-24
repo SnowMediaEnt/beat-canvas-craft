@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Download, Trash2, HardDrive, Clock3, Cloud, Circle } from "lucide-react";
+import { CheckCircle2, Download, Trash2, HardDrive, Clock3, Cloud, Circle, Loader2 } from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
-import { deleteJob, listJobs } from "@/lib/project/store";
+import { deleteJob, listJobs, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
+import { useServerFn } from "@tanstack/react-start";
+import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { toast } from "sonner";
 
 interface Props {
@@ -34,24 +36,80 @@ export function CompletedDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<RenderJob[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const pollProgress = useServerFn(getLambdaProgress);
+  const pollingRef = useRef<Set<string>>(new Set());
+
+  const refresh = async () => {
+    const saved = listJobs().filter((entry) => entry.projectId === project.id);
+    const hydrated = await Promise.all(
+      saved.map(async (entry) => ({
+        ...entry,
+        localAsset: await hydrateAsset(entry.localAsset),
+      }))
+    );
+    setEntries(hydrated);
+    return hydrated;
+  };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const saved = listJobs().filter((entry) => entry.projectId === project.id);
-      const hydrated = await Promise.all(
-        saved.map(async (entry) => ({
-          ...entry,
-          localAsset: await hydrateAsset(entry.localAsset),
-        }))
-      );
-      if (!cancelled) setEntries(hydrated);
+      const hydrated = await refresh();
+      if (cancelled) return;
+
+      // Auto-resume polling for any in-flight Lambda renders (e.g. page was reloaded).
+      for (const entry of hydrated) {
+        if (
+          entry.kind === "lambda" &&
+          entry.renderId &&
+          entry.bucketName &&
+          !entry.downloadUrl &&
+          entry.status !== "failed" &&
+          !pollingRef.current.has(entry.id)
+        ) {
+          pollingRef.current.add(entry.id);
+          void resumePolling(entry);
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, project.id]);
+
+  const resumePolling = async (entry: RenderJob) => {
+    if (!entry.renderId || !entry.bucketName) return;
+    try {
+      while (true) {
+        const p = await pollProgress({ data: { renderId: entry.renderId, bucketName: entry.bucketName } });
+        const pct = Math.round((p.overallProgress || 0) * 100);
+        const next: RenderJob = { ...entry, progress: pct, status: "rendering" };
+        saveJob(next);
+        setEntries((current) => current.map((it) => (it.id === entry.id ? { ...it, progress: pct, status: "rendering" } : it)));
+        if (p.fatalErrorEncountered) {
+          const failed: RenderJob = { ...next, status: "failed", error: p.errors[0]?.message || "Lambda render failed" };
+          saveJob(failed);
+          setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
+          toast.error(`Render failed: ${failed.error}`);
+          break;
+        }
+        if (p.done && p.outputFile) {
+          const done: RenderJob = { ...next, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
+          saveJob(done);
+          setEntries((current) => current.map((it) => (it.id === entry.id ? done : it)));
+          toast.success("Render complete");
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    } catch (e: any) {
+      console.error("[completed-dialog] resume polling failed", e);
+    } finally {
+      pollingRef.current.delete(entry.id);
+    }
+  };
 
   const completed = useMemo(
     () => entries.sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),

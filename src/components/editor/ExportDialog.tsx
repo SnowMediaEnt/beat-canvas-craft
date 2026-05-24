@@ -316,7 +316,7 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
       });
 
       setStage("Rendering on AWS Lambda…");
-      const running: RenderJob = { ...j, status: "rendering" };
+      const running: RenderJob = { ...j, status: "rendering", renderId, bucketName };
       setJob(running); persistJob(running);
 
       await new Promise<void>((resolve, reject) => {
