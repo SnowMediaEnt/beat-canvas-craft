@@ -90,14 +90,16 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const groupWordsIntoLines = (
     words: { text: string; start: number; end: number }[],
   ): { time: number; text: string }[] => {
-    const lines: { time: number; text: string }[] = [];
+    const lines: { time: number; text: string; end: number }[] = [];
     const GAP = 0.7; // seconds of silence => new line
+    const INSTRUMENTAL_GAP = 8; // seconds of silence => insert instrumental marker
     const MAX_WORDS = 9;
     let buf: { text: string; start: number; end: number }[] = [];
     const flush = () => {
       if (!buf.length) return;
       lines.push({
         time: buf[0].start,
+        end: buf[buf.length - 1].end,
         text: buf.map(w => w.text).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim(),
       });
       buf = [];
@@ -110,7 +112,24 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       buf.push(w);
     }
     flush();
-    return lines;
+
+    // Insert instrumental markers for long silent spans
+    const dur = audioRef.current?.duration || 0;
+    const out: { time: number; text: string }[] = [];
+    if (lines.length && lines[0].time >= INSTRUMENTAL_GAP) {
+      out.push({ time: 0.2, text: "♪ instrumental ♪" });
+    }
+    for (let i = 0; i < lines.length; i++) {
+      out.push({ time: lines[i].time, text: lines[i].text });
+      const next = lines[i + 1];
+      if (next && next.time - lines[i].end >= INSTRUMENTAL_GAP) {
+        out.push({ time: lines[i].end + 0.2, text: "♪ instrumental ♪" });
+      }
+    }
+    if (lines.length && dur && dur - lines[lines.length - 1].end >= INSTRUMENTAL_GAP) {
+      out.push({ time: lines[lines.length - 1].end + 0.2, text: "♪ instrumental ♪" });
+    }
+    return out;
   };
 
   const autoSync = async (text: string) => {

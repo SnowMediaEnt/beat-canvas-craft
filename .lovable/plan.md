@@ -1,35 +1,30 @@
-## Goal
+## Why minutes go missing
 
-Rename the "Recordings" menu to "Completed" and make it the unified place to access both AWS Lambda MP4 renders and browser WebM recordings, so finished cloud renders stay reachable after the export dialog closes.
+When the lyric box is empty, Auto-sync just transcribes the song with ElevenLabs and groups the returned words into lines. A gap from 2:47 → 4:34 with nothing in between means ElevenLabs returned no word timestamps in that span. Two real causes:
+
+1. **Instrumental / bridge sections.** Scribe is a speech model. If the vocal drops out (solo, drum break, heavy mix) it correctly returns zero words there — but we silently produce nothing, so it looks like lines are "missing."
+2. **`scribe_v1` accuracy on sung audio.** We're calling the older `scribe_v1` model in `src/lib/transcribe/elevenlabs.ts`. `scribe_v2` is noticeably better on music/sung vocals and tends to recover words v1 drops mid-song.
+
+Our grouping logic in `Transport.tsx` (`GAP = 0.7s`, `MAX_WORDS = 9`) is fine — it never deletes words, it just splits them. So the fix is upstream: get more words from ElevenLabs, and visualize the spans where there genuinely are none.
 
 ## Changes
 
-### 1. `src/components/editor/RecordingsDialog.tsx` → rename file to `CompletedDialog.tsx`
-- Rename component `RecordingsDialog` → `CompletedDialog`.
-- Trigger button label: "Recordings" → "Completed".
-- Dialog title: "Saved recordings" → "Completed renders".
-- Remove the `kind === "browser"` filter so both `lambda` and `browser` jobs appear; sort by `completedAt || createdAt` desc.
-- Per-entry display tweaks:
-  - Filename suffix uses `entry.fileFormat` (`.mp4` for lambda, `.webm` for browser) instead of hard-coded `.webm`.
-  - Show a small badge ("AWS Render" vs "Browser Recording") based on `entry.kind`.
-  - Status badge: "Ready" if a download source exists, else "Processing".
-- Download logic for lambda entries: prefer `entry.downloadUrl` (the S3 `outputFile` URL already saved by `ExportDialog`). For browser entries: prefer local asset, fall back to `downloadUrl`. Reuse the existing programmatic `<a download>` click pattern.
-- Remove (Trash) just deletes the job record from localStorage; we do not delete the S3 object (out of scope, would require a new server fn).
-- Empty state copy: "No completed renders yet."
+### 1. Upgrade transcription model — `src/lib/transcribe/elevenlabs.ts`
+- Change `model_id` from `scribe_v1` to `scribe_v2`.
+- Bump cached transcripts key so old `scribe_v1` results re-transcribe once (e.g. `transcript:v2:${assetId}`), otherwise users keep seeing the old gappy result.
 
-### 2. `src/components/editor/ExportDialog.tsx`
-- Update the helper copy that mentions "the new Recordings menu beside Export" to say "the Completed menu beside Export".
-- No other behavior changes; lambda completion already persists `downloadUrl` via `persistJob`, so completed AWS renders will automatically show up in the Completed list.
+### 2. Insert visible instrumental markers — `src/components/editor/Transport.tsx` (`groupWordsIntoLines`)
+- After grouping, scan adjacent line pairs. If the gap between `lines[i].end` and `lines[i+1].start` is `>= 8s` (configurable), insert a synthetic line `{ time: lines[i].end + 0.2, text: "♪ instrumental ♪" }`.
+- Also add a leading marker if `lines[0].time >= 8s` and a trailing one if `duration - lastLine.end >= 8s`.
+- This way the gap is explicit in the lyric list and on the timeline rather than appearing as missing content. Users can delete or rename the marker line from the lyric textarea.
 
-### 3. Import site (likely `src/routes/editor.$projectId.tsx`)
-- Update the import from `RecordingsDialog` to `CompletedDialog` and the JSX usage.
+### 3. Small diagnostic log
+- In `runTranscription`, after parsing, log word count, duration covered, and longest gap (`max(words[i+1].start - words[i].end)`). Makes it obvious in the console whether future "missing lyrics" reports are model dropouts vs. real instrumentals.
 
-## Non-changes (intentionally out of scope)
-- Browser recording feature is left in place. User said "probably won't be using it" but did not ask to remove it; keeping it avoids breaking saved recordings.
-- No S3-side delete (would need a server function + AWS perms).
-- No re-polling of in-flight lambda jobs from the Completed dialog. If a render is still running when the user closes Export, it will only appear once that session finishes the poll loop. (Can add later if needed.)
+## Out of scope
+- Not changing the alignment path (pasted lyrics + Auto-sync) — that uses a different code path and the user confirmed this issue is on the empty-box generation path.
+- Not changing the visualizer rendering.
 
-## Verification
-- Open Completed dialog after a finished AWS render → entry appears with `.mp4`, Download triggers the S3 file.
-- Old browser recordings still appear with `.webm` and download from local asset.
-- Build passes (rename + import update).
+## Files touched
+- `src/lib/transcribe/elevenlabs.ts`
+- `src/components/editor/Transport.tsx`
