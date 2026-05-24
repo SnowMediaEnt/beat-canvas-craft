@@ -159,6 +159,8 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
               textShadow: `0 0 24px ${props.glow}`,
               maxWidth: width * 0.8,
               textAlign: "center",
+              overflowWrap: "break-word",
+              whiteSpace: "pre-wrap",
             }}
           >
             {activeLyric.text}
