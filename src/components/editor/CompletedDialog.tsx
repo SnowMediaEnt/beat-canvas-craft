@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Download, Trash2, HardDrive, Clock3, Cloud, Circle, Loader2 } from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
-import { deleteJob, listJobs, saveJob } from "@/lib/project/store";
+import { deleteJob, listJobsFromStorage, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
@@ -40,7 +40,7 @@ export function CompletedDialog({ project }: Props) {
   const pollingRef = useRef<Set<string>>(new Set());
 
   const refresh = async () => {
-    const saved = listJobs().filter((entry) => entry.projectId === project.id);
+    const saved = (await listJobsFromStorage()).filter((entry) => entry.projectId === project.id);
     const hydrated = await Promise.all(
       saved.map(async (entry) => ({
         ...entry,
