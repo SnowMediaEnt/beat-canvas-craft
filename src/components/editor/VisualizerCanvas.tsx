@@ -129,13 +129,8 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
         ctx.globalAlpha = 1;
       }
 
-      // Visualizer
-      const preset = getPreset(cfg.presetId);
-      ctx.save();
-      ctx.globalCompositeOperation = cfg.blendMode;
-      if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
-      preset.draw({ ctx, w: rw, h: rh, cfg, audio, t, logo: logoRef.current || undefined });
-      ctx.restore();
+      // Visualizer (Motion → Movement / Shadow / Border applied inside helper)
+      drawVisualizerLayer({ ctx, w: rw, h: rh, cfg, audio, t, logo: logoRef.current || undefined });
 
       // Logo
       if (logoRef.current) {
@@ -154,64 +149,8 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
       // Effects
       drawEffects({ ctx, w: rw, h: rh, cfg, audio, t }, project.effects);
 
-      // Lyrics (with word wrap)
-      if (project.lyrics.enabled && project.lyrics.lines.length) {
-        const cur = [...project.lyrics.lines].reverse().find(l => l.time <= audio.time);
-        if (cur) {
-          const L = project.lyrics;
-          ctx.save();
-          ctx.font = `600 ${L.fontSize}px ${L.fontFamily}, sans-serif`;
-          const maxWidth = rw * 0.8;
-          const lineHeight = L.fontSize * 1.2;
-
-          // Word wrap
-          const words = cur.text.split(" ");
-          const lines: string[] = [];
-          let currentLine = "";
-          for (const word of words) {
-            const test = currentLine ? currentLine + " " + word : word;
-            if (ctx.measureText(test).width <= maxWidth) {
-              currentLine = test;
-            } else {
-              if (currentLine) lines.push(currentLine);
-              currentLine = word;
-            }
-          }
-          if (currentLine) lines.push(currentLine);
-          if (lines.length === 1 && ctx.measureText(cur.text).width > maxWidth) {
-            // Emergency break for single very long word
-            let s = cur.text, built = "";
-            for (const ch of s) {
-              if (ctx.measureText(built + ch).width <= maxWidth) built += ch;
-              else { if (built) lines.push(built); built = ch; }
-            }
-            if (built) lines.push(built);
-          }
-
-          const textAlign = L.position === "left" ? "left" : L.position === "right" ? "right" : "center";
-          ctx.textAlign = textAlign;
-          ctx.textBaseline = "middle";
-          let x = rw / 2, y = rh - 120;
-          if (L.position === "top") y = 120;
-          if (L.position === "center") y = rh / 2;
-          if (L.position === "left") { x = 60; y = rh / 2; }
-          if (L.position === "right") { x = rw - 60; y = rh / 2; }
-
-          const totalHeight = lines.length * lineHeight;
-          const startY = y - totalHeight / 2 + lineHeight / 2;
-
-          if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8; }
-          if (L.glow) { ctx.shadowColor = project.visualizer.glow; ctx.shadowBlur = 20; }
-
-          for (let li = 0; li < lines.length; li++) {
-            const lineY = startY + li * lineHeight;
-            if (L.outline) { ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.lineWidth = 4; ctx.strokeText(lines[li], x, lineY); }
-            ctx.fillStyle = L.color;
-            ctx.fillText(lines[li], x, lineY);
-          }
-          ctx.restore();
-        }
-      }
+      // Lyrics (subtitle/karaoke + fade handled in shared helper)
+      drawLyrics(ctx, rw, rh, project.lyrics, audio.time, project.visualizer.glow);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
