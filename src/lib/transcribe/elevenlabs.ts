@@ -156,7 +156,13 @@ async function runTranscription(file: Blob, filename: string): Promise<Transcrib
   const words: TranscribedWord[] = (data.words ?? [])
     .filter((w) => (w.type ?? "word") === "word" && typeof w.start === "number")
     .map((w) => ({ text: w.text, start: w.start, end: w.end }));
-  console.log(`[elevenlabs-direct] ${words.length} words returned, stored in cache`);
+  let longestGap = 0;
+  for (let i = 1; i < words.length; i++) {
+    const g = words[i].start - words[i - 1].end;
+    if (g > longestGap) longestGap = g;
+  }
+  const covered = words.length ? words[words.length - 1].end - words[0].start : 0;
+  console.log(`[elevenlabs-direct] ${words.length} words | covered ${covered.toFixed(1)}s | longest gap ${longestGap.toFixed(1)}s`);
   return words;
 }
 
