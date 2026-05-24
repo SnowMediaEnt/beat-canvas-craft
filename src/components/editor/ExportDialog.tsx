@@ -30,7 +30,7 @@ const RES_DIMS = {
   "4:5":  { "4k": [2160, 2700], "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
-export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props) {
+export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
