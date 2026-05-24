@@ -276,8 +276,6 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
       const [w, h] = RES_DIMS[project.aspectRatio][project.export.resolution];
 
       setStage("Starting Lambda render…");
-      const v = project.visualizer;
-      const l = project.lyrics;
       const inputProps = {
         audioUrl: resolvedAudioUrl,
         durationSeconds: duration,
@@ -285,20 +283,11 @@ export function ExportDialog({ project, audioRef, canvasRef, engineRef }: Props)
         width: w,
         height: h,
         backgroundUrl: resolvedBackgroundUrl,
+        backgroundType: project.background?.type ?? null,
         logoUrl: resolvedLogoUrl,
-        primary: v.primary,
-        secondary: v.secondary,
-        accent: v.accent,
-        glow: v.glow,
-        bandCount: v.bandCount,
-        sensitivity: v.sensitivity,
-        thickness: v.thickness,
-        reactivity: v.reactivity,
-        lyrics: l.lines,
-        lyricsEnabled: l.enabled,
-        lyricsColor: l.color,
-        lyricsFontFamily: l.fontFamily,
-        lyricsFontSize: l.fontSize,
+        visualizer: project.visualizer,
+        effects: project.effects,
+        lyrics: project.lyrics,
       };
 
       const invalidFields = Object.entries(inputProps)
