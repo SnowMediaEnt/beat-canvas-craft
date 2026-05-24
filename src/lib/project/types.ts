@@ -106,4 +106,7 @@ export interface RenderJob {
   config: ExportConfig;
   aspectRatio: AspectRatio;
   error?: string;
+  /** AWS Lambda render handle — kept so polling can resume after reload. */
+  renderId?: string;
+  bucketName?: string;
 }
