@@ -63,21 +63,41 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       // invoke rate limit (the "Rate Exceeded" error). With framesPerLambda
       // very high, a typical song produces only 2-3 worker lambdas + the
       // orchestrator, which AWS will not throttle.
-      const result = await renderMediaOnLambda({
-        region,
-        functionName,
-        serveUrl,
-        composition: "Visualizer",
-        codec: "h264",
-        inputProps: data,
-        imageFormat: "jpeg",
-        framesPerLambda: 12000,
-        maxRetries: 3,
-        privacy: "public",
-      });
+      // Retry the orchestrator invoke if AWS throttles us (Rate Exceeded).
+      // maxRetries on renderMediaOnLambda only applies to per-chunk renders,
+      // not the initial invocation.
+      let result;
+      let attempt = 0;
+      const maxAttempts = 5;
+      while (true) {
+        try {
+          result = await renderMediaOnLambda({
+            region,
+            functionName,
+            serveUrl,
+            composition: "Visualizer",
+            codec: "h264",
+            inputProps: data,
+            imageFormat: "jpeg",
+            framesPerLambda: 12000,
+            maxRetries: 3,
+            privacy: "public",
+          });
+          break;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const throttled = /rate exceeded|concurrency limit|throttl/i.test(msg);
+          attempt += 1;
+          if (!throttled || attempt >= maxAttempts) throw err;
+          const backoffMs = 1000 * Math.pow(2, attempt); // 2s, 4s, 8s, 16s
+          console.warn(`[lambda-render-server] AWS throttled, retry ${attempt}/${maxAttempts - 1} in ${backoffMs}ms`);
+          await new Promise((r) => setTimeout(r, backoffMs));
+        }
+      }
 
       console.log("[lambda-render-server] renderMediaOnLambda result", result);
       return { renderId: result.renderId, bucketName: result.bucketName };
+
     } catch (error) {
       console.error("[lambda-render-server] renderMediaOnLambda failed", {
         message: error instanceof Error ? error.message : String(error),
