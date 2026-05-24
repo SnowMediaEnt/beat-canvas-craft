@@ -408,16 +408,31 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">FPS</label>
-                <Select value={String(project.export.fps)} disabled>
+                <Select
+                  value={String(project.export.fps)}
+                  onValueChange={(v) => update((p) => ({ ...p, export: { ...p.export, fps: Number(v) as 30 | 45 | 60 | 120 } }))}
+                >
                   <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="30">30 fps</SelectItem><SelectItem value="60">60 fps</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="30">30 fps</SelectItem>
+                    <SelectItem value="45">45 fps</SelectItem>
+                    <SelectItem value="60">60 fps</SelectItem>
+                    <SelectItem value="120">120 fps</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Resolution</label>
-                <Select value={project.export.resolution} disabled>
+                <Select
+                  value={project.export.resolution}
+                  onValueChange={(v) => update((p) => ({ ...p, export: { ...p.export, resolution: v as "4k" | "1080p" | "720p" } }))}
+                >
                   <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="1080p">1080p</SelectItem><SelectItem value="720p">720p</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="720p">720p (HD)</SelectItem>
+                    <SelectItem value="1080p">1080p (Full HD)</SelectItem>
+                    <SelectItem value="4k">4K (Ultra HD)</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
             </div>
