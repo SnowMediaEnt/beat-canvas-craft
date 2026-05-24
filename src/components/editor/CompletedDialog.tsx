@@ -36,12 +36,16 @@ const formatDate = (ts?: number) => {
 export function CompletedDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<RenderJob[]>([]);
+  const [cloudOnly, setCloudOnly] = useState<RenderJob[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
+  const fetchCloudRenders = useServerFn(listLambdaRenders);
   const pollingRef = useRef<Set<string>>(new Set());
 
   const refresh = async () => {
-    const saved = (await listJobsFromStorage()).filter((entry) => entry.projectId === project.id);
+    const allJobs = await listJobsFromStorage();
+    const saved = allJobs.filter((entry) => entry.projectId === project.id);
     const hydrated = await Promise.all(
       saved.map(async (entry) => ({
         ...entry,
@@ -49,7 +53,7 @@ export function CompletedDialog({ project }: Props) {
       }))
     );
     setEntries(hydrated);
-    return hydrated;
+    return { hydrated, allJobs };
   };
 
   useEffect(() => {
