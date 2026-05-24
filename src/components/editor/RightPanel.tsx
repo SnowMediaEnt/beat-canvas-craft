@@ -89,6 +89,7 @@ export function RightPanel({ project, update }: Props) {
               <SliderField label="Rotation" value={V.rotation} min={-Math.PI} max={Math.PI} onChange={(v) => setV(update, "rotation")(v)} />
               <SliderField label="Movement" value={V.movement} onChange={(v) => setV(update, "movement")(v)} />
               <SliderField label="Shadow" value={V.shadow} onChange={(v) => setV(update, "shadow")(v)} />
+              <SliderField label="Border" value={V.border} onChange={(v) => setV(update, "border")(v)} />
             </Section>
           </TabsContent>
 
