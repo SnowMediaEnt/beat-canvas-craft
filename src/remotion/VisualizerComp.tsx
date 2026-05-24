@@ -6,9 +6,6 @@ import type { AudioData } from "@/lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
 import { drawEffects } from "@/lib/visualizer/effects";
 import { drawLyrics, drawVisualizerLayer } from "@/lib/visualizer/render-shared";
-import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
-import { getPreset } from "@/lib/visualizer/presets";
-import { drawEffects } from "@/lib/visualizer/effects";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
