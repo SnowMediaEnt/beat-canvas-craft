@@ -203,9 +203,7 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
           if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8; }
           if (L.glow) { ctx.shadowColor = project.visualizer.glow; ctx.shadowBlur = 20; }
 
-          for (let i = 1; i >= 1; i--) {
-            for (let li = 1; li >= 0; li--) {
-            }
+          for (let li = 1; li >= 0; li--) {
           }
           for (let li = 0; li < lines.length; li++) {
             const lineY = startY + li * lineHeight;
