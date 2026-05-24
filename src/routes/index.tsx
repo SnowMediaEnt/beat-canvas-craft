@@ -2,7 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Plus, Music2, Sparkles, Trash2, Copy, Play } from "lucide-react";
-import { useProjects, newProject, saveProject, deleteProject, duplicateProject, listJobs } from "@/lib/project/store";
+import { useProjects, newProject, saveProject, deleteProject, duplicateProject, listJobs, listJobsFromStorage } from "@/lib/project/store";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/")({
@@ -21,7 +21,14 @@ function Dashboard() {
   const { projects, refresh } = useProjects();
   const nav = useNavigate();
   const [jobs, setJobs] = useState<ReturnType<typeof listJobs>>([]);
-  useEffect(() => { setJobs(listJobs()); }, [projects]);
+  useEffect(() => {
+    let cancelled = false;
+    setJobs(listJobs());
+    void listJobsFromStorage().then((next) => {
+      if (!cancelled) setJobs(next);
+    });
+    return () => { cancelled = true; };
+  }, [projects]);
 
   const create = () => {
     const p = newProject();
