@@ -1,8 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { AbsoluteFill, Audio, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "@/lib/visualizer/audioEngine";
+import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
+import { drawEffects } from "@/lib/visualizer/effects";
+import { drawLyrics, drawVisualizerLayer } from "@/lib/visualizer/render-shared";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
 import { getPreset } from "@/lib/visualizer/presets";
 import { drawEffects } from "@/lib/visualizer/effects";
