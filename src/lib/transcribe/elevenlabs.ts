@@ -16,7 +16,7 @@ const hydrating = new Map<string, Promise<TranscribedWord[] | undefined>>();
 let cachedKey: string | null = null;
 let keyPromise: Promise<string> | null = null;
 
-const idbKey = (assetId: string) => `transcript:${assetId}`;
+const idbKey = (assetId: string) => `transcript:v2:${assetId}`;
 
 function notify() {
   for (const l of listeners) l();
@@ -130,7 +130,7 @@ async function runTranscription(file: Blob, filename: string): Promise<Transcrib
   const key = await fetchKey();
   const fd = new FormData();
   fd.append("file", file, filename);
-  fd.append("model_id", "scribe_v1");
+  fd.append("model_id", "scribe_v2");
   fd.append("timestamps_granularity", "word");
   fd.append("diarize", "false");
   fd.append("tag_audio_events", "false");
