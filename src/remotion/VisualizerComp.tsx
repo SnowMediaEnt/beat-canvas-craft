@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { AbsoluteFill, Audio, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "@/lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
-import { getPreset } from "@/lib/visualizer/presets";
 import { drawEffects } from "@/lib/visualizer/effects";
+import { drawLyrics, drawVisualizerLayer } from "@/lib/visualizer/render-shared";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
@@ -191,6 +191,21 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     img.src = props.backgroundUrl;
   }, [props.backgroundUrl, props.backgroundType]);
 
+  const isVideoBg = !!(props.backgroundUrl && (props.backgroundType ?? "").startsWith("video"));
+
+  // CSS transform applied to the OffthreadVideo so backgroundScale +
+  // backgroundBlur work just like the image bg path on the live canvas.
+  const videoBgStyle = useMemo<React.CSSProperties>(() => ({
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    transform: `scale(${props.visualizer.backgroundScale})`,
+    transformOrigin: "center center",
+    filter: props.visualizer.backgroundBlur > 0
+      ? `blur(${props.visualizer.backgroundBlur}px)`
+      : undefined,
+  }), [props.visualizer.backgroundScale, props.visualizer.backgroundBlur]);
+
   // Draw a single frame synchronously into the canvas. useLayoutEffect ensures
   // the bitmap is updated before Remotion's screenshot is captured.
   useLayoutEffect(() => {
@@ -224,18 +239,24 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, width, height);
+    if (isVideoBg) {
+      // Video plays behind the canvas via <OffthreadVideo> — keep canvas
+      // transparent so it shows through.
+      ctx.clearRect(0, 0, width, height);
+    } else {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, width, height);
 
-    if (bgImg) {
-      const iw = bgImg.naturalWidth || width;
-      const ih = bgImg.naturalHeight || height;
-      const scale = Math.max(width / iw, height / ih) * cfg.backgroundScale;
-      const dw = iw * scale, dh = ih * scale;
-      ctx.save();
-      if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-      ctx.drawImage(bgImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
-      ctx.restore();
+      if (bgImg) {
+        const iw = bgImg.naturalWidth || width;
+        const ih = bgImg.naturalHeight || height;
+        const scale = Math.max(width / iw, height / ih) * cfg.backgroundScale;
+        const dw = iw * scale, dh = ih * scale;
+        ctx.save();
+        if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
+        ctx.drawImage(bgImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
+        ctx.restore();
+      }
     }
 
     if (cfg.backgroundTintOpacity > 0) {
@@ -257,12 +278,8 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       ctx.globalAlpha = 1;
     }
 
-    const preset = getPreset(cfg.presetId);
-    ctx.save();
-    ctx.globalCompositeOperation = cfg.blendMode;
-    if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
-    preset.draw({ ctx, w: width, h: height, cfg, audio, t: time, logo: logoImg ?? undefined });
-    ctx.restore();
+    // Visualizer (Movement / Shadow / Border applied inside helper).
+    drawVisualizerLayer({ ctx, w: width, h: height, cfg, audio, t: time, logo: logoImg ?? undefined });
 
     if (logoImg) {
       const lsize = Math.min(width, height) * cfg.logoSize * (props.effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
@@ -279,62 +296,18 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
 
     drawEffects({ ctx, w: width, h: height, cfg, audio, t: time }, props.effects);
 
-    // Lyrics with word wrap — same logic as preview
-    const L = props.lyrics;
-    if (L.enabled && L.lines.length) {
-      const cur = [...L.lines].reverse().find((l) => l.time <= audio.time);
-      if (cur) {
-        ctx.save();
-        ctx.font = `600 ${L.fontSize}px ${L.fontFamily}, sans-serif`;
-        const maxWidth = width * 0.8;
-        const lineHeight = L.fontSize * 1.2;
-
-        const words = cur.text.split(" ");
-        const lines: string[] = [];
-        let currentLine = "";
-        for (const word of words) {
-          const test = currentLine ? currentLine + " " + word : word;
-          if (ctx.measureText(test).width <= maxWidth) currentLine = test;
-          else {
-            if (currentLine) lines.push(currentLine);
-            currentLine = word;
-          }
-        }
-        if (currentLine) lines.push(currentLine);
-
-        const textAlign = L.position === "left" ? "left" : L.position === "right" ? "right" : "center";
-        ctx.textAlign = textAlign;
-        ctx.textBaseline = "middle";
-        let x = width / 2, y = height - 120;
-        if (L.position === "top") y = 120;
-        if (L.position === "center") y = height / 2;
-        if (L.position === "left") { x = 60; y = height / 2; }
-        if (L.position === "right") { x = width - 60; y = height / 2; }
-
-        const totalHeight = lines.length * lineHeight;
-        const startY = y - totalHeight / 2 + lineHeight / 2;
-
-        if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8; }
-        if (L.glow) { ctx.shadowColor = cfg.glow; ctx.shadowBlur = 20; }
-
-        for (let li = 0; li < lines.length; li++) {
-          const lineY = startY + li * lineHeight;
-          if (L.outline) {
-            ctx.strokeStyle = "rgba(0,0,0,0.85)";
-            ctx.lineWidth = 4;
-            ctx.strokeText(lines[li], x, lineY);
-          }
-          ctx.fillStyle = L.color;
-          ctx.fillText(lines[li], x, lineY);
-        }
-        ctx.restore();
-      }
-    }
-  }, [frame, fps, width, height, durationInFrames, audioData, bgImg, logoImg, props]);
+    // Lyrics (subtitle/karaoke + fade handled in shared helper)
+    drawLyrics(ctx, width, height, props.lyrics, audio.time, cfg.glow);
+  }, [frame, fps, width, height, durationInFrames, audioData, bgImg, logoImg, isVideoBg, props]);
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
+      {isVideoBg && props.backgroundUrl ? (
+        <AbsoluteFill>
+          <OffthreadVideo src={props.backgroundUrl} muted style={videoBgStyle} />
+        </AbsoluteFill>
+      ) : null}
+      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", position: "relative" }} />
       <Audio src={props.audioUrl} />
     </AbsoluteFill>
   );
