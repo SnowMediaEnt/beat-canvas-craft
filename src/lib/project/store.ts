@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { get as idbGet, set as idbSet } from "idb-keyval";
 import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig } from "./types";
 import { hydrateAsset, stripAssetUrl } from "./assets";
 
@@ -68,15 +69,72 @@ const read = <T,>(k: string, fallback: T): T => {
   if (typeof window === "undefined") return fallback;
   try { return JSON.parse(localStorage.getItem(k) || "") ?? fallback; } catch { return fallback; }
 };
-const write = (k: string, v: unknown) => { if (typeof window !== "undefined") localStorage.setItem(k, JSON.stringify(v)); };
+
+const write = (k: string, v: unknown) => {
+  if (typeof window !== "undefined") localStorage.setItem(k, JSON.stringify(v));
+};
+
+const mergeProjects = (primary: Project[], secondary: Project[]) => {
+  const merged = new Map<string, Project>();
+  for (const project of [...secondary, ...primary]) {
+    const existing = merged.get(project.id);
+    if (!existing || (project.updatedAt || 0) >= (existing.updatedAt || 0)) {
+      merged.set(project.id, project);
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+};
+
+const mergeJobs = (primary: RenderJob[], secondary: RenderJob[]) => {
+  const merged = new Map<string, RenderJob>();
+  for (const job of [...secondary, ...primary]) {
+    const existing = merged.get(job.id);
+    const existingTs = existing ? Math.max(existing.completedAt || 0, existing.createdAt || 0) : -1;
+    const jobTs = Math.max(job.completedAt || 0, job.createdAt || 0);
+    if (!existing || jobTs >= existingTs) {
+      merged.set(job.id, job);
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt));
+};
+
+const persistProjects = (projects: Project[]) => {
+  write(KEY, projects);
+  void idbSet(KEY, projects);
+};
+
+const persistJobs = (jobs: RenderJob[]) => {
+  write(JOBS_KEY, jobs);
+  void idbSet(JOBS_KEY, jobs);
+};
 
 export const listProjects = (): Project[] => read<Project[]>(KEY, []);
+
+export const listProjectsFromStorage = async (): Promise<Project[]> => {
+  const local = listProjects();
+  const indexed = (await idbGet<Project[]>(KEY)) ?? [];
+  const merged = mergeProjects(local, indexed);
+  if (merged.length !== local.length || merged.length !== indexed.length) {
+    persistProjects(merged);
+  } else if (local.length === 0 && merged.length > 0) {
+    persistProjects(merged);
+  }
+  return merged;
+};
+
 export const getProject = (id: string): Project | undefined => listProjects().find(p => p.id === id);
+
+export const getProjectFromStorage = async (id: string): Promise<Project | undefined> => {
+  const local = getProject(id);
+  if (local) return local;
+  const projects = await listProjectsFromStorage();
+  return projects.find((project) => project.id === id);
+};
+
 export const saveProject = (p: Project) => {
   const all = listProjects();
   const i = all.findIndex(x => x.id === p.id);
   p.updatedAt = Date.now();
-  // Don't persist transient object URLs — they're regenerated on load.
   const persisted: Project = {
     ...p,
     audio: stripAssetUrl(p.audio),
@@ -84,9 +142,13 @@ export const saveProject = (p: Project) => {
     background: stripAssetUrl(p.background),
   };
   if (i >= 0) all[i] = persisted; else all.unshift(persisted);
-  write(KEY, all);
+  persistProjects(all);
 };
-export const deleteProject = (id: string) => write(KEY, listProjects().filter(p => p.id !== id));
+
+export const deleteProject = (id: string) => {
+  persistProjects(listProjects().filter(p => p.id !== id));
+};
+
 export const duplicateProject = (id: string): Project | undefined => {
   const p = getProject(id); if (!p) return;
   const copy: Project = { ...JSON.parse(JSON.stringify(p)), id: crypto.randomUUID(), name: `${p.name} (Copy)`, createdAt: Date.now(), updatedAt: Date.now() };
@@ -94,6 +156,19 @@ export const duplicateProject = (id: string): Project | undefined => {
 };
 
 export const listJobs = (): RenderJob[] => read<RenderJob[]>(JOBS_KEY, []);
+
+export const listJobsFromStorage = async (): Promise<RenderJob[]> => {
+  const local = listJobs();
+  const indexed = (await idbGet<RenderJob[]>(JOBS_KEY)) ?? [];
+  const merged = mergeJobs(local, indexed);
+  if (merged.length !== local.length || merged.length !== indexed.length) {
+    persistJobs(merged);
+  } else if (local.length === 0 && merged.length > 0) {
+    persistJobs(merged);
+  }
+  return merged;
+};
+
 export const saveJob = (j: RenderJob) => {
   const all = listJobs();
   const i = all.findIndex(x => x.id === j.id);
@@ -102,15 +177,27 @@ export const saveJob = (j: RenderJob) => {
     localAsset: stripAssetUrl(j.localAsset),
   };
   if (i >= 0) all[i] = persisted; else all.unshift(persisted);
-  write(JOBS_KEY, all);
+  persistJobs(all);
 };
 
-export const deleteJob = (id: string) => write(JOBS_KEY, listJobs().filter(j => j.id !== id));
+export const deleteJob = (id: string) => {
+  persistJobs(listJobs().filter(j => j.id !== id));
+};
 
 export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
-  useEffect(() => { setProjects(listProjects()); }, []);
-  const refresh = useCallback(() => setProjects(listProjects()), []);
+  useEffect(() => {
+    let cancelled = false;
+    setProjects(listProjects());
+    void listProjectsFromStorage().then((next) => {
+      if (!cancelled) setProjects(next);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const refresh = useCallback(() => {
+    setProjects(listProjects());
+    void listProjectsFromStorage().then(setProjects);
+  }, []);
   return { projects, refresh };
 }
 
@@ -142,7 +229,7 @@ export function useProject(id: string) {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    hydrateProject(getProject(id)).then(p => {
+    getProjectFromStorage(id).then(hydrateProject).then(p => {
       if (cancelled) return;
       setProject(p);
       setLoaded(true);
