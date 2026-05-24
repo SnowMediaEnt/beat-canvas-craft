@@ -59,6 +59,10 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       });
       const { renderMediaOnLambda } = await import("@remotion/lambda-client");
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
+      // Spawn as few render lambdas as possible to stay under AWS's per-second
+      // invoke rate limit (the "Rate Exceeded" error). With framesPerLambda
+      // very high, a typical song produces only 2-3 worker lambdas + the
+      // orchestrator, which AWS will not throttle.
       const result = await renderMediaOnLambda({
         region,
         functionName,
@@ -67,14 +71,11 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         codec: "h264",
         inputProps: data,
         imageFormat: "jpeg",
-        // MAXIMUM CONSERVATIVE concurrency. AWS account is throttled to 10
-        // concurrent Lambdas. framesPerLambda: 5000 produces ~5 parallel
-        // Lambdas total. Renders are slow (~30+ minutes) but reliable.
-        // Reduce this number once AWS quota is approved.
-        framesPerLambda: 5000,
-        maxRetries: 2,
+        framesPerLambda: 12000,
+        maxRetries: 3,
         privacy: "public",
       });
+
       console.log("[lambda-render-server] renderMediaOnLambda result", result);
       return { renderId: result.renderId, bucketName: result.bucketName };
     } catch (error) {
