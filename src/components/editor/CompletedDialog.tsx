@@ -9,6 +9,7 @@ import { deleteJob, listJobsFromStorage, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
+import { listLambdaRenders } from "@/lib/render/list-renders.functions";
 import { toast } from "sonner";
 
 interface Props {
@@ -35,12 +36,16 @@ const formatDate = (ts?: number) => {
 export function CompletedDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<RenderJob[]>([]);
+  const [cloudOnly, setCloudOnly] = useState<RenderJob[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
+  const fetchCloudRenders = useServerFn(listLambdaRenders);
   const pollingRef = useRef<Set<string>>(new Set());
 
   const refresh = async () => {
-    const saved = (await listJobsFromStorage()).filter((entry) => entry.projectId === project.id);
+    const allJobs = await listJobsFromStorage();
+    const saved = allJobs.filter((entry) => entry.projectId === project.id);
     const hydrated = await Promise.all(
       saved.map(async (entry) => ({
         ...entry,
@@ -48,14 +53,14 @@ export function CompletedDialog({ project }: Props) {
       }))
     );
     setEntries(hydrated);
-    return hydrated;
+    return { hydrated, allJobs };
   };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const hydrated = await refresh();
+      const { hydrated, allJobs } = await refresh();
       if (cancelled) return;
 
       // Auto-resume polling for any in-flight Lambda renders (e.g. page was reloaded).
@@ -71,6 +76,39 @@ export function CompletedDialog({ project }: Props) {
           pollingRef.current.add(entry.id);
           void resumePolling(entry);
         }
+      }
+
+      // Fetch cloud renders from AWS S3 and surface any that aren't already
+      // tracked locally (e.g. browser cache was cleared, rendered in another browser).
+      setCloudLoading(true);
+      try {
+        const cloud = await fetchCloudRenders();
+        if (cancelled) return;
+        const knownRenderIds = new Set(allJobs.map((j) => j.renderId).filter(Boolean));
+        const orphans: RenderJob[] = cloud
+          .filter((c) => !knownRenderIds.has(c.renderId))
+          .map((c) => ({
+            id: `cloud-${c.renderId}`,
+            projectId: "",
+            projectName: `Cloud render ${c.renderId.slice(0, 8)}`,
+            kind: "lambda",
+            status: "completed",
+            progress: 100,
+            createdAt: c.lastModified,
+            completedAt: c.lastModified,
+            sizeBytes: c.sizeBytes,
+            downloadUrl: c.url,
+            fileFormat: c.fileFormat,
+            config: project.export,
+            aspectRatio: project.aspectRatio,
+            renderId: c.renderId,
+            bucketName: c.bucketName,
+          }));
+        setCloudOnly(orphans);
+      } catch (e: any) {
+        console.error("[completed-dialog] list cloud renders failed", e);
+      } finally {
+        if (!cancelled) setCloudLoading(false);
       }
     })();
     return () => {
@@ -169,12 +207,12 @@ export function CompletedDialog({ project }: Props) {
         </DialogHeader>
 
         <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
-          Finished AWS Lambda renders and browser recordings for this project stay here so you can re-download them anytime.
+          Finished AWS Lambda renders and browser recordings stay here so you can re-download them anytime.
         </div>
 
-        {completed.length === 0 ? (
+        {completed.length === 0 && cloudOnly.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No completed renders yet.
+            {cloudLoading ? "Loading cloud renders…" : "No completed renders yet."}
           </div>
         ) : (
           <ScrollArea className="max-h-[55vh] pr-3">
@@ -225,6 +263,42 @@ export function CompletedDialog({ project }: Props) {
                   </div>
                 );
               })}
+
+              {cloudOnly.length > 0 && (
+                <div className="pt-2">
+                  <div className="px-1 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Other cloud renders ({cloudOnly.length})
+                  </div>
+                  <div className="space-y-3">
+                    {cloudOnly.map((entry) => {
+                      const ext = entry.fileFormat || "mp4";
+                      return (
+                        <div key={entry.id} className="rounded-lg border border-border bg-elevated/20 p-3 space-y-3">
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="truncate text-sm font-medium text-foreground">{entry.projectName}.{ext}</span>
+                              <Badge variant="secondary">Ready</Badge>
+                              <Badge variant="outline" className="gap-1"><Cloud className="size-3" /> S3</Badge>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" /> {formatDate(entry.completedAt)}</span>
+                              <span className="inline-flex items-center gap-1"><HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}</span>
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            className="w-full gap-2"
+                            disabled={busyId === entry.id}
+                            onClick={() => void handleDownload(entry)}
+                          >
+                            <Download className="size-4" /> Download
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </ScrollArea>
         )}
