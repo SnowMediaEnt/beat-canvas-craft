@@ -74,7 +74,6 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         framesPerLambda: 5000,
         maxRetries: 2,
         privacy: "public",
-        downloadBehavior: { type: "download", fileName: "visualizer.mp4" },
       });
       console.log("[lambda-render-server] renderMediaOnLambda result", result);
       return { renderId: result.renderId, bucketName: result.bucketName };
