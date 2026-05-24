@@ -203,8 +203,6 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
           if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8; }
           if (L.glow) { ctx.shadowColor = project.visualizer.glow; ctx.shadowBlur = 20; }
 
-          for (let li = 1; li >= 0; li--) {
-          }
           for (let li = 0; li < lines.length; li++) {
             const lineY = startY + li * lineHeight;
             if (L.outline) { ctx.strokeStyle = "rgba(0,0,0,0.85)"; ctx.lineWidth = 4; ctx.strokeText(lines[li], x, lineY); }
