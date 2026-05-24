@@ -1,9 +1,18 @@
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { z } from "zod";
-import { AbsoluteFill, Audio, Img, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
+import type { AudioData } from "@/lib/visualizer/audioEngine";
+import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "@/lib/project/types";
+import { getPreset } from "@/lib/visualizer/presets";
+import { drawEffects } from "@/lib/visualizer/effects";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
+// We ship the full VisualizerConfig / EffectsConfig / LyricsConfig as-is so the
+// renderer can call the exact same draw code as the live preview. The Remotion
+// composition treats them as opaque records — runtime validation happens via
+// our own Zod schema in `lambda.functions.ts`.
 export const visualizerSchema = z.object({
   audioUrl: z.string(),
   durationSeconds: z.number(),
@@ -11,23 +20,38 @@ export const visualizerSchema = z.object({
   width: z.number(),
   height: z.number(),
   backgroundUrl: z.string().nullable(),
+  backgroundType: z.string().nullable(),
   logoUrl: z.string().nullable(),
-  primary: z.string(),
-  secondary: z.string(),
-  accent: z.string(),
-  glow: z.string(),
-  bandCount: z.number(),
-  sensitivity: z.number(),
-  thickness: z.number(),
-  reactivity: z.number(),
-  lyrics: z.array(lyricLineSchema),
-  lyricsEnabled: z.boolean(),
-  lyricsColor: z.string(),
-  lyricsFontFamily: z.string(),
-  lyricsFontSize: z.number(),
+  visualizer: z.any(),
+  effects: z.any(),
+  lyrics: z.object({
+    enabled: z.boolean(),
+    lines: z.array(lyricLineSchema),
+    style: z.string(),
+    position: z.string(),
+    fontFamily: z.string(),
+    fontSize: z.number(),
+    color: z.string(),
+    outline: z.boolean(),
+    shadow: z.boolean(),
+    glow: z.boolean(),
+    fade: z.boolean(),
+  }),
 });
 
-export type VisualizerProps = z.infer<typeof visualizerSchema>;
+export type VisualizerProps = {
+  audioUrl: string;
+  durationSeconds: number;
+  fps: number;
+  width: number;
+  height: number;
+  backgroundUrl: string | null;
+  backgroundType: string | null;
+  logoUrl: string | null;
+  visualizer: VisualizerConfig;
+  effects: EffectsConfig;
+  lyrics: LyricsConfig;
+};
 
 export const defaultVisualizerProps: VisualizerProps = {
   audioUrl: "https://remotion-assets.s3.eu-central-1.amazonaws.com/silence.mp3",
@@ -36,145 +60,282 @@ export const defaultVisualizerProps: VisualizerProps = {
   width: 1920,
   height: 1080,
   backgroundUrl: null,
+  backgroundType: null,
   logoUrl: null,
-  primary: "#7c3aed",
-  secondary: "#22d3ee",
-  accent: "#f472b6",
-  glow: "#a78bfa",
-  bandCount: 32,
-  sensitivity: 1,
-  thickness: 8,
-  reactivity: 1.2,
-  lyrics: [],
-  lyricsEnabled: false,
-  lyricsColor: "#ffffff",
-  lyricsFontFamily: "Inter, sans-serif",
-  lyricsFontSize: 56,
+  visualizer: {
+    presetId: "circular-spectrum",
+    primary: "#22e3ff",
+    secondary: "#b14bff",
+    accent: "#ff4bd1",
+    glow: "#22e3ff",
+    overlay: "#000000",
+    overlayOpacity: 0.35,
+    glowIntensity: 0.8,
+    blur: 0,
+    size: 1,
+    thickness: 4,
+    position: { x: 0, y: 0 },
+    logoSize: 0.35,
+    logoPosition: { x: 0, y: 0 },
+    backgroundScale: 1.05,
+    backgroundBlur: 6,
+    backgroundTint: "#0a0612",
+    backgroundTintOpacity: 0.25,
+    animationSpeed: 1,
+    sensitivity: 1.2,
+    bassSensitivity: 1.3,
+    midSensitivity: 1,
+    trebleSensitivity: 1,
+    smoothing: 0.78,
+    rotation: 0,
+    movement: 0.5,
+    shadow: 0.4,
+    border: 0,
+    blendMode: "source-over",
+    reactivity: 1,
+    bandCount: 12,
+  },
+  effects: {
+    particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
+    beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, backgroundPulse: false,
+  },
+  lyrics: {
+    enabled: false, lines: [] as LyricLine[], style: "subtitle", position: "bottom",
+    fontFamily: "Inter", fontSize: 56, color: "#ffffff",
+    outline: true, shadow: true, glow: false, fade: true,
+  },
 };
+
+const FFT_SAMPLES = 1024 as const;
+
+function buildAudioData(
+  bins: number[] | null,
+  time: number,
+  duration: number,
+  prevBass: { value: number },
+): AudioData {
+  const freqLen = bins?.length ?? FFT_SAMPLES;
+  const freq = new Uint8Array(new ArrayBuffer(freqLen)) as Uint8Array<ArrayBuffer>;
+  const waveLen = 2048;
+  const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
+
+  if (bins) {
+    for (let i = 0; i < freqLen; i++) {
+      // visualizeAudio returns 0..1 magnitudes; map to byte range like AnalyserNode.
+      const v = Math.max(0, Math.min(1, bins[i]));
+      freq[i] = Math.round(v * 255);
+    }
+    // Synthesize a plausible time-domain waveform from the first 24 bins so
+    // oscilloscope-style presets have something to draw.
+    const harmonics = Math.min(24, freqLen);
+    for (let i = 0; i < waveLen; i++) {
+      let sum = 0;
+      for (let k = 1; k < harmonics; k++) {
+        const amp = bins[k] || 0;
+        sum += amp * Math.sin((i / waveLen) * k * Math.PI * 2 + time * k * 0.7);
+      }
+      wave[i] = Math.max(0, Math.min(255, Math.round(128 + sum * 60)));
+    }
+  } else {
+    wave.fill(128);
+  }
+
+  const sliceAvg = (lo: number, hi: number) => {
+    const a = Math.floor(lo * freqLen), b = Math.floor(hi * freqLen);
+    let s = 0;
+    for (let i = a; i < b; i++) s += freq[i];
+    return (s / Math.max(1, b - a)) / 255;
+  };
+  const bass = Math.min(1, sliceAvg(0, 0.08));
+  const mid = Math.min(1, sliceAvg(0.08, 0.4));
+  const treble = Math.min(1, sliceAvg(0.4, 1));
+  let sum = 0;
+  for (let i = 0; i < freqLen; i++) sum += freq[i];
+  const volume = Math.min(1, sum / freqLen / 255);
+  const beat = bass > 0.55 && bass > prevBass.value * 1.25;
+  prevBass.value = bass;
+
+  return { freq, wave, bass, mid, treble, volume, beat, time, duration };
+}
 
 export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   const frame = useCurrentFrame();
-  const { fps, width, height } = useVideoConfig();
+  const { fps, width, height, durationInFrames } = useVideoConfig();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const prevBassRef = useRef({ value: 0 });
+
   const audioData = useAudioData(props.audioUrl);
 
-  const bars: number[] = audioData
-    ? visualizeAudio({
-        fps,
-        frame,
-        audioData,
-        numberOfSamples: nearestPow2(props.bandCount * 2),
-      }).slice(0, props.bandCount)
-    : new Array(props.bandCount).fill(0);
+  // Load logo + background as HTMLImageElements once, gated by delayRender so
+  // Lambda waits for them before screenshotting frame 0.
+  const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);
+  const [bgImg, setBgImg] = useState<HTMLImageElement | null>(null);
 
-  const currentTime = frame / fps;
-  const activeLyric = props.lyricsEnabled
-    ? [...props.lyrics].reverse().find((l) => l.time <= currentTime)
-    : undefined;
+  useEffect(() => {
+    if (!props.logoUrl) return;
+    const handle = delayRender(`logo:${props.logoUrl}`);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { setLogoImg(img); continueRender(handle); };
+    img.onerror = () => { continueRender(handle); };
+    img.src = props.logoUrl;
+  }, [props.logoUrl]);
 
-  const barWidth = width / props.bandCount;
-  const baseRadius = Math.min(width, height) * 0.18;
+  useEffect(() => {
+    if (!props.backgroundUrl || (props.backgroundType ?? "").startsWith("video")) return;
+    const handle = delayRender(`bg:${props.backgroundUrl}`);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { setBgImg(img); continueRender(handle); };
+    img.onerror = () => { continueRender(handle); };
+    img.src = props.backgroundUrl;
+  }, [props.backgroundUrl, props.backgroundType]);
+
+  // Draw a single frame synchronously into the canvas. useLayoutEffect ensures
+  // the bitmap is updated before Remotion's screenshot is captured.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const cfg = props.visualizer;
+    const time = (frame / fps) * (cfg.animationSpeed ?? 1);
+
+    let bins: number[] | null = null;
+    if (audioData) {
+      try {
+        const out = visualizeAudio({
+          fps,
+          frame,
+          audioData,
+          numberOfSamples: FFT_SAMPLES,
+        });
+        bins = Array.from(out);
+      } catch {
+        bins = null;
+      }
+    }
+
+    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, prevBassRef.current);
+
+    // --- Identical paint pipeline as VisualizerCanvas.tsx ---
+
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    if (bgImg) {
+      const iw = bgImg.naturalWidth || width;
+      const ih = bgImg.naturalHeight || height;
+      const scale = Math.max(width / iw, height / ih) * cfg.backgroundScale;
+      const dw = iw * scale, dh = ih * scale;
+      ctx.save();
+      if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
+      ctx.drawImage(bgImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
+      ctx.restore();
+    }
+
+    if (cfg.backgroundTintOpacity > 0) {
+      ctx.fillStyle = cfg.backgroundTint;
+      ctx.globalAlpha = cfg.backgroundTintOpacity;
+      ctx.fillRect(0, 0, width, height);
+      ctx.globalAlpha = 1;
+    }
+
+    if (props.effects.backgroundPulse) {
+      ctx.fillStyle = `rgba(255,255,255,${audio.bass * 0.08})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    if (cfg.overlayOpacity > 0) {
+      ctx.fillStyle = cfg.overlay;
+      ctx.globalAlpha = cfg.overlayOpacity;
+      ctx.fillRect(0, 0, width, height);
+      ctx.globalAlpha = 1;
+    }
+
+    const preset = getPreset(cfg.presetId);
+    ctx.save();
+    ctx.globalCompositeOperation = cfg.blendMode;
+    if (cfg.blur > 0) ctx.filter = `blur(${cfg.blur}px)`;
+    preset.draw({ ctx, w: width, h: height, cfg, audio, t: time, logo: logoImg ?? undefined });
+    ctx.restore();
+
+    if (logoImg) {
+      const lsize = Math.min(width, height) * cfg.logoSize * (props.effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
+      const lx = width / 2 + cfg.logoPosition.x * width / 2 - lsize / 2;
+      const ly = height / 2 + cfg.logoPosition.y * height / 2 - lsize / 2;
+      ctx.save();
+      if (cfg.glowIntensity > 0) {
+        ctx.shadowColor = cfg.glow;
+        ctx.shadowBlur = 30 * cfg.glowIntensity;
+      }
+      ctx.drawImage(logoImg, lx, ly, lsize, lsize);
+      ctx.restore();
+    }
+
+    drawEffects({ ctx, w: width, h: height, cfg, audio, t: time }, props.effects);
+
+    // Lyrics with word wrap — same logic as preview
+    const L = props.lyrics;
+    if (L.enabled && L.lines.length) {
+      const cur = [...L.lines].reverse().find((l) => l.time <= audio.time);
+      if (cur) {
+        ctx.save();
+        ctx.font = `600 ${L.fontSize}px ${L.fontFamily}, sans-serif`;
+        const maxWidth = width * 0.8;
+        const lineHeight = L.fontSize * 1.2;
+
+        const words = cur.text.split(" ");
+        const lines: string[] = [];
+        let currentLine = "";
+        for (const word of words) {
+          const test = currentLine ? currentLine + " " + word : word;
+          if (ctx.measureText(test).width <= maxWidth) currentLine = test;
+          else {
+            if (currentLine) lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        if (currentLine) lines.push(currentLine);
+
+        const textAlign = L.position === "left" ? "left" : L.position === "right" ? "right" : "center";
+        ctx.textAlign = textAlign;
+        ctx.textBaseline = "middle";
+        let x = width / 2, y = height - 120;
+        if (L.position === "top") y = 120;
+        if (L.position === "center") y = height / 2;
+        if (L.position === "left") { x = 60; y = height / 2; }
+        if (L.position === "right") { x = width - 60; y = height / 2; }
+
+        const totalHeight = lines.length * lineHeight;
+        const startY = y - totalHeight / 2 + lineHeight / 2;
+
+        if (L.shadow) { ctx.shadowColor = "rgba(0,0,0,0.8)"; ctx.shadowBlur = 8; }
+        if (L.glow) { ctx.shadowColor = cfg.glow; ctx.shadowBlur = 20; }
+
+        for (let li = 0; li < lines.length; li++) {
+          const lineY = startY + li * lineHeight;
+          if (L.outline) {
+            ctx.strokeStyle = "rgba(0,0,0,0.85)";
+            ctx.lineWidth = 4;
+            ctx.strokeText(lines[li], x, lineY);
+          }
+          ctx.fillStyle = L.color;
+          ctx.fillText(lines[li], x, lineY);
+        }
+        ctx.restore();
+      }
+    }
+  }, [frame, fps, width, height, durationInFrames, audioData, bgImg, logoImg, props]);
 
   return (
-    <AbsoluteFill
-      style={{
-        background: props.backgroundUrl ? `#000` : `#000`,
-      }}
-    >
-
-      {props.backgroundUrl && (
-        <AbsoluteFill>
-          <Img
-            src={props.backgroundUrl}
-            style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.5 }}
-          />
-        </AbsoluteFill>
-      )}
-
-      {/* Radial bars */}
-      <AbsoluteFill style={{ alignItems: "center", justifyContent: "center" }}>
-        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-          <defs>
-            <linearGradient id="barGrad" x1="0" x2="0" y1="1" y2="0">
-              <stop offset="0%" stopColor={props.secondary} />
-              <stop offset="100%" stopColor={props.primary} />
-            </linearGradient>
-            <filter id="glow">
-              <feGaussianBlur stdDeviation="6" result="b" />
-              <feMerge>
-                <feMergeNode in="b" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          {bars.map((v, i) => {
-            const angle = (i / props.bandCount) * Math.PI * 2 - Math.PI / 2;
-            const mag = Math.min(1, v * props.sensitivity * props.reactivity * 4);
-            const len = baseRadius * 0.35 + mag * baseRadius * 0.9;
-            const cx = width / 2;
-            const cy = height / 2;
-            const x1 = cx + Math.cos(angle) * baseRadius;
-            const y1 = cy + Math.sin(angle) * baseRadius;
-            const x2 = cx + Math.cos(angle) * (baseRadius + len);
-            const y2 = cy + Math.sin(angle) * (baseRadius + len);
-            return (
-              <line
-                key={i}
-                x1={x1}
-                y1={y1}
-                x2={x2}
-                y2={y2}
-                stroke="url(#barGrad)"
-                strokeWidth={props.thickness}
-                strokeLinecap="round"
-                filter="url(#glow)"
-              />
-            );
-          })}
-        </svg>
-      </AbsoluteFill>
-
-      {props.logoUrl && (
-        <AbsoluteFill style={{ alignItems: "center", justifyContent: "center" }}>
-          <Img
-            src={props.logoUrl}
-            style={{ width: baseRadius * 1.2, height: baseRadius * 1.2, objectFit: "contain" }}
-          />
-        </AbsoluteFill>
-      )}
-
-      {activeLyric && (
-        <AbsoluteFill
-          style={{
-            alignItems: "center",
-            justifyContent: "flex-end",
-            paddingBottom: 120,
-          }}
-        >
-          <div
-            style={{
-              color: props.lyricsColor,
-              fontFamily: props.lyricsFontFamily,
-              fontSize: props.lyricsFontSize,
-              fontWeight: 700,
-              textShadow: `0 0 24px ${props.glow}`,
-              maxWidth: width * 0.8,
-              textAlign: "center",
-              overflowWrap: "break-word",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {activeLyric.text}
-          </div>
-        </AbsoluteFill>
-      )}
-
+    <AbsoluteFill style={{ background: "#000" }}>
+      <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />
       <Audio src={props.audioUrl} />
     </AbsoluteFill>
   );
 };
-
-function nearestPow2(n: number): 32 | 64 | 128 | 256 | 512 | 1024 | 2048 {
-  const opts = [32, 64, 128, 256, 512, 1024, 2048] as const;
-  for (const o of opts) if (o >= n) return o;
-  return 2048;
-}

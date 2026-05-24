@@ -3,6 +3,26 @@ import { z } from "zod";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
+// Visualizer / Effects / Lyrics configs are passed through to the Remotion
+// composition unchanged. We use loose schemas here (passthrough) so the schema
+// doesn't have to be kept in lock-step with VisualizerConfig — the renderer
+// is the single source of truth.
+const visualizerConfigSchema = z.record(z.string(), z.any());
+const effectsConfigSchema = z.record(z.string(), z.any());
+const lyricsConfigSchema = z.object({
+  enabled: z.boolean(),
+  lines: z.array(lyricLineSchema),
+  style: z.string(),
+  position: z.string(),
+  fontFamily: z.string(),
+  fontSize: z.number(),
+  color: z.string(),
+  outline: z.boolean(),
+  shadow: z.boolean(),
+  glow: z.boolean(),
+  fade: z.boolean(),
+});
+
 const inputPropsSchema = z.object({
   audioUrl: z.string().url(),
   durationSeconds: z.number().positive(),
@@ -10,20 +30,11 @@ const inputPropsSchema = z.object({
   width: z.number(),
   height: z.number(),
   backgroundUrl: z.string().url().nullable(),
+  backgroundType: z.string().nullable(),
   logoUrl: z.string().url().nullable(),
-  primary: z.string(),
-  secondary: z.string(),
-  accent: z.string(),
-  glow: z.string(),
-  bandCount: z.number(),
-  sensitivity: z.number(),
-  thickness: z.number(),
-  reactivity: z.number(),
-  lyrics: z.array(lyricLineSchema),
-  lyricsEnabled: z.boolean(),
-  lyricsColor: z.string(),
-  lyricsFontFamily: z.string(),
-  lyricsFontSize: z.number(),
+  visualizer: visualizerConfigSchema,
+  effects: effectsConfigSchema,
+  lyrics: lyricsConfigSchema,
 });
 
 function awsConfig() {

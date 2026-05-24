@@ -39,31 +39,36 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
 
     for (const bucketName of remotionBuckets) {
       let continuationToken: string | undefined = undefined;
-      do {
-        const resp: any = await s3.send(
-          new ListObjectsV2Command({
-            Bucket: bucketName,
-            Prefix: "renders/",
-            ContinuationToken: continuationToken,
-          }),
-        );
-        for (const obj of resp.Contents || []) {
-          const key = obj.Key || "";
-          // Output files look like renders/{renderId}/out.mp4 (or .webm)
-          const m = key.match(/^renders\/([^/]+)\/out\.(mp4|webm)$/);
-          if (!m) continue;
-          results.push({
-            renderId: m[1],
-            bucketName,
-            key,
-            url: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
-            sizeBytes: obj.Size || 0,
-            lastModified: obj.LastModified ? new Date(obj.LastModified).getTime() : 0,
-            fileFormat: m[2] as "mp4" | "webm",
-          });
-        }
-        continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
-      } while (continuationToken);
+      try {
+        do {
+          const resp: any = await s3.send(
+            new ListObjectsV2Command({
+              Bucket: bucketName,
+              Prefix: "renders/",
+              ContinuationToken: continuationToken,
+            }),
+          );
+          for (const obj of resp.Contents || []) {
+            const key = obj.Key || "";
+            const m = key.match(/^renders\/([^/]+)\/out\.(mp4|webm)$/);
+            if (!m) continue;
+            results.push({
+              renderId: m[1],
+              bucketName,
+              key,
+              url: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
+              sizeBytes: obj.Size || 0,
+              lastModified: obj.LastModified ? new Date(obj.LastModified).getTime() : 0,
+              fileFormat: m[2] as "mp4" | "webm",
+            });
+          }
+          continuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
+        } while (continuationToken);
+      } catch (err: any) {
+        // Bucket lives in a different region than REMOTION_AWS_REGION — ignore.
+        if (err?.name === "PermanentRedirect" || err?.Code === "PermanentRedirect") continue;
+        throw err;
+      }
     }
 
     results.sort((a, b) => b.lastModified - a.lastModified);
