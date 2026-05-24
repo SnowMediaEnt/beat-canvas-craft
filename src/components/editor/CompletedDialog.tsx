@@ -60,7 +60,7 @@ export function CompletedDialog({ project }: Props) {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const hydrated = await refresh();
+      const { hydrated, allJobs } = await refresh();
       if (cancelled) return;
 
       // Auto-resume polling for any in-flight Lambda renders (e.g. page was reloaded).
@@ -76,6 +76,39 @@ export function CompletedDialog({ project }: Props) {
           pollingRef.current.add(entry.id);
           void resumePolling(entry);
         }
+      }
+
+      // Fetch cloud renders from AWS S3 and surface any that aren't already
+      // tracked locally (e.g. browser cache was cleared, rendered in another browser).
+      setCloudLoading(true);
+      try {
+        const cloud = await fetchCloudRenders();
+        if (cancelled) return;
+        const knownRenderIds = new Set(allJobs.map((j) => j.renderId).filter(Boolean));
+        const orphans: RenderJob[] = cloud
+          .filter((c) => !knownRenderIds.has(c.renderId))
+          .map((c) => ({
+            id: `cloud-${c.renderId}`,
+            projectId: "",
+            projectName: `Cloud render ${c.renderId.slice(0, 8)}`,
+            kind: "lambda",
+            status: "completed",
+            progress: 100,
+            createdAt: c.lastModified,
+            completedAt: c.lastModified,
+            sizeBytes: c.sizeBytes,
+            downloadUrl: c.url,
+            fileFormat: c.fileFormat,
+            config: project.export,
+            aspectRatio: project.aspectRatio,
+            renderId: c.renderId,
+            bucketName: c.bucketName,
+          }));
+        setCloudOnly(orphans);
+      } catch (e: any) {
+        console.error("[completed-dialog] list cloud renders failed", e);
+      } finally {
+        if (!cancelled) setCloudLoading(false);
       }
     })();
     return () => {
