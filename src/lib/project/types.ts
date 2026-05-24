@@ -69,8 +69,8 @@ export interface EffectsConfig {
 }
 
 export interface ExportConfig {
-  resolution: "1080p" | "720p";
-  fps: 30 | 60;
+  resolution: "4k" | "1080p" | "720p";
+  fps: 30 | 45 | 60 | 120;
   quality: "high" | "standard";
 }
 
