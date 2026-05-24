@@ -40,7 +40,7 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
     for (const bucketName of remotionBuckets) {
       let continuationToken: string | undefined = undefined;
       do {
-        const resp = await s3.send(
+        const resp: any = await s3.send(
           new ListObjectsV2Command({
             Bucket: bucketName,
             Prefix: "renders/",
