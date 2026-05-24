@@ -1,30 +1,54 @@
-## Why minutes go missing
+## Audit: UI controls → Remotion composition wiring
 
-When the lyric box is empty, Auto-sync just transcribes the song with ElevenLabs and groups the returned words into lines. A gap from 2:47 → 4:34 with nothing in between means ElevenLabs returned no word timestamps in that span. Two real causes:
+I traced every control in `LeftPanel`, `RightPanel`, `ExportDialog` through `Project` → `inputProps` (in `ExportDialog.onRender`) → `startLambdaRender` (zod-validated in `lambda.functions.ts`) → `VisualizerComp.tsx`.
 
-1. **Instrumental / bridge sections.** Scribe is a speech model. If the vocal drops out (solo, drum break, heavy mix) it correctly returns zero words there — but we silently produce nothing, so it looks like lines are "missing."
-2. **`scribe_v1` accuracy on sung audio.** We're calling the older `scribe_v1` model in `src/lib/transcribe/elevenlabs.ts`. `scribe_v2` is noticeably better on music/sung vocals and tends to recover words v1 drops mid-song.
+### How props travel
 
-Our grouping logic in `Transport.tsx` (`GAP = 0.7s`, `MAX_WORDS = 9`) is fine — it never deletes words, it just splits them. So the fix is upstream: get more words from ElevenLabs, and visualize the spans where there genuinely are none.
+`ExportDialog.onRender` builds `inputProps`:
+```
+{ audioUrl, durationSeconds, fps, width, height,
+  backgroundUrl, backgroundType, logoUrl,
+  visualizer: project.visualizer,   // whole object, passthrough
+  effects:    project.effects,      // whole object, passthrough
+  lyrics:     project.lyrics }      // whole object, passthrough
+```
+The lambda schema uses `z.record(z.string(), z.any())` for `visualizer` and `effects`, so nothing gets stripped. `VisualizerComp` then reuses the **same** `getPreset()` + `drawEffects()` + lyrics block as `VisualizerCanvas`, so parity is structural, not hand-mirrored.
 
-## Changes
+### Confirmed wired (UI → Remotion frames)
 
-### 1. Upgrade transcription model — `src/lib/transcribe/elevenlabs.ts`
-- Change `model_id` from `scribe_v1` to `scribe_v2`.
-- Bump cached transcripts key so old `scribe_v1` results re-transcribe once (e.g. `transcript:v2:${assetId}`), otherwise users keep seeing the old gappy result.
+**Style panel** — primary, secondary, accent, glow, overlay, overlayOpacity, size, thickness, glowIntensity, blur, position.x/y, blendMode, logoSize, logoPosition.x/y, backgroundScale, backgroundBlur, backgroundTint, backgroundTintOpacity.
+**Motion panel** — bandCount, sensitivity, bass/mid/treble, smoothing (used during analysis), animationSpeed, rotation.
+**FX panel** — particles (all sub-fields), beatFlash, vignette, noise, lensFlare, logoPulse, backgroundPulse.
+**Lyrics panel** — enabled, lines, position, fontFamily, fontSize, color, outline, shadow, glow.
+**Left panel** — presetId (equalizer), background preset / solid color / none, logo, aspect ratio, theme packages (they just mutate `project.visualizer` + `project.background`, so they ride through automatically).
+**Export panel** — fps, resolution, aspect ratio → `width/height` passed to Remotion `calculateMetadata`.
 
-### 2. Insert visible instrumental markers — `src/components/editor/Transport.tsx` (`groupWordsIntoLines`)
-- After grouping, scan adjacent line pairs. If the gap between `lines[i].end` and `lines[i+1].start` is `>= 8s` (configurable), insert a synthetic line `{ time: lines[i].end + 0.2, text: "♪ instrumental ♪" }`.
-- Also add a leading marker if `lines[0].time >= 8s` and a trailing one if `duration - lastLine.end >= 8s`.
-- This way the gap is explicit in the lyric list and on the timeline rather than appearing as missing content. Users can delete or rename the marker line from the lyric textarea.
+### Gaps — controls that DO NOT affect the Remotion render
 
-### 3. Small diagnostic log
-- In `runTranscription`, after parsing, log word count, duration covered, and longest gap (`max(words[i+1].start - words[i].end)`). Makes it obvious in the console whether future "missing lyrics" reports are model dropouts vs. real instrumentals.
+1. **Background videos (MP4/WebM uploads)**
+   `VisualizerComp` only loads `backgroundUrl` via `new Image()` and explicitly skips when `backgroundType` starts with `"video"` (line 185). The live preview plays the video, the render shows a black background. Live preview vs Remotion **will drift** for any video background.
 
-## Out of scope
-- Not changing the alignment path (pasted lyrics + Auto-sync) — that uses a different code path and the user confirmed this issue is on the empty-box generation path.
-- Not changing the visualizer rendering.
+2. **`lyrics.style` ("subtitle" vs "karaoke")**
+   The select exists, but neither `VisualizerCanvas` nor `VisualizerComp` branches on it — both always render the subtitle path. No drift, but the toggle is a no-op.
 
-## Files touched
-- `src/lib/transcribe/elevenlabs.ts`
-- `src/components/editor/Transport.tsx`
+3. **`lyrics.fade`**
+   Defined in config + exposed as a toggle, never read anywhere. No-op in both renderers.
+
+4. **Motion → `movement`, `shadow`, `border` sliders**
+   `cfg.movement`, `cfg.shadow`, `cfg.border` are not referenced in `presets.ts`, `effects.ts`, `VisualizerCanvas`, or `VisualizerComp`. Sliders move, nothing changes — same in preview and render.
+
+5. **`bandCount` select range mismatch (cosmetic, not a parity issue)**
+   `RightPanel` offers 32–256, the type comment says 3–32, but presets clamp via `Math.max(...)` so the value still passes through to Remotion identically.
+
+### Minor parity notes (preview vs Remotion)
+
+- `VisualizerCanvas` includes an "emergency break for single very long word" fallback in the lyrics wrap. `VisualizerComp` omits that branch. Only triggers on a single unbroken word wider than 80% of the canvas — unlikely to matter.
+- Live preview uses real-time `AudioEngine` (WebAudio AnalyserNode); Remotion uses `@remotion/media-utils` `visualizeAudio` and synthesizes the time-domain waveform from the first 24 FFT bins. Bar/spectrum presets match closely; oscilloscope-style presets will look subtly different (smoother) on the render. Not a wiring bug — a fundamental difference in audio analysis source.
+
+### Recommendation
+
+Safe to tweak before rendering: every control in **Style**, **FX**, **Lyrics (except `style` + `fade`)**, plus `bandCount`, `sensitivity` family, `smoothing`, `animationSpeed`, `rotation`, presets, themes, background images, solid color, "none", aspect ratio, fps, resolution.
+
+Avoid (or ask me to wire up) before rendering: **video backgrounds**, **lyrics style toggle**, **lyrics fade toggle**, **Motion → movement / shadow / border sliders**.
+
+No code changed — awaiting your call on which gaps to close.
