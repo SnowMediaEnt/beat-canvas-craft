@@ -234,6 +234,30 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
 
   const isVideoBg = !!(props.backgroundUrl && (props.backgroundType ?? "").startsWith("video"));
 
+  // Discover the video's native duration so we can loop it across the full
+  // composition. OffthreadVideo doesn't loop natively, so without this the
+  // background goes black once the source ends (diverging from the live
+  // preview which sets `video.loop = true`).
+  const [videoLoopFrames, setVideoLoopFrames] = useState<number | null>(null);
+  useEffect(() => {
+    setVideoLoopFrames(null);
+    if (!isVideoBg || !props.backgroundUrl) return;
+    const handle = delayRender(`videoBg:${props.backgroundUrl}`);
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.preload = "metadata";
+    v.onloadedmetadata = () => {
+      const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+      // Fallback to the composition's duration if metadata is bad — Loop
+      // clamps to its parent anyway, so the worst case is "no loop".
+      setVideoLoopFrames(dur > 0 ? Math.max(1, Math.round(dur * fps)) : durationInFrames);
+      continueRender(handle);
+    };
+    v.onerror = () => { setVideoLoopFrames(durationInFrames); continueRender(handle); };
+    v.src = props.backgroundUrl;
+  }, [props.backgroundUrl, isVideoBg, fps, durationInFrames]);
+
   // CSS transform applied to the OffthreadVideo so backgroundScale +
   // backgroundBlur work just like the image bg path on the live canvas.
   const videoBgStyle = useMemo<React.CSSProperties>(() => ({
