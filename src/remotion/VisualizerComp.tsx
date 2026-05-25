@@ -5,6 +5,7 @@ import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
 import { drawForegroundLayers } from "../lib/visualizer/render-shared";
+import { bandLevels } from "../lib/visualizer/presets";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
@@ -297,6 +298,20 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     }
 
     const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
+
+    // [DIAG] log every 30 frames during render
+    if (frame % 30 === 0) {
+      const lv = bandLevels(audio.freq, cfg.bandCount ?? 12, 0.7, cfg);
+      // eslint-disable-next-line no-console
+      console.log("[DIAG render]", {
+        frame, t: +(frame / fps).toFixed(2),
+        freq: [audio.freq[0], audio.freq[5], audio.freq[10], audio.freq[15]],
+        bass: +audio.bass.toFixed(3), mid: +audio.mid.toFixed(3),
+        treble: +audio.treble.toFixed(3), volume: +audio.volume.toFixed(3),
+        levels: lv.slice(0, 5).map(v => +v.toFixed(3)),
+        size: cfg.size, sensitivity: cfg.sensitivity,
+      });
+    }
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
