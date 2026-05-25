@@ -107,22 +107,51 @@ export const defaultVisualizerProps: VisualizerProps = {
 
 const FFT_SAMPLES = 1024 as const;
 
+type AudioState = {
+  /** Smoothed freq bins (0..255) — mirrors AnalyserNode.smoothingTimeConstant. */
+  smoothedFreq: Float32Array | null;
+  /** Last bass value for beat detection (post-sensitivity). */
+  lastBass: number;
+  /** Frames remaining until another beat can fire. Matches AudioEngine's 8-frame cooldown. */
+  beatCooldown: number;
+};
+
+/**
+ * Build an AudioData snapshot from a single Remotion frame. This mirrors
+ * AudioEngine.read() in the live preview as closely as possible:
+ *   - applies cfg.sensitivity (master + bass/mid/treble) to the derived
+ *     bass / mid / treble / volume scalars (presets already get scaled bins
+ *     via freqAt(), but scalars like Pulsing Ring radius read these directly)
+ *   - applies cfg.smoothing as an EMA across frames so the smoothing slider
+ *     actually does something in render (AnalyserNode does this natively in
+ *     the live preview; visualizeAudio does not)
+ *   - enforces an 8-frame beat cooldown matching AudioEngine so beat flash
+ *     fires at the same cadence in preview and render
+ */
 function buildAudioData(
   bins: number[] | null,
   time: number,
   duration: number,
-  prevBass: { value: number },
+  cfg: VisualizerConfig,
+  state: AudioState,
 ): AudioData {
   const freqLen = bins?.length ?? FFT_SAMPLES;
   const freq = new Uint8Array(new ArrayBuffer(freqLen)) as Uint8Array<ArrayBuffer>;
   const waveLen = 2048;
   const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
 
+  // EMA smoothing — matches AnalyserNode: smoothed = α·smoothed + (1-α)·current
+  const alpha = Math.max(0, Math.min(0.99, cfg.smoothing ?? 0));
+  if (!state.smoothedFreq || state.smoothedFreq.length !== freqLen) {
+    state.smoothedFreq = new Float32Array(freqLen);
+  }
+  const smoothed = state.smoothedFreq;
+
   if (bins) {
     for (let i = 0; i < freqLen; i++) {
-      // visualizeAudio returns 0..1 magnitudes; map to byte range like AnalyserNode.
-      const v = Math.max(0, Math.min(1, bins[i]));
-      freq[i] = Math.round(v * 255);
+      const v = Math.max(0, Math.min(1, bins[i])) * 255;
+      smoothed[i] = alpha * smoothed[i] + (1 - alpha) * v;
+      freq[i] = Math.round(smoothed[i]);
     }
     // Synthesize a plausible time-domain waveform from the first 24 bins so
     // oscilloscope-style presets have something to draw.
@@ -145,14 +174,27 @@ function buildAudioData(
     for (let i = a; i < b; i++) s += freq[i];
     return (s / Math.max(1, b - a)) / 255;
   };
-  const bass = Math.min(1, sliceAvg(0, 0.08));
-  const mid = Math.min(1, sliceAvg(0.08, 0.4));
-  const treble = Math.min(1, sliceAvg(0.4, 1));
+
+  const master = cfg.sensitivity ?? 1;
+  const bassMul = cfg.bassSensitivity ?? 1;
+  const midMul = cfg.midSensitivity ?? 1;
+  const trebMul = cfg.trebleSensitivity ?? 1;
+
+  const bass = Math.min(1, sliceAvg(0, 0.08) * bassMul * master);
+  const mid = Math.min(1, sliceAvg(0.08, 0.4) * midMul * master);
+  const treble = Math.min(1, sliceAvg(0.4, 1) * trebMul * master);
   let sum = 0;
   for (let i = 0; i < freqLen; i++) sum += freq[i];
-  const volume = Math.min(1, sum / freqLen / 255);
-  const beat = bass > 0.55 && bass > prevBass.value * 1.25;
-  prevBass.value = bass;
+  const volume = Math.min(1, (sum / freqLen / 255) * master);
+
+  // Beat detection with cooldown — matches AudioEngine.read() exactly.
+  let beat = false;
+  if (state.beatCooldown > 0) state.beatCooldown--;
+  if (bass > 0.55 && bass > state.lastBass * 1.25 && state.beatCooldown === 0) {
+    beat = true;
+    state.beatCooldown = 8;
+  }
+  state.lastBass = bass;
 
   return { freq, wave, bass, mid, treble, volume, beat, time, duration };
 }
