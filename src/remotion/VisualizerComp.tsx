@@ -108,8 +108,6 @@ export const defaultVisualizerProps: VisualizerProps = {
 const FFT_SAMPLES = 1024 as const;
 
 type AudioState = {
-  /** Smoothed freq bins (0..255) — mirrors AnalyserNode.smoothingTimeConstant. */
-  smoothedFreq: Float32Array | null;
   /** Last bass value for beat detection (post-sensitivity). */
   lastBass: number;
   /** Frames remaining until another beat can fire. Matches AudioEngine's 8-frame cooldown. */
