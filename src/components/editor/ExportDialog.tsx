@@ -325,7 +325,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               resolve();
               return;
             }
-            if (p.fatalErrorEncountered) {
+            if (p.fatalErrorEncountered && !p.outputFile) {
               const msg = p.errors[0]?.message || "Lambda render failed";
               window.clearInterval(pollRef.current!); pollRef.current = null;
               reject(new Error(msg)); return;
