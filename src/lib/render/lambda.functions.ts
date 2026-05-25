@@ -84,6 +84,23 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       const maxAttempts = 5;
       while (true) {
         try {
+          // framesPerLambda controls how many frames each worker renders.
+          // Higher = fewer workers spawned = less chance of hitting the
+          // AWS account concurrency cap (default 1000, often much lower
+          // for new accounts). We aim for ~20 workers max regardless of
+          // video length, with a floor that keeps each chunk well under
+          // the 900s Lambda timeout.
+          const totalFrames = Math.ceil(data.durationSeconds * data.fps);
+          const targetWorkers = 20;
+          const framesPerLambda = Math.max(
+            30,
+            Math.min(800, Math.ceil(totalFrames / targetWorkers)),
+          );
+          console.log("[lambda-render-server] framesPerLambda", {
+            totalFrames,
+            framesPerLambda,
+            estimatedWorkers: Math.ceil(totalFrames / framesPerLambda),
+          });
           result = await renderMediaOnLambda({
             region,
             functionName,
@@ -95,6 +112,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
             maxRetries: 3,
             privacy: "public",
             concurrencyPerLambda: 1,
+            framesPerLambda,
           });
           break;
         } catch (err) {
