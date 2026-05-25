@@ -43,6 +43,49 @@ export function CompletedDialog({ project }: Props) {
   const fetchCloudRenders = useServerFn(listLambdaRenders);
   const pollingRef = useRef<Set<string>>(new Set());
 
+  const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: Awaited<ReturnType<ReturnType<typeof useServerFn<typeof listLambdaRenders>>>>) => {
+    const cloudByRenderId = new Map(cloudEntries.map((entry) => [entry.renderId, entry]));
+    const mergedLocal = localEntries.map((entry) => {
+      if (entry.kind !== "lambda" || !entry.renderId) return entry;
+      const cloudMatch = cloudByRenderId.get(entry.renderId);
+      if (!cloudMatch) return entry;
+      return {
+        ...entry,
+        status: "completed" as const,
+        progress: 100,
+        completedAt: entry.completedAt || cloudMatch.lastModified,
+        sizeBytes: entry.sizeBytes || cloudMatch.sizeBytes,
+        downloadUrl: entry.downloadUrl || cloudMatch.url,
+        bucketName: entry.bucketName || cloudMatch.bucketName,
+        fileFormat: entry.fileFormat || cloudMatch.fileFormat,
+        error: undefined,
+      };
+    });
+
+    const knownRenderIds = new Set(mergedLocal.map((j) => j.renderId).filter(Boolean));
+    const orphans: RenderJob[] = cloudEntries
+      .filter((c) => !knownRenderIds.has(c.renderId))
+      .map((c) => ({
+        id: `cloud-${c.renderId}`,
+        projectId: "",
+        projectName: `Cloud render ${c.renderId.slice(0, 8)}`,
+        kind: "lambda",
+        status: "completed",
+        progress: 100,
+        createdAt: c.lastModified,
+        completedAt: c.lastModified,
+        sizeBytes: c.sizeBytes,
+        downloadUrl: c.url,
+        fileFormat: c.fileFormat,
+        config: project.export,
+        aspectRatio: project.aspectRatio,
+        renderId: c.renderId,
+        bucketName: c.bucketName,
+      }));
+
+    return { mergedLocal, orphans };
+  };
+
   const refresh = async () => {
     const allJobs = await listJobsFromStorage();
     const saved = allJobs.filter((entry) => entry.projectId === project.id);
@@ -78,32 +121,15 @@ export function CompletedDialog({ project }: Props) {
         }
       }
 
-      // Fetch cloud renders from AWS S3 and surface any that aren't already
-      // tracked locally (e.g. browser cache was cleared, rendered in another browser).
+      // Fetch cloud renders and merge them into local history first, then surface
+      // any remaining orphans.
       setCloudLoading(true);
       try {
         const cloud = await fetchCloudRenders();
         if (cancelled) return;
-        const knownRenderIds = new Set(allJobs.map((j) => j.renderId).filter(Boolean));
-        const orphans: RenderJob[] = cloud
-          .filter((c) => !knownRenderIds.has(c.renderId))
-          .map((c) => ({
-            id: `cloud-${c.renderId}`,
-            projectId: "",
-            projectName: `Cloud render ${c.renderId.slice(0, 8)}`,
-            kind: "lambda",
-            status: "completed",
-            progress: 100,
-            createdAt: c.lastModified,
-            completedAt: c.lastModified,
-            sizeBytes: c.sizeBytes,
-            downloadUrl: c.url,
-            fileFormat: c.fileFormat,
-            config: project.export,
-            aspectRatio: project.aspectRatio,
-            renderId: c.renderId,
-            bucketName: c.bucketName,
-          }));
+        const { mergedLocal, orphans } = mergeCloudIntoEntries(hydrated, cloud);
+        setEntries(mergedLocal);
+        mergedLocal.forEach((entry) => saveJob(entry));
         setCloudOnly(orphans);
       } catch (e: any) {
         console.error("[completed-dialog] list cloud renders failed", e);
@@ -133,7 +159,7 @@ export function CompletedDialog({ project }: Props) {
           toast.success("Render complete");
           break;
         }
-        if (p.fatalErrorEncountered) {
+        if (p.fatalErrorEncountered && !p.outputFile) {
           const failed: RenderJob = { ...next, status: "failed", error: p.errors[0]?.message || "Lambda render failed" };
           saveJob(failed);
           setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
