@@ -23,8 +23,8 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
     const { LambdaClientInternals } = await import("@remotion/lambda-client");
 
     const remotionBuckets = await LambdaClientInternals.awsImplementation.getBuckets({
-      region: defaultRegion,
-      forceBucketName: undefined,
+      region: defaultRegion as any,
+      forceBucketName: null,
       forcePathStyle: false,
       requestHandler: undefined,
     });
@@ -37,7 +37,7 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
           bucketName: bucket.name,
           prefix: REMOTION_RENDER_PREFIX,
           region: bucket.region,
-          expectedBucketOwner: undefined,
+          expectedBucketOwner: null,
           continuationToken: undefined,
           forcePathStyle: false,
           requestHandler: undefined,
