@@ -203,7 +203,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   const frame = useCurrentFrame();
   const { fps, width, height, durationInFrames } = useVideoConfig();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const prevBassRef = useRef({ value: 0 });
+  const audioStateRef = useRef<AudioState>({ smoothedFreq: null, lastBass: 0, beatCooldown: 0 });
 
   const audioData = useAudioData(props.audioUrl);
 
