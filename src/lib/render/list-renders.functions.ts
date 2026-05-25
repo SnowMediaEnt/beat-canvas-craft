@@ -56,7 +56,7 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
       // Determine bucket region
       let region = defaultRegion;
       try {
-        const locRes = await aws.fetch(`https://s3.amazonaws.com/${bucketName}?location`, { method: "GET" });
+        const locRes = await awsGlobal.fetch(`https://s3.amazonaws.com/${bucketName}?location`, { method: "GET" });
         if (locRes.ok) {
           const locXml = await locRes.text();
           const loc = locXml.match(/<LocationConstraint[^>]*>([^<]*)<\/LocationConstraint>/)?.[1];
