@@ -56,7 +56,7 @@ function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig): number {
   return (freq[i] / 255) * bandMulFor(i / freq.length, cfg);
 }
 
-function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
+export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
   const out = new Array(count);
   const lo = 2;
   const hi = Math.max(lo + count, Math.floor(freq.length * upper));
