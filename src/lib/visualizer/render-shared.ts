@@ -232,6 +232,8 @@ export function drawForegroundLayers(args: {
   logo?: HTMLImageElement | null;
 }) {
   const { ctx, w, h, cfg, audio, t, effects, lyrics, logo } = args;
+  // eslint-disable-next-line no-console
+  if (typeof console !== "undefined") console.log("[size-trace] drawForegroundLayers cfg.size =", args.cfg?.size);
   const scale = h / RENDER_BASELINE_HEIGHT;
   const vw = w / scale;
   const vh = h / scale;
