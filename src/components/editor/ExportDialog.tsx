@@ -466,6 +466,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                     <span>Est. render time</span><span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
                   </div>
                   <p className="text-[10px] text-muted-foreground/80 leading-relaxed">Capped at 5 parallel Lambdas to stay under the new-account AWS concurrency limit (default 10). Estimates are rough — actual times vary with preset complexity and cold starts.</p>
+                  <div className="rounded bg-background/60 p-2 space-y-1">
+                    <p className="text-[10px] text-muted-foreground/80">If you changed presets, effects, or colors since the last deploy, Lambda is still using the old bundle. Redeploy from your local machine:</p>
+                    <code className="block font-mono text-[10px] text-foreground/90 bg-black/30 rounded px-1.5 py-1 select-all">
+                      npx remotion lambda sites create src/remotion/index.ts --site-name=lyrics-viz --region=us-east-2
+                    </code>
+                  </div>
                 </div>
               );
             })()}
