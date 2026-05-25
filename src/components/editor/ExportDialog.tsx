@@ -12,6 +12,7 @@ import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
+import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
 
@@ -438,10 +439,36 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
-              <p>Uploads your audio to storage, then renders MP4 on AWS Lambda. You can close this tab once rendering starts. Currently slow (~20-30 min for a 6-min video) while AWS raises the account's concurrency quota.</p>
-            </div>
+            {(() => {
+              const duration = audioRef.current?.duration && isFinite(audioRef.current.duration) ? audioRef.current.duration : 0;
+              if (!duration) {
+                return (
+                  <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
+                    <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
+                    <p>Press play once on the audio so we can read its duration and estimate render size/time.</p>
+                  </div>
+                );
+              }
+              const est = estimateRender({
+                durationSeconds: duration,
+                fps: project.export.fps,
+                resolution: project.export.resolution,
+                maxWorkers: 5,
+              });
+              return (
+                <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
+                  <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> Render estimate</div>
+                  <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
+                    <span>Duration</span><span className="text-right font-mono text-foreground/90">{formatDuration(duration)}</span>
+                    <span>Total frames</span><span className="text-right font-mono text-foreground/90">{est.totalFrames.toLocaleString()}</span>
+                    <span>Workers (cap 5)</span><span className="text-right font-mono text-foreground/90">{est.estimatedWorkers} × {est.framesPerWorker}f</span>
+                    <span>Est. file size</span><span className="text-right font-mono text-foreground/90">{formatBytes(est.estimatedSizeMB)}</span>
+                    <span>Est. render time</span><span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">Capped at 5 parallel Lambdas to stay under the new-account AWS concurrency limit (default 10). Estimates are rough — actual times vary with preset complexity and cold starts.</p>
+                </div>
+              );
+            })()}
 
             {job && (
               <div className="space-y-2">

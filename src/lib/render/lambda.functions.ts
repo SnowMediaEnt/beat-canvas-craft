@@ -86,19 +86,24 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         try {
           // framesPerLambda controls how many frames each worker renders.
           // Higher = fewer workers spawned = less chance of hitting the
-          // AWS account concurrency cap (default 1000, often much lower
-          // for new accounts). We aim for ~20 workers max regardless of
-          // video length, with a floor that keeps each chunk well under
-          // the 900s Lambda timeout.
+          // AWS account concurrency cap. New AWS accounts have a default
+          // unreserved concurrency of 10, so we cap at ~5 workers by
+          // default (leaving headroom for the orchestrator + other
+          // invokes). Override via REMOTION_MAX_WORKERS env var once
+          // AWS raises your quota.
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const targetWorkers = 20;
+          const targetWorkers = Math.max(
+            1,
+            Number(process.env.REMOTION_MAX_WORKERS) || 5,
+          );
           const framesPerLambda = Math.max(
             30,
-            Math.min(800, Math.ceil(totalFrames / targetWorkers)),
+            Math.ceil(totalFrames / targetWorkers),
           );
           console.log("[lambda-render-server] framesPerLambda", {
             totalFrames,
             framesPerLambda,
+            targetWorkers,
             estimatedWorkers: Math.ceil(totalFrames / framesPerLambda),
           });
           result = await renderMediaOnLambda({
