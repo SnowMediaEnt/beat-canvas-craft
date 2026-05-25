@@ -3,9 +3,20 @@
 // Keeping these in one place is the only way to guarantee the rendered MP4
 // matches what users see in the editor.
 
-import type { LyricsConfig, VisualizerConfig } from "../project/types";
+import type { EffectsConfig, LyricsConfig, VisualizerConfig } from "../project/types";
 import type { AudioData } from "./audioEngine";
+import { drawEffects } from "./effects";
 import { getPreset } from "./presets";
+
+/**
+ * Reference resolution. All pixel-absolute values inside presets, effects,
+ * lyrics, and logo drawing are authored against a 1080p baseline. The
+ * `drawForegroundLayers` helper applies `ctx.scale(h / 1080, h / 1080)` so
+ * the same numbers look proportionally correct at 720p, 1440p, and 4K.
+ * Without this, a 4K render shows thinner bars / smaller glow / smaller
+ * lyrics than the live preview at 1080p — the bug the user reported.
+ */
+export const RENDER_BASELINE_HEIGHT = 1080;
 
 interface BaseDrawArgs {
   ctx: CanvasRenderingContext2D;
@@ -199,5 +210,52 @@ export function drawLyrics(
       ctx.fillText(text, x, lineY);
     }
   }
+  ctx.restore();
+}
+
+/**
+ * Unified foreground pipeline shared by VisualizerCanvas (live) and
+ * VisualizerComp (Remotion). Wraps visualizer/logo/effects/lyrics in a
+ * 1080p-baseline ctx.scale so pixel-absolute values stay proportional
+ * across resolutions. Backgrounds, tints, and overlays remain in native
+ * coords (they're full-frame fills with no magic numbers).
+ */
+export function drawForegroundLayers(args: {
+  ctx: CanvasRenderingContext2D;
+  w: number;
+  h: number;
+  cfg: VisualizerConfig;
+  audio: AudioData;
+  t: number;
+  effects: EffectsConfig;
+  lyrics: LyricsConfig;
+  logo?: HTMLImageElement | null;
+}) {
+  const { ctx, w, h, cfg, audio, t, effects, lyrics, logo } = args;
+  const scale = h / RENDER_BASELINE_HEIGHT;
+  const vw = w / scale;
+  const vh = h / scale;
+
+  ctx.save();
+  ctx.scale(scale, scale);
+
+  drawVisualizerLayer({ ctx, w: vw, h: vh, cfg, audio, t, logo: logo ?? undefined });
+
+  if (logo) {
+    const lsize = Math.min(vw, vh) * cfg.logoSize * (effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
+    const lx = vw / 2 + cfg.logoPosition.x * vw / 2 - lsize / 2;
+    const ly = vh / 2 + cfg.logoPosition.y * vh / 2 - lsize / 2;
+    ctx.save();
+    if (cfg.glowIntensity > 0) {
+      ctx.shadowColor = cfg.glow;
+      ctx.shadowBlur = 30 * cfg.glowIntensity;
+    }
+    ctx.drawImage(logo, lx, ly, lsize, lsize);
+    ctx.restore();
+  }
+
+  drawEffects({ ctx, w: vw, h: vh, cfg, audio, t }, effects);
+  drawLyrics(ctx, vw, vh, lyrics, audio.time, cfg.glow);
+
   ctx.restore();
 }

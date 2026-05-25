@@ -143,7 +143,12 @@ export function RightPanel({ project, update }: Props) {
                 <Select value={L.fontFamily} onValueChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, fontFamily: v } }))}>
                   <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["Space Grotesk","Inter","Bebas Neue","Anton","Oswald","Montserrat","Playfair Display","Lobster","Pacifico","Permanent Marker","Russo One","Press Start 2P","Rubik Mono One","Archivo Black","Cinzel","Dancing Script"].map(f =>
+                    {/* Restricted to system / Lambda-safe families. Lambda has no
+                        Google Fonts installed, so Google-only families silently fell
+                        back to a default at render time — diverging from the live
+                        preview. Re-add families here only after bundling them via
+                        loadFont() inside src/remotion/. */}
+                    {["Arial","Helvetica","Times New Roman","Georgia","Courier New","Verdana","Trebuchet MS","Impact","Comic Sans MS"].map(f =>
                       <SelectItem key={f} value={f} style={{ fontFamily: `${f}, sans-serif` }}>{f}</SelectItem>)}
                   </SelectContent>
                 </Select>

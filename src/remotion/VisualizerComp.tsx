@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { AbsoluteFill, Audio, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Loop, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
-import { drawEffects } from "../lib/visualizer/effects";
-import { drawLyrics, drawVisualizerLayer } from "../lib/visualizer/render-shared";
+import { drawForegroundLayers } from "../lib/visualizer/render-shared";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
@@ -108,22 +107,51 @@ export const defaultVisualizerProps: VisualizerProps = {
 
 const FFT_SAMPLES = 1024 as const;
 
+type AudioState = {
+  /** Smoothed freq bins (0..255) — mirrors AnalyserNode.smoothingTimeConstant. */
+  smoothedFreq: Float32Array | null;
+  /** Last bass value for beat detection (post-sensitivity). */
+  lastBass: number;
+  /** Frames remaining until another beat can fire. Matches AudioEngine's 8-frame cooldown. */
+  beatCooldown: number;
+};
+
+/**
+ * Build an AudioData snapshot from a single Remotion frame. This mirrors
+ * AudioEngine.read() in the live preview as closely as possible:
+ *   - applies cfg.sensitivity (master + bass/mid/treble) to the derived
+ *     bass / mid / treble / volume scalars (presets already get scaled bins
+ *     via freqAt(), but scalars like Pulsing Ring radius read these directly)
+ *   - applies cfg.smoothing as an EMA across frames so the smoothing slider
+ *     actually does something in render (AnalyserNode does this natively in
+ *     the live preview; visualizeAudio does not)
+ *   - enforces an 8-frame beat cooldown matching AudioEngine so beat flash
+ *     fires at the same cadence in preview and render
+ */
 function buildAudioData(
   bins: number[] | null,
   time: number,
   duration: number,
-  prevBass: { value: number },
+  cfg: VisualizerConfig,
+  state: AudioState,
 ): AudioData {
   const freqLen = bins?.length ?? FFT_SAMPLES;
   const freq = new Uint8Array(new ArrayBuffer(freqLen)) as Uint8Array<ArrayBuffer>;
   const waveLen = 2048;
   const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
 
+  // EMA smoothing — matches AnalyserNode: smoothed = α·smoothed + (1-α)·current
+  const alpha = Math.max(0, Math.min(0.99, cfg.smoothing ?? 0));
+  if (!state.smoothedFreq || state.smoothedFreq.length !== freqLen) {
+    state.smoothedFreq = new Float32Array(freqLen);
+  }
+  const smoothed = state.smoothedFreq;
+
   if (bins) {
     for (let i = 0; i < freqLen; i++) {
-      // visualizeAudio returns 0..1 magnitudes; map to byte range like AnalyserNode.
-      const v = Math.max(0, Math.min(1, bins[i]));
-      freq[i] = Math.round(v * 255);
+      const v = Math.max(0, Math.min(1, bins[i])) * 255;
+      smoothed[i] = alpha * smoothed[i] + (1 - alpha) * v;
+      freq[i] = Math.round(smoothed[i]);
     }
     // Synthesize a plausible time-domain waveform from the first 24 bins so
     // oscilloscope-style presets have something to draw.
@@ -146,14 +174,27 @@ function buildAudioData(
     for (let i = a; i < b; i++) s += freq[i];
     return (s / Math.max(1, b - a)) / 255;
   };
-  const bass = Math.min(1, sliceAvg(0, 0.08));
-  const mid = Math.min(1, sliceAvg(0.08, 0.4));
-  const treble = Math.min(1, sliceAvg(0.4, 1));
+
+  const master = cfg.sensitivity ?? 1;
+  const bassMul = cfg.bassSensitivity ?? 1;
+  const midMul = cfg.midSensitivity ?? 1;
+  const trebMul = cfg.trebleSensitivity ?? 1;
+
+  const bass = Math.min(1, sliceAvg(0, 0.08) * bassMul * master);
+  const mid = Math.min(1, sliceAvg(0.08, 0.4) * midMul * master);
+  const treble = Math.min(1, sliceAvg(0.4, 1) * trebMul * master);
   let sum = 0;
   for (let i = 0; i < freqLen; i++) sum += freq[i];
-  const volume = Math.min(1, sum / freqLen / 255);
-  const beat = bass > 0.55 && bass > prevBass.value * 1.25;
-  prevBass.value = bass;
+  const volume = Math.min(1, (sum / freqLen / 255) * master);
+
+  // Beat detection with cooldown — matches AudioEngine.read() exactly.
+  let beat = false;
+  if (state.beatCooldown > 0) state.beatCooldown--;
+  if (bass > 0.55 && bass > state.lastBass * 1.25 && state.beatCooldown === 0) {
+    beat = true;
+    state.beatCooldown = 8;
+  }
+  state.lastBass = bass;
 
   return { freq, wave, bass, mid, treble, volume, beat, time, duration };
 }
@@ -162,7 +203,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   const frame = useCurrentFrame();
   const { fps, width, height, durationInFrames } = useVideoConfig();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const prevBassRef = useRef({ value: 0 });
+  const audioStateRef = useRef<AudioState>({ smoothedFreq: null, lastBass: 0, beatCooldown: 0 });
 
   const audioData = useAudioData(props.audioUrl);
 
@@ -192,6 +233,30 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   }, [props.backgroundUrl, props.backgroundType]);
 
   const isVideoBg = !!(props.backgroundUrl && (props.backgroundType ?? "").startsWith("video"));
+
+  // Discover the video's native duration so we can loop it across the full
+  // composition. OffthreadVideo doesn't loop natively, so without this the
+  // background goes black once the source ends (diverging from the live
+  // preview which sets `video.loop = true`).
+  const [videoLoopFrames, setVideoLoopFrames] = useState<number | null>(null);
+  useEffect(() => {
+    setVideoLoopFrames(null);
+    if (!isVideoBg || !props.backgroundUrl) return;
+    const handle = delayRender(`videoBg:${props.backgroundUrl}`);
+    const v = document.createElement("video");
+    v.crossOrigin = "anonymous";
+    v.muted = true;
+    v.preload = "metadata";
+    v.onloadedmetadata = () => {
+      const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+      // Fallback to the composition's duration if metadata is bad — Loop
+      // clamps to its parent anyway, so the worst case is "no loop".
+      setVideoLoopFrames(dur > 0 ? Math.max(1, Math.round(dur * fps)) : durationInFrames);
+      continueRender(handle);
+    };
+    v.onerror = () => { setVideoLoopFrames(durationInFrames); continueRender(handle); };
+    v.src = props.backgroundUrl;
+  }, [props.backgroundUrl, isVideoBg, fps, durationInFrames]);
 
   // CSS transform applied to the OffthreadVideo so backgroundScale +
   // backgroundBlur work just like the image bg path on the live canvas.
@@ -235,7 +300,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       }
     }
 
-    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, prevBassRef.current);
+    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
@@ -278,33 +343,28 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       ctx.globalAlpha = 1;
     }
 
-    // Visualizer (Movement / Shadow / Border applied inside helper).
-    drawVisualizerLayer({ ctx, w: width, h: height, cfg, audio, t: time, logo: logoImg ?? undefined });
-
-    if (logoImg) {
-      const lsize = Math.min(width, height) * cfg.logoSize * (props.effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
-      const lx = width / 2 + cfg.logoPosition.x * width / 2 - lsize / 2;
-      const ly = height / 2 + cfg.logoPosition.y * height / 2 - lsize / 2;
-      ctx.save();
-      if (cfg.glowIntensity > 0) {
-        ctx.shadowColor = cfg.glow;
-        ctx.shadowBlur = 30 * cfg.glowIntensity;
-      }
-      ctx.drawImage(logoImg, lx, ly, lsize, lsize);
-      ctx.restore();
-    }
-
-    drawEffects({ ctx, w: width, h: height, cfg, audio, t: time }, props.effects);
-
-    // Lyrics (subtitle/karaoke + fade handled in shared helper)
-    drawLyrics(ctx, width, height, props.lyrics, audio.time, cfg.glow);
+    // Foreground (visualizer + logo + effects + lyrics) — drawn via the
+    // shared helper so it scales to a 1080p baseline identically to the
+    // live preview canvas.
+    drawForegroundLayers({
+      ctx, w: width, h: height, cfg, audio, t: time,
+      effects: props.effects, lyrics: props.lyrics,
+      logo: logoImg,
+    });
   }, [frame, fps, width, height, durationInFrames, audioData, bgImg, logoImg, isVideoBg, props]);
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      {isVideoBg && props.backgroundUrl ? (
+      {isVideoBg && props.backgroundUrl && videoLoopFrames !== null ? (
         <AbsoluteFill>
-          <OffthreadVideo src={props.backgroundUrl} muted style={videoBgStyle} />
+          {/*
+            Loop the bg video on its native duration so it repeats across the
+            full composition (matches `<video loop>` in the live preview).
+            durationInFrames here is the LOOP interval, not the parent's run.
+          */}
+          <Loop durationInFrames={videoLoopFrames} layout="none">
+            <OffthreadVideo src={props.backgroundUrl} muted style={videoBgStyle} />
+          </Loop>
         </AbsoluteFill>
       ) : null}
       <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block", position: "relative" }} />
