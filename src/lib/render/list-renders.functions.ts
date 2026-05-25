@@ -36,10 +36,11 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
       throw new Error("Missing AWS credentials");
     }
 
-    const aws = new AwsClient({ accessKeyId, secretAccessKey, service: "s3", region: defaultRegion });
+    // ListBuckets must be signed with us-east-1 (global endpoint)
+    const awsGlobal = new AwsClient({ accessKeyId, secretAccessKey, service: "s3", region: "us-east-1" });
 
     // 1) List all buckets
-    const listBucketsRes = await aws.fetch("https://s3.amazonaws.com/", { method: "GET" });
+    const listBucketsRes = await awsGlobal.fetch("https://s3.amazonaws.com/", { method: "GET" });
     if (!listBucketsRes.ok) {
       throw new Error(`ListBuckets failed: ${listBucketsRes.status} ${await listBucketsRes.text()}`);
     }
@@ -55,7 +56,7 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
       // Determine bucket region
       let region = defaultRegion;
       try {
-        const locRes = await aws.fetch(`https://s3.amazonaws.com/${bucketName}?location`, { method: "GET" });
+        const locRes = await awsGlobal.fetch(`https://s3.amazonaws.com/${bucketName}?location`, { method: "GET" });
         if (locRes.ok) {
           const locXml = await locRes.text();
           const loc = locXml.match(/<LocationConstraint[^>]*>([^<]*)<\/LocationConstraint>/)?.[1];
