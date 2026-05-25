@@ -128,28 +128,14 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
         ctx.globalAlpha = 1;
       }
 
-      // Visualizer (Motion → Movement / Shadow / Border applied inside helper)
-      drawVisualizerLayer({ ctx, w: rw, h: rh, cfg, audio, t, logo: logoRef.current || undefined });
-
-      // Logo
-      if (logoRef.current) {
-        const lsize = Math.min(rw, rh) * cfg.logoSize * (project.effects.logoPulse ? (1 + audio.bass * 0.12) : 1);
-        const lx = rw / 2 + cfg.logoPosition.x * rw / 2 - lsize / 2;
-        const ly = rh / 2 + cfg.logoPosition.y * rh / 2 - lsize / 2;
-        ctx.save();
-        if (cfg.glowIntensity > 0) {
-          ctx.shadowColor = cfg.glow;
-          ctx.shadowBlur = 30 * cfg.glowIntensity;
-        }
-        ctx.drawImage(logoRef.current, lx, ly, lsize, lsize);
-        ctx.restore();
-      }
-
-      // Effects
-      drawEffects({ ctx, w: rw, h: rh, cfg, audio, t }, project.effects);
-
-      // Lyrics (subtitle/karaoke + fade handled in shared helper)
-      drawLyrics(ctx, rw, rh, project.lyrics, audio.time, project.visualizer.glow);
+      // Foreground (visualizer + logo + effects + lyrics) — scaled to a
+      // 1080p baseline inside `drawForegroundLayers` so the same draw code
+      // produces identical proportions at any export resolution.
+      drawForegroundLayers({
+        ctx, w: rw, h: rh, cfg, audio, t,
+        effects: project.effects, lyrics: project.lyrics,
+        logo: logoRef.current,
+      });
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
