@@ -9,7 +9,7 @@ import { deleteJob, listJobsFromStorage, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
-import { listLambdaRenders } from "@/lib/render/list-renders.functions";
+import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
 import { toast } from "sonner";
 
 interface Props {
@@ -43,7 +43,7 @@ export function CompletedDialog({ project }: Props) {
   const fetchCloudRenders = useServerFn(listLambdaRenders);
   const pollingRef = useRef<Set<string>>(new Set());
 
-  const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: Awaited<ReturnType<ReturnType<typeof useServerFn<typeof listLambdaRenders>>>>) => {
+  const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
     const cloudByRenderId = new Map(cloudEntries.map((entry) => [entry.renderId, entry]));
     const mergedLocal = localEntries.map((entry) => {
       if (entry.kind !== "lambda" || !entry.renderId) return entry;
@@ -103,7 +103,7 @@ export function CompletedDialog({ project }: Props) {
     if (!open) return;
     let cancelled = false;
     (async () => {
-      const { hydrated, allJobs } = await refresh();
+      const { hydrated } = await refresh();
       if (cancelled) return;
 
       // Auto-resume polling for any in-flight Lambda renders (e.g. page was reloaded).
