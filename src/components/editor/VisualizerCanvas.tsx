@@ -77,6 +77,7 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
     const ctx = canvas.getContext("2d"); if (!ctx) return;
     canvas.width = rw; canvas.height = rh;
     let raf = 0;
+    let dbgFrame = 0;
     const empty: AudioData = {
       freq: new Uint8Array(new ArrayBuffer(1024)) as Uint8Array<ArrayBuffer>,
       wave: new Uint8Array(new ArrayBuffer(2048)) as Uint8Array<ArrayBuffer>,
