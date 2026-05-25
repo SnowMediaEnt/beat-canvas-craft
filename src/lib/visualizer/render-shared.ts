@@ -3,9 +3,9 @@
 // Keeping these in one place is the only way to guarantee the rendered MP4
 // matches what users see in the editor.
 
-import type { LyricsConfig, VisualizerConfig } from "@/lib/project/types";
-import type { AudioData } from "@/lib/visualizer/audioEngine";
-import { getPreset } from "@/lib/visualizer/presets";
+import type { LyricsConfig, VisualizerConfig } from "../project/types";
+import type { AudioData } from "./audioEngine";
+import { getPreset } from "./presets";
 
 interface BaseDrawArgs {
   ctx: CanvasRenderingContext2D;
