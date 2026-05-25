@@ -6,13 +6,14 @@ interface Props {
   onChange: (v: number) => void;
   min?: number; max?: number; step?: number;
   format?: (v: number) => string;
+  hint?: string;
 }
 
-export function SliderField({ label, value, onChange, min = 0, max = 1, step = 0.01, format }: Props) {
+export function SliderField({ label, value, onChange, min = 0, max = 1, step = 0.01, format, hint }: Props) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" title={hint}>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
+        <span className="text-muted-foreground cursor-help">{label}</span>
         <span className="font-mono text-foreground/80">{format ? format(value) : value.toFixed(2)}</span>
       </div>
       <Slider min={min} max={max} step={step} value={[value]} onValueChange={(v) => onChange(v[0])} />
