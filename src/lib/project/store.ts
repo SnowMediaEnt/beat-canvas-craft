@@ -5,6 +5,12 @@ import { hydrateAsset, stripAssetUrl } from "./assets";
 
 const KEY = "mv.projects.v1";
 const JOBS_KEY = "mv.jobs.v1";
+const WINDOW_BACKUP_PREFIX = "__pulse_backup__:";
+
+type WindowBackupState = {
+  projects?: Project[];
+  jobs?: RenderJob[];
+};
 
 export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerConfig => ({
   presetId,
@@ -71,7 +77,34 @@ const read = <T,>(k: string, fallback: T): T => {
 };
 
 const write = (k: string, v: unknown) => {
-  if (typeof window !== "undefined") localStorage.setItem(k, JSON.stringify(v));
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch (error) {
+    console.warn(`[project-store] Failed to write ${k} to localStorage`, error);
+  }
+};
+
+const readWindowBackup = (): WindowBackupState => {
+  if (typeof window === "undefined") return {};
+  const raw = window.name;
+  if (!raw || !raw.startsWith(WINDOW_BACKUP_PREFIX)) return {};
+  try {
+    return JSON.parse(raw.slice(WINDOW_BACKUP_PREFIX.length)) as WindowBackupState;
+  } catch {
+    return {};
+  }
+};
+
+const writeWindowBackup = (partial: WindowBackupState) => {
+  if (typeof window === "undefined") return;
+  if (window.name && !window.name.startsWith(WINDOW_BACKUP_PREFIX)) return;
+  try {
+    const current = readWindowBackup();
+    window.name = `${WINDOW_BACKUP_PREFIX}${JSON.stringify({ ...current, ...partial })}`;
+  } catch (error) {
+    console.warn("[project-store] Failed to write window backup", error);
+  }
 };
 
 const mergeProjects = (primary: Project[], secondary: Project[]) => {
@@ -101,11 +134,13 @@ const mergeJobs = (primary: RenderJob[], secondary: RenderJob[]) => {
 const persistProjects = (projects: Project[]) => {
   write(KEY, projects);
   void idbSet(KEY, projects);
+  writeWindowBackup({ projects: projects.slice(0, 20) });
 };
 
 const persistJobs = (jobs: RenderJob[]) => {
   write(JOBS_KEY, jobs);
   void idbSet(JOBS_KEY, jobs);
+  writeWindowBackup({ jobs: jobs.slice(0, 100) });
 };
 
 export const listProjects = (): Project[] => read<Project[]>(KEY, []);
@@ -113,7 +148,8 @@ export const listProjects = (): Project[] => read<Project[]>(KEY, []);
 export const listProjectsFromStorage = async (): Promise<Project[]> => {
   const local = listProjects();
   const indexed = (await idbGet<Project[]>(KEY)) ?? [];
-  const merged = mergeProjects(local, indexed);
+  const backup = readWindowBackup().projects ?? [];
+  const merged = mergeProjects(local, mergeProjects(indexed, backup));
   if (merged.length !== local.length || merged.length !== indexed.length) {
     persistProjects(merged);
   } else if (local.length === 0 && merged.length > 0) {
@@ -160,7 +196,8 @@ export const listJobs = (): RenderJob[] => read<RenderJob[]>(JOBS_KEY, []);
 export const listJobsFromStorage = async (): Promise<RenderJob[]> => {
   const local = listJobs();
   const indexed = (await idbGet<RenderJob[]>(JOBS_KEY)) ?? [];
-  const merged = mergeJobs(local, indexed);
+  const backup = readWindowBackup().jobs ?? [];
+  const merged = mergeJobs(local, mergeJobs(indexed, backup));
   if (merged.length !== local.length || merged.length !== indexed.length) {
     persistJobs(merged);
   } else if (local.length === 0 && merged.length > 0) {
