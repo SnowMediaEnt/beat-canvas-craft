@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import { AbsoluteFill, Audio, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Audio, Loop, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
-import { drawEffects } from "../lib/visualizer/effects";
-import { drawLyrics, drawVisualizerLayer } from "../lib/visualizer/render-shared";
+import { drawForegroundLayers } from "../lib/visualizer/render-shared";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
