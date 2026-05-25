@@ -296,6 +296,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         .map(([key, value]) => ({ key, value }));
 
       console.log("[lambda-render] final inputProps", inputProps);
+      // eslint-disable-next-line no-console
+      console.log("[size-trace] inputProps.visualizer.size =", inputProps.visualizer?.size);
       if (invalidFields.length > 0) {
         console.error("[lambda-render] invalid inputProps detected before Lambda", invalidFields);
         throw new Error(`Invalid render input: ${invalidFields.map((f) => f.key).join(", ")}`);
