@@ -409,7 +409,20 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
           {/* Server-side Lambda render */}
           <TabsContent value="lambda" className="space-y-4 mt-4">
+            {(() => {
+              const t = (project.audio?.type || "").toLowerCase();
+              const n = (project.audio?.name || "").toLowerCase();
+              const isAac = t.includes("m4a") || t.includes("aac") || t.includes("mp4") || n.endsWith(".m4a") || n.endsWith(".aac");
+              if (!isAac) return null;
+              return (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200/90 space-y-1">
+                  <div className="font-medium text-amber-100">M4A/AAC audio detected</div>
+                  <p>Lambda's audio decoder produces near-silent samples for AAC, which makes the visualizer bars render much smaller than in the live preview. For best results, re-export your track as <strong>MP3</strong> or <strong>WAV</strong> and re-upload before rendering.</p>
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-2 gap-3">
+
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">FPS</label>
                 <Select

@@ -294,10 +294,29 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
           numberOfSamples: FFT_SAMPLES,
         });
         bins = Array.from(out);
-      } catch {
+        if (frame % 30 === 0) {
+          // eslint-disable-next-line no-console
+          console.log("[audio-raw]", {
+            frame,
+            audioDataNumChannels: audioData.numberOfChannels,
+            audioDataSampleRate: audioData.sampleRate,
+            audioDataDurationInSeconds: audioData.durationInSeconds,
+            firstBins: bins.slice(0, 5),
+            maxBin: bins.reduce((m, v) => Math.max(m, v), 0),
+          });
+        }
+      } catch (err) {
         bins = null;
+        if (frame % 30 === 0) {
+          // eslint-disable-next-line no-console
+          console.log("[audio-raw] visualizeAudio threw", err instanceof Error ? err.message : String(err));
+        }
       }
+    } else if (frame % 30 === 0) {
+      // eslint-disable-next-line no-console
+      console.log("[audio-raw] audioData is null (useAudioData not yet resolved)");
     }
+
 
     const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
 
