@@ -3,9 +3,20 @@
 // Keeping these in one place is the only way to guarantee the rendered MP4
 // matches what users see in the editor.
 
-import type { LyricsConfig, VisualizerConfig } from "../project/types";
+import type { EffectsConfig, LyricsConfig, VisualizerConfig } from "../project/types";
 import type { AudioData } from "./audioEngine";
+import { drawEffects } from "./effects";
 import { getPreset } from "./presets";
+
+/**
+ * Reference resolution. All pixel-absolute values inside presets, effects,
+ * lyrics, and logo drawing are authored against a 1080p baseline. The
+ * `drawForegroundLayers` helper applies `ctx.scale(h / 1080, h / 1080)` so
+ * the same numbers look proportionally correct at 720p, 1440p, and 4K.
+ * Without this, a 4K render shows thinner bars / smaller glow / smaller
+ * lyrics than the live preview at 1080p — the bug the user reported.
+ */
+export const RENDER_BASELINE_HEIGHT = 1080;
 
 interface BaseDrawArgs {
   ctx: CanvasRenderingContext2D;
