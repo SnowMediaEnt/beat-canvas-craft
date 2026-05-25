@@ -87,7 +87,7 @@ export function RightPanel({ project, update }: Props) {
             <Section title="Animation">
               <SliderField label="Speed" value={V.animationSpeed} min={0.1} max={3} onChange={(v) => setV(update, "animationSpeed")(v)} />
               <SliderField label="Rotation" value={V.rotation} min={-Math.PI} max={Math.PI} onChange={(v) => setV(update, "rotation")(v)} />
-              <SliderField label="Movement" value={V.movement} onChange={(v) => setV(update, "movement")(v)} />
+              <SliderField label="Movement" value={V.movement} onChange={(v) => setV(update, "movement")(v)} hint="Adds a subtle sway to the visualizer over time. Set to 0 for a fully static equalizer." />
               <SliderField label="Shadow" value={V.shadow} onChange={(v) => setV(update, "shadow")(v)} />
               <SliderField label="Border" value={V.border} onChange={(v) => setV(update, "border")(v)} />
             </Section>

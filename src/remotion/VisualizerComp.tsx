@@ -108,8 +108,6 @@ export const defaultVisualizerProps: VisualizerProps = {
 const FFT_SAMPLES = 1024 as const;
 
 type AudioState = {
-  /** Smoothed freq bins (0..255) — mirrors AnalyserNode.smoothingTimeConstant. */
-  smoothedFreq: Float32Array | null;
   /** Last bass value for beat detection (post-sensitivity). */
   lastBass: number;
   /** Frames remaining until another beat can fire. Matches AudioEngine's 8-frame cooldown. */
@@ -140,18 +138,16 @@ function buildAudioData(
   const waveLen = 2048;
   const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
 
-  // EMA smoothing — matches AnalyserNode: smoothed = α·smoothed + (1-α)·current
-  const alpha = Math.max(0, Math.min(0.99, cfg.smoothing ?? 0));
-  if (!state.smoothedFreq || state.smoothedFreq.length !== freqLen) {
-    state.smoothedFreq = new Float32Array(freqLen);
-  }
-  const smoothed = state.smoothedFreq;
-
+  // NOTE: No EMA smoothing here. `useAudioData` + `visualizeAudio` already
+  // average frequency energy across the frame's audio window, which mirrors
+  // what AnalyserNode does in the live preview. Stacking a second EMA on top
+  // (previous behaviour) dampened peak amplitudes and made bars render
+  // visibly shorter than preview. cfg.smoothing still affects the live
+  // preview via AnalyserNode.smoothingTimeConstant.
   if (bins) {
     for (let i = 0; i < freqLen; i++) {
       const v = Math.max(0, Math.min(1, bins[i])) * 255;
-      smoothed[i] = alpha * smoothed[i] + (1 - alpha) * v;
-      freq[i] = Math.round(smoothed[i]);
+      freq[i] = Math.round(v);
     }
     // Synthesize a plausible time-domain waveform from the first 24 bins so
     // oscilloscope-style presets have something to draw.
@@ -203,7 +199,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   const frame = useCurrentFrame();
   const { fps, width, height, durationInFrames } = useVideoConfig();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const audioStateRef = useRef<AudioState>({ smoothedFreq: null, lastBass: 0, beatCooldown: 0 });
+  const audioStateRef = useRef<AudioState>({ lastBass: 0, beatCooldown: 0 });
 
   const audioData = useAudioData(props.audioUrl);
 
