@@ -70,7 +70,7 @@ export function CompletedDialog({ project }: Props) {
           entry.renderId &&
           entry.bucketName &&
           !entry.downloadUrl &&
-          entry.status !== "failed" &&
+          entry.status !== "completed" &&
           !pollingRef.current.has(entry.id)
         ) {
           pollingRef.current.add(entry.id);
@@ -126,18 +126,18 @@ export function CompletedDialog({ project }: Props) {
         const next: RenderJob = { ...entry, progress: pct, status: "rendering" };
         saveJob(next);
         setEntries((current) => current.map((it) => (it.id === entry.id ? { ...it, progress: pct, status: "rendering" } : it)));
-        if (p.fatalErrorEncountered) {
-          const failed: RenderJob = { ...next, status: "failed", error: p.errors[0]?.message || "Lambda render failed" };
-          saveJob(failed);
-          setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
-          toast.error(`Render failed: ${failed.error}`);
-          break;
-        }
         if (p.done && p.outputFile) {
           const done: RenderJob = { ...next, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
           saveJob(done);
           setEntries((current) => current.map((it) => (it.id === entry.id ? done : it)));
           toast.success("Render complete");
+          break;
+        }
+        if (p.fatalErrorEncountered) {
+          const failed: RenderJob = { ...next, status: "failed", error: p.errors[0]?.message || "Lambda render failed" };
+          saveJob(failed);
+          setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
+          toast.error(`Render failed: ${failed.error}`);
           break;
         }
         await new Promise((r) => setTimeout(r, 3000));

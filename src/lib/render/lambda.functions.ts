@@ -1,6 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
+const REMOTION_OUTPUT_PREFIX = "renders/";
+
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
 // Visualizer / Effects / Lyrics configs are passed through to the Remotion
@@ -135,10 +137,17 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
       functionName,
       region,
     });
+
+    let outputFile = p.outputFile;
+
+    if (!outputFile && p.done && !p.fatalErrorEncountered) {
+      outputFile = `https://s3.${region}.amazonaws.com/${data.bucketName}/${REMOTION_OUTPUT_PREFIX}${data.renderId}/out.mp4`;
+    }
+
     return {
       done: p.done,
       overallProgress: p.overallProgress,
-      outputFile: p.outputFile,
+      outputFile,
       errors: p.errors.map((e) => ({ message: e.message, stack: e.stack })),
       fatalErrorEncountered: p.fatalErrorEncountered,
     };
