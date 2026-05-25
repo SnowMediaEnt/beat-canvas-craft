@@ -276,7 +276,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       }
     }
 
-    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, prevBassRef.current);
+    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
@@ -319,26 +319,14 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       ctx.globalAlpha = 1;
     }
 
-    // Visualizer (Movement / Shadow / Border applied inside helper).
-    drawVisualizerLayer({ ctx, w: width, h: height, cfg, audio, t: time, logo: logoImg ?? undefined });
-
-    if (logoImg) {
-      const lsize = Math.min(width, height) * cfg.logoSize * (props.effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
-      const lx = width / 2 + cfg.logoPosition.x * width / 2 - lsize / 2;
-      const ly = height / 2 + cfg.logoPosition.y * height / 2 - lsize / 2;
-      ctx.save();
-      if (cfg.glowIntensity > 0) {
-        ctx.shadowColor = cfg.glow;
-        ctx.shadowBlur = 30 * cfg.glowIntensity;
-      }
-      ctx.drawImage(logoImg, lx, ly, lsize, lsize);
-      ctx.restore();
-    }
-
-    drawEffects({ ctx, w: width, h: height, cfg, audio, t: time }, props.effects);
-
-    // Lyrics (subtitle/karaoke + fade handled in shared helper)
-    drawLyrics(ctx, width, height, props.lyrics, audio.time, cfg.glow);
+    // Foreground (visualizer + logo + effects + lyrics) — drawn via the
+    // shared helper so it scales to a 1080p baseline identically to the
+    // live preview canvas.
+    drawForegroundLayers({
+      ctx, w: width, h: height, cfg, audio, t: time,
+      effects: props.effects, lyrics: props.lyrics,
+      logo: logoImg,
+    });
   }, [frame, fps, width, height, durationInFrames, audioData, bgImg, logoImg, isVideoBg, props]);
 
   return (
