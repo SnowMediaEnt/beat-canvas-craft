@@ -315,11 +315,6 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
             persistJob({ ...running, progress: pct });
-            if (p.fatalErrorEncountered) {
-              const msg = p.errors[0]?.message || "Lambda render failed";
-              window.clearInterval(pollRef.current!); pollRef.current = null;
-              reject(new Error(msg)); return;
-            }
             if (p.done && p.outputFile) {
               window.clearInterval(pollRef.current!); pollRef.current = null;
               setDownloadUrl(p.outputFile);
@@ -328,6 +323,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               setStage("Complete");
               toast.success("Render complete");
               resolve();
+              return;
+            }
+            if (p.fatalErrorEncountered) {
+              const msg = p.errors[0]?.message || "Lambda render failed";
+              window.clearInterval(pollRef.current!); pollRef.current = null;
+              reject(new Error(msg)); return;
             }
           } catch (e: any) {
             window.clearInterval(pollRef.current!); pollRef.current = null;
