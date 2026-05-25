@@ -5,6 +5,7 @@ import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
 import { drawForegroundLayers } from "../lib/visualizer/render-shared";
+import { bandLevels } from "../lib/visualizer/presets";
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
