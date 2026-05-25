@@ -355,16 +355,14 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
 
   return (
     <AbsoluteFill style={{ background: "#000" }}>
-      {isVideoBg && props.backgroundUrl ? (
+      {isVideoBg && props.backgroundUrl && videoLoopFrames !== null ? (
         <AbsoluteFill>
           {/*
-            Loop the background video for the full composition. OffthreadVideo
-            doesn't loop natively, so without <Loop> the frame goes black once
-            the source ends — diverging from the live preview which sets
-            `video.loop = true`. We use a 1-hour upper bound which exceeds any
-            real song length; Loop clamps to durationInFrames.
+            Loop the bg video on its native duration so it repeats across the
+            full composition (matches `<video loop>` in the live preview).
+            durationInFrames here is the LOOP interval, not the parent's run.
           */}
-          <Loop durationInFrames={Math.max(1, durationInFrames)} layout="none">
+          <Loop durationInFrames={videoLoopFrames} layout="none">
             <OffthreadVideo src={props.backgroundUrl} muted style={videoBgStyle} />
           </Loop>
         </AbsoluteFill>
