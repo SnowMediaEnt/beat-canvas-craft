@@ -48,7 +48,7 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
 
 export const defaultLyrics = (): LyricsConfig => ({
   enabled: false, lines: [], style: "subtitle", position: "bottom",
-  fontFamily: "Space Grotesk", fontSize: 42, color: "#ffffff",
+  fontFamily: "Arial", fontSize: 42, color: "#ffffff",
   outline: true, shadow: true, glow: false, fade: true,
 });
 
