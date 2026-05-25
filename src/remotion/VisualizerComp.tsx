@@ -280,6 +280,8 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     canvas.height = height;
 
     const cfg = props.visualizer;
+    // eslint-disable-next-line no-console
+    if (frame % 30 === 0) console.log("[size-trace] received cfg.size =", cfg?.size);
     const time = (frame / fps) * (cfg.animationSpeed ?? 1);
 
     let bins: number[] | null = null;
