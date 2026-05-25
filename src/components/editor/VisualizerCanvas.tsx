@@ -92,6 +92,20 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
         ? engineRef.current.read({ master: cfg.sensitivity, bass: cfg.bassSensitivity, mid: cfg.midSensitivity, treble: cfg.trebleSensitivity })
         : empty;
 
+      // [DIAG] log every 30 frames while audio is playing
+      if (engineRef.current && !audioRef.current?.paused && (dbgFrame++ % 30) === 0) {
+        const lv = bandLevels(audio.freq, cfg.bandCount ?? 12, 0.7, cfg);
+        // eslint-disable-next-line no-console
+        console.log("[DIAG preview]", {
+          t: +audio.time.toFixed(2),
+          freq: [audio.freq[0], audio.freq[5], audio.freq[10], audio.freq[15]],
+          bass: +audio.bass.toFixed(3), mid: +audio.mid.toFixed(3),
+          treble: +audio.treble.toFixed(3), volume: +audio.volume.toFixed(3),
+          levels: lv.slice(0, 5).map(v => +v.toFixed(3)),
+          size: cfg.size, sensitivity: cfg.sensitivity,
+        });
+      }
+
       // Background
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, rw, rh);
       const drawBg = (src: HTMLImageElement | HTMLVideoElement) => {
