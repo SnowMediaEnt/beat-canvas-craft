@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { loadRemotionLambdaClient } from "./remotion-lambda-client.server";
 
 const REMOTION_OUTPUT_PREFIX = "renders/";
 
@@ -70,7 +71,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
         hasSecret: !!process.env.AWS_SECRET_ACCESS_KEY,
       });
-      const { renderMediaOnLambda } = await import("@remotion/lambda-client");
+      const { renderMediaOnLambda } = loadRemotionLambdaClient();
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
       // IMPORTANT: we intentionally keep framesPerLambda high (1501) so the
       // render splits into ~10-12 chunks instead of 100+. Each Lambda worker
@@ -137,7 +138,7 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
     z.object({ renderId: z.string(), bucketName: z.string() }).parse(input),
   )
   .handler(async ({ data }) => {
-    const { getRenderProgress } = await import("@remotion/lambda-client");
+    const { getRenderProgress } = loadRemotionLambdaClient();
     const { region, functionName } = awsConfig();
     const p = await getRenderProgress({
       renderId: data.renderId,
