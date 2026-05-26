@@ -156,7 +156,8 @@ function buildAudioData(
   // preview via AnalyserNode.smoothingTimeConstant.
   if (bins) {
     for (let i = 0; i < freqLen; i++) {
-      const v = Math.max(0, Math.min(1, bins[i])) * 255;
+      const scaled = bins[i] * RENDER_AMPLITUDE_MULTIPLIER;
+      const v = Math.max(0, Math.min(1, scaled)) * 255;
       freq[i] = Math.round(v);
     }
     // Synthesize a plausible time-domain waveform from the first 24 bins so
