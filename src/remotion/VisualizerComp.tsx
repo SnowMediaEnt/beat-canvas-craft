@@ -295,6 +295,8 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
         });
         bins = Array.from(out);
         if (frame % 30 === 0) {
+          const firstNonZero = bins.find((v) => v > 0) ?? 0;
+          const firstNonZeroIdx = bins.findIndex((v) => v > 0);
           // eslint-disable-next-line no-console
           console.log("[audio-raw]", {
             frame,
@@ -303,6 +305,8 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
             audioDataDurationInSeconds: audioData.durationInSeconds,
             firstBins: bins.slice(0, 5),
             maxBin: bins.reduce((m, v) => Math.max(m, v), 0),
+            firstNonZero,
+            firstNonZeroIdx,
           });
         }
       } catch (err) {
