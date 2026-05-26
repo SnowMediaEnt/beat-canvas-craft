@@ -72,38 +72,23 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       });
       const { renderMediaOnLambda } = await import("@remotion/lambda-client");
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
-      // IMPORTANT: do NOT set framesPerLambda high — that forces a single
-      // renderer lambda to do all frames and it hits AWS's 900s hard timeout
-      // on anything longer than ~2 minutes (the symptom: render stalls
-      // around 40% then errors out as "main function timed out after
-      // 900000ms"). Let Remotion auto-split the work across many parallel
-      // workers — its default heuristic keeps each chunk well under the
-      // 900s timeout. Retry the orchestrator invoke if AWS throttles us.
+      // IMPORTANT: we intentionally keep framesPerLambda high (1501) so the
+      // render splits into ~10-12 chunks instead of 100+. Each Lambda worker
+      // gets ~30-40s of video. At ~160ms/frame (1080p heuristic) that's
+      // ~240s render time per worker, well under AWS's 900s hard timeout.
+      // This trades worker wall-time for fewer concurrent invocations, which
+      // is required because our AWS account has a low unreserved concurrency
+      // limit (10). If you raise that limit, you can lower framesPerLambda.
       let result;
       let attempt = 0;
       const maxAttempts = 5;
       while (true) {
         try {
-          // framesPerLambda controls how many frames each worker renders.
-          // Higher = fewer workers spawned = less chance of hitting the
-          // AWS account concurrency cap. New AWS accounts have a default
-          // unreserved concurrency of 10, so we cap at ~5 workers by
-          // default (leaving headroom for the orchestrator + other
-          // invokes). Override via REMOTION_MAX_WORKERS env var once
-          // AWS raises your quota.
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const targetWorkers = Math.max(
-            1,
-            Number(process.env.REMOTION_MAX_WORKERS) || 5,
-          );
-          const framesPerLambda = Math.max(
-            30,
-            Math.ceil(totalFrames / targetWorkers),
-          );
+          const framesPerLambda = 1500;
           console.log("[lambda-render-server] framesPerLambda", {
             totalFrames,
             framesPerLambda,
-            targetWorkers,
             estimatedWorkers: Math.ceil(totalFrames / framesPerLambda),
           });
           result = await renderMediaOnLambda({
