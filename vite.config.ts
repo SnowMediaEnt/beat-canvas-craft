@@ -32,26 +32,6 @@ const patchRemotionLambdaCreateRequire = {
   },
 };
 
-// Patch @aws-sdk/core (pulled in by @remotion/lambda-client) which does
-//   import { env } from "node:process";
-//   import { versions } from "node:process";
-// In our Cloudflare worker bundle this throws `No such module "node:process"`
-// at runtime even with nodejs_compat. `process` is available as a global, so
-// rewrite the named imports to destructure from globalThis.process.
-const patchAwsSdkNodeProcess = {
-  name: "patch-aws-sdk-node-process",
-  enforce: "pre" as const,
-  transform(code: string, id: string) {
-    if (!/@aws-sdk[\\/]+core[\\/]+.*\.(m?js)$/.test(id)) return null;
-    if (!code.includes("node:process")) return null;
-    const patched = code.replace(
-      /import\s*\{\s*([^}]+)\s*\}\s*from\s*["']node:process["'];?/g,
-      (_m, names) => `const { ${names} } = (globalThis.process ?? {});`,
-    );
-    return { code: patched, map: null };
-  },
-};
-
 // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
 export default defineConfig({
@@ -59,6 +39,6 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
-    plugins: [patchRemotionLambdaCreateRequire, patchAwsSdkNodeProcess],
+    plugins: [patchRemotionLambdaCreateRequire],
   },
 });
