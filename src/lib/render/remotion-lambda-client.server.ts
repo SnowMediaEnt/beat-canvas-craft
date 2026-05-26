@@ -15,8 +15,8 @@ const require = createRequire(import.meta.url);
 let cachedClient: RemotionLambdaClient | null = null;
 
 function ensureProcessFallback() {
-  const globalScope = globalThis as typeof globalThis & { process?: ProcessLike };
-  const processRef = (globalScope.process ??= {});
+  const globalScope = globalThis as Record<string, unknown>;
+  const processRef = ((globalScope.process as ProcessLike | undefined) ??= {} as ProcessLike);
   processRef.env ??= {};
   processRef.versions ??= { node: "22.0.0" };
   processRef.version ??= "v22.0.0";
