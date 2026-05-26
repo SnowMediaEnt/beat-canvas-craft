@@ -106,7 +106,7 @@ export const defaultVisualizerProps: VisualizerProps = {
   },
 };
 
-const FFT_SAMPLES = 64 as const;
+const FFT_SAMPLES = 256 as const;
 
 /**
  * Compensation multiplier applied to raw frequency bin values in the render
