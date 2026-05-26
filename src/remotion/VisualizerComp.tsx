@@ -324,6 +324,16 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
 
     const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
 
+    if (frame % 30 === 0) {
+      // eslint-disable-next-line no-console
+      console.log("[audio-amplitude]", "frame", frame,
+        "bass", +audio.bass.toFixed(4),
+        "volume", +audio.volume.toFixed(4),
+        "bins[0]", audio.freq[0],
+        "binsLen", audio.freq.length,
+        "rawBin0", bins ? bins[0] : null);
+    }
+
     // [DIAG] log every 30 frames during render
     if (frame % 30 === 0) {
       const lv = bandLevels(audio.freq, cfg.bandCount ?? 12, 0.7, cfg);
