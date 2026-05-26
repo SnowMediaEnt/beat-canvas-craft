@@ -108,6 +108,15 @@ export const defaultVisualizerProps: VisualizerProps = {
 
 const FFT_SAMPLES = 1024 as const;
 
+/**
+ * Compensation multiplier applied to raw frequency bin values in the render
+ * pipeline. Remotion's `visualizeAudio` returns bin energies normalized
+ * differently than the browser's AnalyserNode used by the live preview —
+ * empirically render bins come back ~3x quieter at the same sensitivity.
+ * Tune this constant if render bars look too short/tall relative to preview.
+ */
+const RENDER_AMPLITUDE_MULTIPLIER = 3.0;
+
 type AudioState = {
   /** Last bass value for beat detection (post-sensitivity). */
   lastBass: number;
