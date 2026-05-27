@@ -265,7 +265,7 @@ const particleBurst: Preset = {
     const count = 60;
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2;
-      const dist = (50 + ((t * 80 + i * 9) % 300)) * (0.5 + audio.volume);
+      const dist = (50 + ((t * 40 + i * 9) % 300)) * (0.5 + audio.volume);
       const x = cx + Math.cos(a) * dist; const y = cy + Math.sin(a) * dist;
       const size = 2 + audio.bass * 6;
       ctx.fillStyle = hexA(i % 2 ? cfg.primary : cfg.accent, Math.max(0, 1 - dist / 350));
