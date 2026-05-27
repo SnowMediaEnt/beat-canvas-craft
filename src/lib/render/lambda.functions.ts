@@ -109,7 +109,11 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
       // AWS account concurrency limit is 1000, so we let framesPerLambda alone
       // control chunk size with no worker ceiling.
-      const FRAMES_PER_LAMBDA = 500;
+      // Each Lambda has a hard 900s timeout. At ~160ms/frame for 1080p that's
+      // ~5600 frames theoretical max, but heavy presets + cold starts push
+      // per-frame cost much higher. Keep chunks small so workers finish well
+      // under the cap; AWS concurrency (1000) easily covers the extra workers.
+      const FRAMES_PER_LAMBDA = 150;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
