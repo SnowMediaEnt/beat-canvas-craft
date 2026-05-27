@@ -875,6 +875,124 @@ const silkStrands: Preset = {
   },
 };
 
+// ============================================================
+// CUSTOM EQUALIZER — driven entirely by cfg.custom so users can
+// dial in shape/count/spacing/etc. without writing code. Same
+// draw fn runs in the live canvas AND the Lambda render, so the
+// output is guaranteed identical.
+// ============================================================
+const customEqualizer: Preset = {
+  id: "custom-equalizer", name: "Custom Equalizer", category: "Custom",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const c = cfg.custom;
+    const count = Math.max(3, Math.min(256, c.count | 0));
+    const levels = bandLevels(audio.freq, count, 0.75, cfg);
+    const react = c.reactivity * (cfg.reactivity ?? 1);
+    const stroke = c.thickness > 0 ? c.thickness : cfg.thickness;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+    ctx.lineCap = c.rounded ? "round" : "butt";
+
+    const grad = (x1: number, y1: number, x2: number, y2: number) => {
+      const g = ctx.createLinearGradient(x1, y1, x2, y2);
+      g.addColorStop(0, cfg.primary);
+      g.addColorStop(0.5, cfg.accent);
+      g.addColorStop(1, cfg.secondary);
+      return g;
+    };
+
+    const drawLine = (i: number) => c.symmetric ? Math.abs(i - (count - 1) / 2) / ((count - 1) / 2) : 1;
+
+    if (c.shape === "bars" || c.shape === "mirrored" || c.shape === "wave") {
+      const slot = w / count;
+      const bw = Math.max(1, slot * (1 - c.spacing));
+      const mid = c.shape === "mirrored" ? h / 2 + cfg.position.y * h / 2 : h;
+      for (let i = 0; i < count; i++) {
+        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const x = i * slot + (slot - bw) / 2;
+        if (c.shape === "wave") {
+          const baseY = h / 2 + cfg.position.y * h / 2;
+          const y = baseY - v * h * 0.35 * cfg.size + Math.sin(i * 0.4 + t * 2) * 10;
+          ctx.fillStyle = grad(x, baseY, x, y);
+          ctx.beginPath();
+          if (c.rounded) ctx.roundRect(x, Math.min(y, baseY), bw, Math.abs(baseY - y), bw / 2);
+          else ctx.rect(x, Math.min(y, baseY), bw, Math.abs(baseY - y));
+          ctx.fill();
+        } else if (c.shape === "mirrored") {
+          const bh = v * h * 0.4 * cfg.size;
+          ctx.fillStyle = grad(x, mid - bh, x, mid + bh);
+          ctx.beginPath();
+          if (c.rounded) ctx.roundRect(x, mid - bh, bw, bh * 2, bw / 2);
+          else ctx.rect(x, mid - bh, bw, bh * 2);
+          ctx.fill();
+        } else {
+          const bh = v * h * 0.75 * cfg.size;
+          ctx.fillStyle = grad(x, h, x, h - bh);
+          ctx.beginPath();
+          if (c.rounded) ctx.roundRect(x, h - bh, bw, bh, bw / 2);
+          else ctx.rect(x, h - bh, bw, bh);
+          ctx.fill();
+        }
+      }
+    } else if (c.shape === "radial" || c.shape === "ring") {
+      const cx = w / 2 + cfg.position.x * w / 2;
+      const cy = h / 2 + cfg.position.y * h / 2;
+      const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
+      ctx.lineWidth = Math.max(1, stroke * 1.4);
+      for (let i = 0; i < count; i++) {
+        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const a = (i / count) * Math.PI * 2 + cfg.rotation;
+        if (c.shape === "ring") {
+          const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
+          ctx.strokeStyle = grad(cx, cy - r, cx, cy + r);
+          ctx.beginPath();
+          const next = ((i + 1) / count) * Math.PI * 2 + cfg.rotation;
+          ctx.arc(cx, cy, r, a, next);
+          ctx.stroke();
+        } else {
+          const len = 20 + v * Math.min(w, h) * 0.3 * cfg.size;
+          const x1 = cx + Math.cos(a) * baseR;
+          const y1 = cy + Math.sin(a) * baseR;
+          const x2 = cx + Math.cos(a) * (baseR + len);
+          const y2 = cy + Math.sin(a) * (baseR + len);
+          ctx.strokeStyle = grad(x1, y1, x2, y2);
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        }
+      }
+    } else if (c.shape === "dots") {
+      const cx = w / 2 + cfg.position.x * w / 2;
+      const cy = h / 2 + cfg.position.y * h / 2;
+      const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
+      for (let i = 0; i < count; i++) {
+        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const a = (i / count) * Math.PI * 2 + cfg.rotation;
+        const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
+        const x = cx + Math.cos(a) * r;
+        const y = cy + Math.sin(a) * r;
+        const dotR = Math.max(1, stroke) + v * 12;
+        ctx.fillStyle = hexA(i % 2 ? cfg.primary : cfg.accent, 0.6 + v * 0.4);
+        ctx.beginPath(); ctx.arc(x, y, dotR, 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (c.shape === "triangles") {
+      const slot = w / count;
+      const bw = Math.max(2, slot * (1 - c.spacing));
+      const baseY = h - 40;
+      for (let i = 0; i < count; i++) {
+        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const x = i * slot + slot / 2;
+        const peak = baseY - v * h * 0.7 * cfg.size;
+        ctx.fillStyle = grad(x, baseY, x, peak);
+        ctx.beginPath();
+        ctx.moveTo(x - bw / 2, baseY);
+        ctx.lineTo(x + bw / 2, baseY);
+        ctx.lineTo(x, peak);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    ctx.shadowBlur = 0; ctx.lineCap = "butt";
+  },
+};
+
 export const PRESETS: Preset[] = [
   circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
   radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
@@ -882,6 +1000,8 @@ export const PRESETS: Preset[] = [
   rollingWave, spiralBars, fractalTree, leafBorder, lissajous,
   // Organic motion — natural flow, layered movement across the spectrum
   fluidFlow, auroraVeil, murmuration, tidalBloom, silkStrands,
+  // User-tunable preset (Custom Builder + AI Generator write to cfg.custom)
+  customEqualizer,
 ];
 
 export const getPreset = (id: string) => PRESETS.find(p => p.id === id) || PRESETS[0];

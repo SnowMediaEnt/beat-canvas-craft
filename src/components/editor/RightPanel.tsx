@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Project } from "@/lib/project/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -5,14 +6,51 @@ import { SliderField, ColorField } from "./SliderField";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useServerFn } from "@tanstack/react-start";
+import { generateVisualizerFromPrompt } from "@/lib/visualizer/ai-generate.functions";
+import { toast } from "sonner";
+import { Sparkles, Loader2 } from "lucide-react";
 
 interface Props { project: Project; update: (u: (p: Project) => Project) => void }
 
 const setV = (update: Props["update"], k: keyof Project["visualizer"]) => (v: number | string) =>
   update(p => ({ ...p, visualizer: { ...p.visualizer, [k]: v } }));
 
+const setCustom = (update: Props["update"], k: keyof Project["visualizer"]["custom"]) => (v: number | string | boolean) =>
+  update(p => ({ ...p, visualizer: { ...p.visualizer, custom: { ...p.visualizer.custom, [k]: v } } }));
+
 export function RightPanel({ project, update }: Props) {
   const V = project.visualizer; const L = project.lyrics; const E = project.effects;
+  const C = V.custom;
+  const isCustom = V.presetId === "custom-equalizer";
+  const generate = useServerFn(generateVisualizerFromPrompt);
+  const [prompt, setPrompt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const runGenerate = async () => {
+    if (!prompt.trim()) return;
+    setBusy(true);
+    try {
+      const { patch } = await generate({ data: { prompt: prompt.trim() } });
+      update(p => ({
+        ...p,
+        visualizer: {
+          ...p.visualizer,
+          ...patch,
+          presetId: "custom-equalizer",
+          custom: { ...p.visualizer.custom, ...(patch.custom as object || {}) },
+        } as Project["visualizer"],
+      }));
+      toast.success("Generated preset applied");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <aside className="w-80 shrink-0 panel rounded-xl overflow-hidden flex flex-col">
       <Tabs defaultValue="style" className="flex-1 flex flex-col">
@@ -25,6 +63,39 @@ export function RightPanel({ project, update }: Props) {
 
         <ScrollArea className="flex-1">
           <TabsContent value="style" className="p-4 pt-2 space-y-4 mt-0">
+            <Section title="AI Generator">
+              <p className="text-[11px] text-muted-foreground -mt-1">Describe a vibe — colors, shape, motion are auto-tuned into the Custom Equalizer.</p>
+              <div className="flex gap-1.5">
+                <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="neon city rain, energetic" className="h-9 bg-elevated/60" />
+                <Button size="sm" onClick={runGenerate} disabled={busy || !prompt.trim()} className="h-9 px-2.5">
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                </Button>
+              </div>
+            </Section>
+
+            {isCustom && (
+              <Section title="Custom Builder">
+                <div className="space-y-1.5">
+                  <div className="text-xs text-muted-foreground">Shape</div>
+                  <Select value={C.shape} onValueChange={(v) => setCustom(update, "shape")(v)}>
+                    <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(["bars","mirrored","radial","ring","wave","dots","triangles"] as const).map(s =>
+                        <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <SliderField label="Count" value={C.count} min={3} max={256} step={1} onChange={(v) => setCustom(update, "count")(Math.round(v))} format={(n) => n.toFixed(0)} />
+                <SliderField label="Spacing" value={C.spacing} max={0.9} onChange={(v) => setCustom(update, "spacing")(v)} />
+                <SliderField label="Amplitude" value={C.amplitude} max={2} onChange={(v) => setCustom(update, "amplitude")(v)} />
+                <SliderField label="Thickness (0 = inherit)" value={C.thickness} max={40} step={1} onChange={(v) => setCustom(update, "thickness")(v)} format={(n) => n.toFixed(0)} />
+                <SliderField label="Reactivity" value={C.reactivity} max={3} onChange={(v) => setCustom(update, "reactivity")(v)} />
+                <SliderField label="Inner radius" value={C.innerRadius} max={0.9} onChange={(v) => setCustom(update, "innerRadius")(v)} />
+                <Toggle label="Rounded" value={C.rounded} onChange={(v) => setCustom(update, "rounded")(v)} />
+                <Toggle label="Symmetric" value={C.symmetric} onChange={(v) => setCustom(update, "symmetric")(v)} />
+              </Section>
+            )}
+
             <Section title="Colors">
               <ColorField label="Primary" value={V.primary} onChange={(v) => setV(update, "primary")(v)} />
               <ColorField label="Secondary" value={V.secondary} onChange={(v) => setV(update, "secondary")(v)} />

@@ -10,12 +10,29 @@ const WINDOW_BACKUP_PREFIX = "__pulse_backup__:";
 const VALID_ASPECT_RATIOS = new Set<AspectRatio>(["16:9", "1:1", "9:16", "4:5"]);
 const VALID_PRESET_IDS = new Set(PRESETS.map((preset) => preset.id));
 const VALID_PARTICLE_TYPES = new Set(["snow", "dust", "sparks", "bokeh", "lights"] as const);
-const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64]);
+// Matches the dropdown values in RightPanel exactly. Anything outside this set
+// gets snapped to the default on the next save, which previously stripped any
+// band count above 64 on reload.
+const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]);
+const VALID_CUSTOM_SHAPES = new Set(["bars", "mirrored", "radial", "ring", "wave", "dots", "triangles"] as const);
+type CustomShape = typeof VALID_CUSTOM_SHAPES extends Set<infer T> ? T : never;
 
 type WindowBackupState = {
   projects?: Project[];
   jobs?: RenderJob[];
 };
+
+export const defaultCustomEqualizer = () => ({
+  shape: "bars" as CustomShape,
+  count: 48,
+  spacing: 0.25,
+  amplitude: 1,
+  thickness: 0,
+  rounded: true,
+  symmetric: false,
+  reactivity: 1,
+  innerRadius: 0.35,
+});
 
 export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerConfig => ({
   presetId,
@@ -49,6 +66,7 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
   blendMode: "source-over",
   reactivity: 1,
   bandCount: 12,
+  custom: defaultCustomEqualizer(),
 });
 
 export const defaultLyrics = (): LyricsConfig => ({
@@ -327,6 +345,21 @@ function migrateProject(p: Project): Project {
       border: clamp(visualizer.border, 0, 2, dv.border),
       reactivity: clamp(visualizer.reactivity, 0, 3, dv.reactivity),
       bandCount: VALID_BAND_COUNTS.has(visualizer.bandCount) ? visualizer.bandCount : dv.bandCount,
+      custom: (() => {
+        const dc = defaultCustomEqualizer();
+        const c = (visualizer as Partial<VisualizerConfig>).custom ?? dc;
+        return {
+          shape: VALID_CUSTOM_SHAPES.has(c.shape as CustomShape) ? (c.shape as CustomShape) : dc.shape,
+          count: Math.round(clamp(c.count, 3, 256, dc.count)),
+          spacing: clamp(c.spacing, 0, 0.9, dc.spacing),
+          amplitude: clamp(c.amplitude, 0, 2, dc.amplitude),
+          thickness: clamp(c.thickness, 0, 40, dc.thickness),
+          rounded: typeof c.rounded === "boolean" ? c.rounded : dc.rounded,
+          symmetric: typeof c.symmetric === "boolean" ? c.symmetric : dc.symmetric,
+          reactivity: clamp(c.reactivity, 0, 3, dc.reactivity),
+          innerRadius: clamp(c.innerRadius, 0, 0.9, dc.innerRadius),
+        };
+      })(),
     },
     lyrics: {
       ...dl,
