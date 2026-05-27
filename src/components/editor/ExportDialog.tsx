@@ -486,7 +486,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 durationSeconds: duration,
                 fps: project.export.fps,
                 resolution: project.export.resolution,
-                maxWorkers: 9,
+                maxWorkers: 4,
               });
               return (
                 <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
