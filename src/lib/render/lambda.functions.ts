@@ -87,10 +87,12 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
           const framesPerLambda = 2000;
-          console.log("[lambda-render-server] framesPerLambda", {
-            totalFrames,
+          console.log("[lambda-render-server] renderMediaOnLambda params", {
             framesPerLambda,
-            estimatedWorkers: Math.ceil(totalFrames / framesPerLambda),
+            totalFrames,
+            estimatedWorkers: totalFrames / framesPerLambda,
+            fps: data.fps,
+            durationInFrames: totalFrames,
           });
           result = await renderMediaOnLambda({
             region,
