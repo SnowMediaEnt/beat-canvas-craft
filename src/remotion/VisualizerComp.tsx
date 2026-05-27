@@ -116,8 +116,8 @@ const FFT_SAMPLES = 256 as const;
  * mids/highs (which are linearly tiny) come out far too small. Doing the same
  * dB mapping here makes every band scale the same way preview does.
  */
-const MIN_DB = -100;
-const MAX_DB = -30;
+const MIN_DB = -85;
+const MAX_DB = -20;
 const DB_RANGE = MAX_DB - MIN_DB;
 
 function linearToByte(linear: number): number {
