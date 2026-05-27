@@ -3,6 +3,19 @@ import { z } from "zod";
 import { loadRemotionLambdaClient } from "./remotion-lambda-client.server";
 
 const REMOTION_OUTPUT_PREFIX = "renders/";
+const PROGRESS_CACHE_TTL_MS = 8000;
+const PROGRESS_STALE_FALLBACK_MS = 30000;
+
+type LambdaProgressResponse = {
+  done: boolean;
+  overallProgress: number;
+  outputFile?: string;
+  errors: { message: string; stack?: string }[];
+  fatalErrorEncountered: boolean;
+};
+
+const progressCache = new Map<string, { expiresAt: number; value: LambdaProgressResponse }>();
+const inFlightProgress = new Map<string, Promise<LambdaProgressResponse>>();
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
@@ -53,6 +66,27 @@ function awsConfig() {
     throw new Error("Missing AWS credentials");
   }
   return { region: region as any, functionName, serveUrl };
+}
+
+function toLambdaProgressResponse(
+  p: Awaited<ReturnType<ReturnType<typeof loadRemotionLambdaClient>["getRenderProgress"]>>,
+  region: string,
+  renderId: string,
+  bucketName: string,
+): LambdaProgressResponse {
+  let outputFile = p.outputFile;
+
+  if (!outputFile && p.done && !p.fatalErrorEncountered) {
+    outputFile = `https://s3.${region}.amazonaws.com/${bucketName}/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
+  }
+
+  return {
+    done: p.done,
+    overallProgress: p.overallProgress,
+    outputFile,
+    errors: p.errors.map((e) => ({ message: e.message, stack: e.stack })),
+    fatalErrorEncountered: p.fatalErrorEncountered,
+  };
 }
 
 export const startLambdaRender = createServerFn({ method: "POST" })
@@ -142,24 +176,82 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { getRenderProgress } = loadRemotionLambdaClient();
     const { region, functionName } = awsConfig();
-    const p = await getRenderProgress({
-      renderId: data.renderId,
-      bucketName: data.bucketName,
-      functionName,
-      region,
-    });
+    const cacheKey = `${data.bucketName}:${data.renderId}`;
+    const now = Date.now();
+    const cached = progressCache.get(cacheKey);
 
-    let outputFile = p.outputFile;
-
-    if (!outputFile && p.done && !p.fatalErrorEncountered) {
-      outputFile = `https://s3.${region}.amazonaws.com/${data.bucketName}/${REMOTION_OUTPUT_PREFIX}${data.renderId}/out.mp4`;
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
     }
 
-    return {
-      done: p.done,
-      overallProgress: p.overallProgress,
-      outputFile,
-      errors: p.errors.map((e) => ({ message: e.message, stack: e.stack })),
-      fatalErrorEncountered: p.fatalErrorEncountered,
-    };
+    const inFlight = inFlightProgress.get(cacheKey);
+    if (inFlight) {
+      return await inFlight;
+    }
+
+    const request = (async (): Promise<LambdaProgressResponse> => {
+      let lastError: unknown;
+      const maxAttempts = 4;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          const p = await getRenderProgress({
+            renderId: data.renderId,
+            bucketName: data.bucketName,
+            functionName,
+            region,
+          });
+
+          const response = toLambdaProgressResponse(p, region, data.renderId, data.bucketName);
+          progressCache.set(cacheKey, {
+            expiresAt: Date.now() + PROGRESS_CACHE_TTL_MS,
+            value: response,
+          });
+          return response;
+        } catch (error) {
+          lastError = error;
+          const message = error instanceof Error ? error.message : String(error);
+          const throttled = /rate exceeded|concurrency limit|throttl/i.test(message);
+
+          if (!throttled) throw error;
+
+          const stale = progressCache.get(cacheKey);
+          if (stale && stale.expiresAt + PROGRESS_STALE_FALLBACK_MS > Date.now()) {
+            console.warn("[lambda-render-server] getRenderProgress throttled; returning cached progress", {
+              renderId: data.renderId,
+              attempt,
+              overallProgress: stale.value.overallProgress,
+            });
+            return stale.value;
+          }
+
+          if (attempt === maxAttempts) {
+            console.warn("[lambda-render-server] getRenderProgress throttled; returning pending fallback", {
+              renderId: data.renderId,
+              attempt,
+            });
+            return {
+              done: false,
+              overallProgress: 0,
+              outputFile: undefined,
+              errors: [],
+              fatalErrorEncountered: false,
+            };
+          }
+
+          const backoffMs = 500 * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        }
+      }
+
+      throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    })();
+
+    inFlightProgress.set(cacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      inFlightProgress.delete(cacheKey);
+    }
   });
