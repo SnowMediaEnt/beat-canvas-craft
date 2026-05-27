@@ -249,6 +249,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       config: project.export, aspectRatio: project.aspectRatio,
     };
     setJob(j); persistJob(j); setProgress(0); setDownloadUrl(null);
+    cancelledRef.current = false;
+
 
     try {
       setStage("Uploading assets…");
