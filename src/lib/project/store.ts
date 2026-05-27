@@ -345,6 +345,21 @@ function migrateProject(p: Project): Project {
       border: clamp(visualizer.border, 0, 2, dv.border),
       reactivity: clamp(visualizer.reactivity, 0, 3, dv.reactivity),
       bandCount: VALID_BAND_COUNTS.has(visualizer.bandCount) ? visualizer.bandCount : dv.bandCount,
+      custom: (() => {
+        const dc = defaultCustomEqualizer();
+        const c = (visualizer as Partial<VisualizerConfig>).custom ?? dc;
+        return {
+          shape: VALID_CUSTOM_SHAPES.has(c.shape as CustomShape) ? (c.shape as CustomShape) : dc.shape,
+          count: Math.round(clamp(c.count, 3, 256, dc.count)),
+          spacing: clamp(c.spacing, 0, 0.9, dc.spacing),
+          amplitude: clamp(c.amplitude, 0, 2, dc.amplitude),
+          thickness: clamp(c.thickness, 0, 40, dc.thickness),
+          rounded: typeof c.rounded === "boolean" ? c.rounded : dc.rounded,
+          symmetric: typeof c.symmetric === "boolean" ? c.symmetric : dc.symmetric,
+          reactivity: clamp(c.reactivity, 0, 3, dc.reactivity),
+          innerRadius: clamp(c.innerRadius, 0, 0.9, dc.innerRadius),
+        };
+      })(),
     },
     lyrics: {
       ...dl,
