@@ -43,6 +43,12 @@ export async function uploadBlobForRender({
     size: blob.size,
   });
 
+  // Materialize the blob to an ArrayBuffer before sending. Some browsers
+  // (notably Safari) fail with a generic "Load failed" when streaming a
+  // Blob pulled from IndexedDB directly through fetch — reading it into
+  // memory first avoids the streaming path and makes the upload reliable.
+  const body = await blob.arrayBuffer();
+
   const res = await fetch(UPLOAD_ENDPOINT, {
     method: "POST",
     headers: {
@@ -51,7 +57,7 @@ export async function uploadBlobForRender({
       "x-asset-ext": ext,
       "x-content-type": contentType || "application/octet-stream",
     },
-    body: blob,
+    body,
   });
 
   if (!res.ok) {
