@@ -74,7 +74,7 @@ function toLambdaProgressResponse(
   renderId: string,
   bucketName: string,
 ): LambdaProgressResponse {
-  let outputFile = p.outputFile;
+  let outputFile = p.outputFile ?? undefined;
 
   if (!outputFile && p.done && !p.fatalErrorEncountered) {
     outputFile = `https://s3.${region}.amazonaws.com/${bucketName}/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
