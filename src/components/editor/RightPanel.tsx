@@ -52,8 +52,8 @@ export function RightPanel({ project, update }: Props) {
   };
 
   return (
-    <aside className="w-80 shrink-0 panel rounded-xl overflow-hidden flex flex-col">
-      <Tabs defaultValue="style" className="flex-1 flex flex-col">
+    <aside className="w-80 shrink-0 min-h-0 panel rounded-xl overflow-hidden flex flex-col">
+      <Tabs defaultValue="style" className="flex-1 min-h-0 flex flex-col">
         <TabsList className="grid grid-cols-4 m-2 bg-elevated/60">
           <TabsTrigger value="style">Style</TabsTrigger>
           <TabsTrigger value="motion">Motion</TabsTrigger>
@@ -61,9 +61,7 @@ export function RightPanel({ project, update }: Props) {
           <TabsTrigger value="lyrics">Lyrics</TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="h-full">
-            <TabsContent value="style" className="p-4 pt-2 space-y-4 mt-0">
+        <TabPanel value="style">
             <Section title="AI Generator">
               <p className="text-[11px] text-muted-foreground -mt-1">Describe a vibe — colors, shape, motion are auto-tuned into the Custom Equalizer.</p>
               <div className="flex gap-1.5">
@@ -137,9 +135,9 @@ export function RightPanel({ project, update }: Props) {
               <ColorField label="Tint" value={V.backgroundTint} onChange={(v) => setV(update, "backgroundTint")(v)} />
               <SliderField label="Tint opacity" value={V.backgroundTintOpacity} onChange={(v) => setV(update, "backgroundTintOpacity")(v)} />
             </Section>
-          </TabsContent>
+        </TabPanel>
 
-          <TabsContent value="motion" className="p-4 pt-2 space-y-4 mt-0">
+        <TabPanel value="motion">
             <Section title="Audio Reactivity">
               <div className="space-y-1.5">
                 <div className="text-xs text-muted-foreground">Bands (equalizer)</div>
@@ -163,9 +161,9 @@ export function RightPanel({ project, update }: Props) {
               <SliderField label="Shadow" value={V.shadow} onChange={(v) => setV(update, "shadow")(v)} />
               <SliderField label="Border" value={V.border} onChange={(v) => setV(update, "border")(v)} />
             </Section>
-          </TabsContent>
+        </TabPanel>
 
-          <TabsContent value="effects" className="p-4 pt-2 space-y-4 mt-0">
+        <TabPanel value="effects">
             <Section title="Particles">
               <Toggle label="Enable particles" value={E.particles.enabled} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, particles: { ...E.particles, enabled: v } } }))} />
               <div className="space-y-1.5">
@@ -192,9 +190,9 @@ export function RightPanel({ project, update }: Props) {
               <Toggle label="Logo bounce" value={E.logoBounce} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, logoBounce: v } }))} />
               <Toggle label="Background pulse" value={E.backgroundPulse} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, backgroundPulse: v } }))} />
             </Section>
-          </TabsContent>
+        </TabPanel>
 
-          <TabsContent value="lyrics" className="p-4 pt-2 space-y-4 mt-0">
+        <TabPanel value="lyrics">
             <Toggle label="Enable lyrics" value={L.enabled} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, enabled: v } }))} />
             <Section title="Style">
               <div className="space-y-1.5">
@@ -233,9 +231,7 @@ export function RightPanel({ project, update }: Props) {
               <Toggle label="Glow" value={L.glow} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, glow: v } }))} />
               <Toggle label="Fade" value={L.fade} onChange={(v) => update(p => ({ ...p, lyrics: { ...p.lyrics, fade: v } }))} />
             </Section>
-          </TabsContent>
-        </ScrollArea>
-      </div>
+        </TabPanel>
       </Tabs>
     </aside>
   );
@@ -257,5 +253,15 @@ function Toggle({ label, value, onChange }: { label: string; value: boolean; onC
       <span className="text-xs text-muted-foreground">{label}</span>
       <Switch checked={value} onCheckedChange={onChange} />
     </div>
+  );
+}
+
+function TabPanel({ value, children }: { value: string; children: React.ReactNode }) {
+  return (
+    <TabsContent value={value} className="mt-0 flex-1 min-h-0 overflow-hidden">
+      <ScrollArea className="h-full">
+        <div className="space-y-4 p-4 pt-2">{children}</div>
+      </ScrollArea>
+    </TabsContent>
   );
 }
