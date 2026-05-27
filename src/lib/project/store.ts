@@ -10,7 +10,12 @@ const WINDOW_BACKUP_PREFIX = "__pulse_backup__:";
 const VALID_ASPECT_RATIOS = new Set<AspectRatio>(["16:9", "1:1", "9:16", "4:5"]);
 const VALID_PRESET_IDS = new Set(PRESETS.map((preset) => preset.id));
 const VALID_PARTICLE_TYPES = new Set(["snow", "dust", "sparks", "bokeh", "lights"] as const);
-const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64]);
+// Matches the dropdown values in RightPanel exactly. Anything outside this set
+// gets snapped to the default on the next save, which previously stripped any
+// band count above 64 on reload.
+const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]);
+const VALID_CUSTOM_SHAPES = new Set(["bars", "mirrored", "radial", "ring", "wave", "dots", "triangles"] as const);
+type CustomShape = typeof VALID_CUSTOM_SHAPES extends Set<infer T> ? T : never;
 
 type WindowBackupState = {
   projects?: Project[];
