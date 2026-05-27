@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { useProject } from "@/lib/project/store";
 import { LeftPanel } from "@/components/editor/LeftPanel";
@@ -39,19 +39,14 @@ function EditorPage() {
     console.log("[audio] canPlayType audio/wav:", el.canPlayType("audio/wav"));
   }, []);
 
-  if (!loaded) {
-    return <div className="min-h-screen grid place-items-center text-muted-foreground text-sm">Loading project…</div>;
-  }
+  useEffect(() => {
+    if (loaded && !project) {
+      nav({ to: "/", replace: true });
+    }
+  }, [loaded, project, nav]);
 
-  if (!project) {
-    return (
-      <div className="min-h-screen grid place-items-center">
-        <div className="text-center space-y-3">
-          <p className="text-muted-foreground">Project not found.</p>
-          <Link to="/"><Button variant="outline">Back to dashboard</Button></Link>
-        </div>
-      </div>
-    );
+  if (!loaded || !project) {
+    return <div className="min-h-screen grid place-items-center text-muted-foreground text-sm">Loading project…</div>;
   }
 
 
