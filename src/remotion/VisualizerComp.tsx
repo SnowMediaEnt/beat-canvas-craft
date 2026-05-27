@@ -109,13 +109,25 @@ export const defaultVisualizerProps: VisualizerProps = {
 const FFT_SAMPLES = 256 as const;
 
 /**
- * Compensation multiplier applied to raw frequency bin values in the render
- * pipeline. Remotion's `visualizeAudio` returns bin energies normalized
- * differently than the browser's AnalyserNode used by the live preview —
- * empirically render bins come back ~3x quieter at the same sensitivity.
- * Tune this constant if render bars look too short/tall relative to preview.
+ * Convert Remotion's linear-amplitude FFT bins to the same 0–255 byte range
+ * that the browser's AnalyserNode.getByteFrequencyData() produces in the live
+ * preview. AnalyserNode applies a dB conversion (default minDb=-100, maxDb=-30)
+ * — that's why bass (which is loud in linear terms) looks fine in render but
+ * mids/highs (which are linearly tiny) come out far too small. Doing the same
+ * dB mapping here makes every band scale the same way preview does.
  */
-const RENDER_AMPLITUDE_MULTIPLIER = 12.0;
+const MIN_DB = -100;
+const MAX_DB = -30;
+const DB_RANGE = MAX_DB - MIN_DB;
+
+function linearToByte(linear: number): number {
+  if (linear <= 0) return 0;
+  const db = 20 * Math.log10(linear);
+  const norm = (db - MIN_DB) / DB_RANGE;
+  if (norm <= 0) return 0;
+  if (norm >= 1) return 255;
+  return Math.round(norm * 255);
+}
 
 type AudioState = {
   /** Last bass value for beat detection (post-sensitivity). */
@@ -125,16 +137,9 @@ type AudioState = {
 };
 
 /**
- * Build an AudioData snapshot from a single Remotion frame. This mirrors
- * AudioEngine.read() in the live preview as closely as possible:
- *   - applies cfg.sensitivity (master + bass/mid/treble) to the derived
- *     bass / mid / treble / volume scalars (presets already get scaled bins
- *     via freqAt(), but scalars like Pulsing Ring radius read these directly)
- *   - applies cfg.smoothing as an EMA across frames so the smoothing slider
- *     actually does something in render (AnalyserNode does this natively in
- *     the live preview; visualizeAudio does not)
- *   - enforces an 8-frame beat cooldown matching AudioEngine so beat flash
- *     fires at the same cadence in preview and render
+ * Build an AudioData snapshot from a single Remotion frame, matching the
+ * live preview's AnalyserNode output as closely as possible (dB-scaled bins,
+ * same band slicing, same sensitivity application, same beat cooldown).
  */
 function buildAudioData(
   bins: number[] | null,
@@ -148,17 +153,9 @@ function buildAudioData(
   const waveLen = 2048;
   const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
 
-  // NOTE: No EMA smoothing here. `useAudioData` + `visualizeAudio` already
-  // average frequency energy across the frame's audio window, which mirrors
-  // what AnalyserNode does in the live preview. Stacking a second EMA on top
-  // (previous behaviour) dampened peak amplitudes and made bars render
-  // visibly shorter than preview. cfg.smoothing still affects the live
-  // preview via AnalyserNode.smoothingTimeConstant.
   if (bins) {
     for (let i = 0; i < freqLen; i++) {
-      const scaled = bins[i] * RENDER_AMPLITUDE_MULTIPLIER;
-      const v = Math.max(0, Math.min(1, scaled)) * 255;
-      freq[i] = Math.round(v);
+      freq[i] = linearToByte(bins[i]);
     }
     // Synthesize a plausible time-domain waveform from the first 24 bins so
     // oscilloscope-style presets have something to draw.
