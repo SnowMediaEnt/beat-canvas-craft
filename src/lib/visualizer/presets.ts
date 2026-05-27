@@ -211,8 +211,6 @@ const mirroredBars: Preset = {
   id: "mirrored-bars", name: "Mirrored Bars", category: "Bars",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    // eslint-disable-next-line no-console
-    console.log("[size-trace] preset(mirroredBars) cfg.size =", cfg?.size);
     const bars = Math.max(2, cfg.bandCount || 12);
     const levels = bandLevels(audio.freq, bars, 0.7, cfg);
     const mid = h / 2 + cfg.position.y * h / 2;
