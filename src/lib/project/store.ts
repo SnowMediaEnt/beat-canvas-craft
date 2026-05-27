@@ -77,7 +77,7 @@ export const defaultLyrics = (): LyricsConfig => ({
 
 export const defaultEffects = (): EffectsConfig => ({
   particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
-  beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, backgroundPulse: false,
+  beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, logoBounce: false, backgroundPulse: false,
 });
 
 export const defaultExport = (): ExportConfig => ({ resolution: "1080p", fps: 60, quality: "high" });
