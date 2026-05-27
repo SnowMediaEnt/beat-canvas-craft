@@ -581,6 +581,14 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
             </Button>
 
+            {(job?.status === "rendering" || job?.status === "queued") && (
+              <Button onClick={killRender} disabled={cancelling} variant="destructive" className="w-full gap-2">
+                <Square className="size-4" />
+                {cancelling ? "Cancelling…" : "Kill Render"}
+              </Button>
+            )}
+
+
             <div className="text-[10px] text-muted-foreground">
               {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history
             </div>
