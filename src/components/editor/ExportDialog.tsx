@@ -329,9 +329,15 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
         const runPoll = async () => {
           try {
+            if (cancelledRef.current) {
+              stop();
+              resolve();
+              return;
+            }
             const p = await pollProgress({ data: { renderId, bucketName } });
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
+
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
               stop();
