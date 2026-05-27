@@ -61,8 +61,9 @@ export function RightPanel({ project, update }: Props) {
           <TabsTrigger value="lyrics">Lyrics</TabsTrigger>
         </TabsList>
 
-        <ScrollArea className="flex-1">
-          <TabsContent value="style" className="p-4 pt-2 space-y-4 mt-0">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full">
+            <TabsContent value="style" className="p-4 pt-2 space-y-4 mt-0">
             <Section title="AI Generator">
               <p className="text-[11px] text-muted-foreground -mt-1">Describe a vibe — colors, shape, motion are auto-tuned into the Custom Equalizer.</p>
               <div className="flex gap-1.5">
