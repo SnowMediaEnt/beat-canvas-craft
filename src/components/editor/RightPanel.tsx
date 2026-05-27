@@ -235,6 +235,7 @@ export function RightPanel({ project, update }: Props) {
             </Section>
           </TabsContent>
         </ScrollArea>
+      </div>
       </Tabs>
     </aside>
   );
