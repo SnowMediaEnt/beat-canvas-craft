@@ -399,21 +399,39 @@ const logoOutline: Preset = {
   },
 };
 
-// 16. Minimal bottom waveform
+// 16. Minimal bottom waveform — log-spaced bands, gradient fill + glow.
 const bottomWave: Preset = {
   id: "bottom-wave", name: "Minimal Bottom Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const baseY = h - 60;
-    ctx.fillStyle = hexA(cfg.primary, 0.85);
+    const bars = Math.max(8, (cfg.bandCount || 12) * 4);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const baseY = h - 60 + cfg.position.y * h * 0.2;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+    const g = ctx.createLinearGradient(0, baseY - 200 * cfg.size, 0, h);
+    g.addColorStop(0, hexA(cfg.accent, 0.9));
+    g.addColorStop(1, hexA(cfg.primary, 0.85));
+    ctx.fillStyle = g;
     ctx.beginPath(); ctx.moveTo(0, h);
-    for (let x = 0; x <= w; x += 4) {
-      const i = Math.floor((x / w) * audio.freq.length * 0.5);
-      const v = freqAt(audio.freq, i, cfg);
-      const y = baseY - v * 90 * cfg.size;
+    for (let i = 0; i < bars; i++) {
+      const x = (i / (bars - 1)) * w;
+      const v = levels[i];
+      const y = baseY - v * 180 * cfg.size;
       ctx.lineTo(x, y);
     }
     ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+    // Top stroke for definition; honors thickness.
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = cfg.accent;
+    ctx.lineWidth = Math.max(1, cfg.thickness * 0.8);
+    ctx.beginPath();
+    for (let i = 0; i < bars; i++) {
+      const x = (i / (bars - 1)) * w;
+      const v = levels[i];
+      const y = baseY - v * 180 * cfg.size;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   },
 };
 
