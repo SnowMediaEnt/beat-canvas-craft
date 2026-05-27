@@ -143,6 +143,7 @@ type AudioState = {
  */
 function buildAudioData(
   bins: number[] | null,
+  waveSamples: Float32Array | null,
   time: number,
   duration: number,
   cfg: VisualizerConfig,
@@ -157,23 +158,18 @@ function buildAudioData(
     for (let i = 0; i < freqLen; i++) {
       freq[i] = linearToByte(bins[i]);
     }
-    // Synthesize a plausible time-domain waveform from the first 24 bins so
-    // oscilloscope-style presets have something to draw. Use the dB-scaled
-    // byte values (matching what AnalyserNode would give the live preview)
-    // so high harmonics actually have visible amplitude — using raw linear
-    // bins[k] here produces a near-flat line because mids/highs are tiny.
-    const harmonics = Math.min(24, freqLen);
-    let energy = 0;
-    for (let k = 1; k < harmonics; k++) energy += freq[k] / 255;
-    const norm = energy > 0 ? 1 / energy : 0;
+  }
+
+  if (waveSamples && waveSamples.length > 0) {
+    // Real time-domain waveform sampled from the audio file at this frame.
+    // Matches AnalyserNode.getByteTimeDomainData() in the live preview, so
+    // oscilloscope / horizontal-waveform presets draw an actual waveform
+    // instead of a synthetic FFT-harmonic sum.
+    const srcLen = waveSamples.length;
     for (let i = 0; i < waveLen; i++) {
-      let sum = 0;
-      for (let k = 1; k < harmonics; k++) {
-        const amp = (freq[k] / 255);
-        sum += amp * Math.sin((i / waveLen) * k * Math.PI * 2 + time * k * 0.7);
-      }
-      // Normalize so total amplitude is bounded, then scale to fill ~±100.
-      wave[i] = Math.max(0, Math.min(255, Math.round(128 + sum * norm * 110)));
+      const idx = Math.min(srcLen - 1, Math.max(0, (i / waveLen) * srcLen | 0));
+      const v = waveSamples[idx]; // -1..1
+      wave[i] = Math.max(0, Math.min(255, Math.round(128 + v * 127)));
     }
   } else {
     wave.fill(128);
@@ -199,7 +195,6 @@ function buildAudioData(
   for (let i = 0; i < freqLen; i++) sum += freq[i];
   const volume = Math.min(1, (sum / freqLen / 255) * master);
 
-  // Beat detection with cooldown — matches AudioEngine.read() exactly.
   let beat = false;
   if (state.beatCooldown > 0) state.beatCooldown--;
   if (bass > 0.55 && bass > state.lastBass * 1.25 && state.beatCooldown === 0) {
