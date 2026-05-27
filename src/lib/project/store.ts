@@ -398,6 +398,7 @@ function migrateProject(p: Project): Project {
       noise: Boolean(effects.noise),
       lensFlare: Boolean(effects.lensFlare),
       logoPulse: Boolean(effects.logoPulse),
+      logoBounce: Boolean(effects.logoBounce),
       backgroundPulse: Boolean(effects.backgroundPulse),
     },
     export: {
