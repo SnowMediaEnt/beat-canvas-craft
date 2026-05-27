@@ -82,5 +82,5 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
     const json = await res.json();
     const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
     if (!args) throw new Error("AI returned no preset");
-    return JSON.parse(args) as Record<string, unknown>;
+    return { patch: JSON.parse(args) as Record<string, string | number | boolean | Record<string, string | number | boolean>> };
   });
