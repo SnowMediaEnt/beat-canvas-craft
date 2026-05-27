@@ -668,8 +668,9 @@ const fluidFlow: Preset = {
   id: "fluid-flow", name: "Fluid Flow", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const lines = 28;
-    const step = 14;
+    const lines = 18;
+    const step = 18;
+
     const react = cfg.reactivity ?? 1;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     ctx.lineCap = "round";
@@ -739,18 +740,32 @@ const auroraVeil: Preset = {
 };
 
 // 28. Murmuration — swarming particles flowing through a noise vector field.
+// Particle positions are precomputed (deterministic) so we don't re-hash each
+// frame, and we skip per-particle shadowBlur which would tank Safari/WebKit.
+const murmurationSeeds: { hx: number; hy: number }[] = [];
+function ensureMurmurationSeeds(count: number, w: number, h: number) {
+  if (murmurationSeeds.length === count && murmurationSeeds[0]?.hx <= w) return;
+  murmurationSeeds.length = 0;
+  for (let i = 0; i < count; i++) {
+    const seed = i * 0.6180339;
+    murmurationSeeds.push({
+      hx: ((seed * 53.13) % 1) * w,
+      hy: ((seed * 71.71) % 1) * h,
+    });
+  }
+}
 const murmuration: Preset = {
   id: "murmuration", name: "Murmuration", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const count = 260;
+    const count = 140;
+    ensureMurmurationSeeds(count, w, h);
     const react = cfg.reactivity ?? 1;
     const kick = audio.beat ? 1.6 : 1;
-    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.4);
+    // No shadowBlur here — 140 shadowed arcs/frame crashes Safari.
+    ctx.shadowBlur = 0;
     for (let i = 0; i < count; i++) {
-      const seed = i * 0.6180339;
-      const hx = ((seed * 53.13) % 1) * w;
-      const hy = ((seed * 71.71) % 1) * h;
+      const { hx, hy } = murmurationSeeds[i];
       const nx = hx * 0.005 + t * 0.25;
       const ny = hy * 0.005 + t * 0.3;
       const ang = noise2(nx, ny) * Math.PI * 4 + t * 0.4;
@@ -760,12 +775,12 @@ const murmuration: Preset = {
       const band = freqAt(audio.freq, (i * 3) % audio.freq.length, cfg);
       const r = 1 + band * 4 + (audio.beat ? 1.5 : 0);
       const col = i % 3 === 0 ? cfg.primary : i % 3 === 1 ? cfg.accent : cfg.secondary;
-      ctx.fillStyle = hexA(col, 0.35 + band * 0.6);
+      ctx.fillStyle = hexA(col, 0.4 + band * 0.6);
       ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.shadowBlur = 0;
   },
 };
+
 
 // 29. Tidal Bloom — concentric pond-ripples, continuously emitted.
 const tidalBloom: Preset = {
@@ -806,7 +821,7 @@ const silkStrands: Preset = {
   id: "silk-strands", name: "Silk Strands", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const strands = 36;
+    const strands = 22;
     const react = cfg.reactivity ?? 1;
     const levels = bandLevels(audio.freq, strands, 0.8, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
