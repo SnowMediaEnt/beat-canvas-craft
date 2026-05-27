@@ -115,7 +115,7 @@ const FFT_SAMPLES = 256 as const;
  * empirically render bins come back ~3x quieter at the same sensitivity.
  * Tune this constant if render bars look too short/tall relative to preview.
  */
-const RENDER_AMPLITUDE_MULTIPLIER = 3.0;
+const RENDER_AMPLITUDE_MULTIPLIER = 6.0;
 
 type AudioState = {
   /** Last bass value for beat detection (post-sensitivity). */
