@@ -370,6 +370,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         void runPoll();
       });
     } catch (e: any) {
+      if (cancelledRef.current) {
+        const cancelled: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: "Cancelled by user" };
+        setJob(cancelled); persistJob(cancelled);
+        setStage("Cancelled");
+        return;
+      }
       console.error("[lambda-render]", e);
       const failed: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: e?.message || "Unknown error" };
       setJob(failed); persistJob(failed);
@@ -377,6 +383,30 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       setStage("");
     }
   };
+
+  const killRender = async () => {
+    cancelledRef.current = true;
+    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
+    setCancelling(true);
+    setStage("Cancelling render…");
+    try {
+      if (job?.renderId && job?.bucketName) {
+        await cancelRender({ data: { renderId: job.renderId, bucketName: job.bucketName } });
+      }
+      toast.success("Render cancelled");
+      const cancelled: RenderJob | null = job
+        ? { ...job, status: "failed", error: "Cancelled by user" }
+        : null;
+      if (cancelled) { setJob(cancelled); persistJob(cancelled); }
+      setStage("Cancelled");
+    } catch (e: any) {
+      console.error("[lambda-render] cancel failed", e);
+      toast.error(`Cancel failed: ${e?.message || "unknown"}`);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
