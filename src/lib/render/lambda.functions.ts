@@ -86,7 +86,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       while (true) {
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const framesPerLambda = 1500;
+          const framesPerLambda = 2000;
           console.log("[lambda-render-server] framesPerLambda", {
             totalFrames,
             framesPerLambda,
