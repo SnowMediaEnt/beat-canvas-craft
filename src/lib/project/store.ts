@@ -22,6 +22,18 @@ type WindowBackupState = {
   jobs?: RenderJob[];
 };
 
+export const defaultCustomEqualizer = () => ({
+  shape: "bars" as CustomShape,
+  count: 48,
+  spacing: 0.25,
+  amplitude: 1,
+  thickness: 0,
+  rounded: true,
+  symmetric: false,
+  reactivity: 1,
+  innerRadius: 0.35,
+});
+
 export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerConfig => ({
   presetId,
   primary: "#22e3ff",
@@ -54,6 +66,7 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
   blendMode: "source-over",
   reactivity: 1,
   bandCount: 12,
+  custom: defaultCustomEqualizer(),
 });
 
 export const defaultLyrics = (): LyricsConfig => ({
