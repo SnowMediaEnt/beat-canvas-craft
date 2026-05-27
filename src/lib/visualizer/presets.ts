@@ -295,18 +295,24 @@ const liquidBlob: Preset = {
   },
 };
 
-// 11. Oscilloscope
+// 11. Oscilloscope — uses primary→accent gradient, honors size + thickness.
 const oscilloscope: Preset = {
   id: "oscilloscope", name: "Oscilloscope", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
+    const cy = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
-    ctx.lineWidth = cfg.thickness; ctx.strokeStyle = cfg.primary;
+    ctx.lineWidth = Math.max(1, cfg.thickness * (0.8 + cfg.size * 0.4));
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, cfg.primary);
+    g.addColorStop(0.5, cfg.accent);
+    g.addColorStop(1, cfg.secondary);
+    ctx.strokeStyle = g;
     ctx.beginPath();
     const wave = audio.wave;
     for (let i = 0; i < wave.length; i++) {
       const x = (i / wave.length) * w;
-      const y = h / 2 + ((wave[i] - 128) / 128) * h * 0.45 * cfg.size;
+      const y = cy + ((wave[i] - 128) / 128) * h * 0.45 * cfg.size;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.shadowBlur = 0;
