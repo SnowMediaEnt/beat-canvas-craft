@@ -668,8 +668,9 @@ const fluidFlow: Preset = {
   id: "fluid-flow", name: "Fluid Flow", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const lines = 28;
-    const step = 14;
+    const lines = 18;
+    const step = 18;
+
     const react = cfg.reactivity ?? 1;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     ctx.lineCap = "round";
