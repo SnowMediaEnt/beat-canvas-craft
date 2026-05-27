@@ -1,11 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
 import { get as idbGet, set as idbSet } from "idb-keyval";
-import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig } from "./types";
+import { PRESETS } from "@/lib/visualizer/presets";
+import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig, AssetRef, AspectRatio } from "./types";
 import { hydrateAsset, stripAssetUrl } from "./assets";
 
 const KEY = "mv.projects.v1";
 const JOBS_KEY = "mv.jobs.v1";
 const WINDOW_BACKUP_PREFIX = "__pulse_backup__:";
+const VALID_ASPECT_RATIOS = new Set<AspectRatio>(["16:9", "1:1", "9:16", "4:5"]);
+const VALID_PRESET_IDS = new Set(PRESETS.map((preset) => preset.id));
+const VALID_PARTICLE_TYPES = new Set(["snow", "dust", "sparks", "bokeh", "lights"] as const);
+const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64]);
 
 type WindowBackupState = {
   projects?: Project[];
@@ -70,6 +75,29 @@ export const newProject = (name = "Untitled Project"): Project => ({
   effects: defaultEffects(),
   export: defaultExport(),
 });
+
+const clamp = (value: unknown, min: number, max: number, fallback: number) => {
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+};
+
+const sanitizeText = (value: unknown, fallback: string) =>
+  typeof value === "string" && value.trim().length > 0 ? value : fallback;
+
+const sanitizeColor = (value: unknown, fallback: string) =>
+  typeof value === "string" && /^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : fallback;
+
+const sanitizeAssetRef = (ref: AssetRef | undefined): AssetRef | undefined => {
+  if (!ref || typeof ref !== "object") return undefined;
+  if (typeof ref.id !== "string" || typeof ref.name !== "string") return undefined;
+  return {
+    id: ref.id,
+    name: ref.name,
+    type: typeof ref.type === "string" ? ref.type : "",
+    url: typeof ref.url === "string" ? ref.url : "",
+  };
+};
 
 const read = <T,>(k: string, fallback: T): T => {
   if (typeof window === "undefined") return fallback;
@@ -143,7 +171,7 @@ const persistJobs = (jobs: RenderJob[]) => {
   writeWindowBackup({ jobs: jobs.slice(0, 100) });
 };
 
-export const listProjects = (): Project[] => read<Project[]>(KEY, []);
+export const listProjects = (): Project[] => read<Project[]>(KEY, []).map(migrateProject);
 
 export const listProjectsFromStorage = async (): Promise<Project[]> => {
   const local = listProjects();
@@ -170,12 +198,12 @@ export const getProjectFromStorage = async (id: string): Promise<Project | undef
 export const saveProject = (p: Project) => {
   const all = listProjects();
   const i = all.findIndex(x => x.id === p.id);
-  p.updatedAt = Date.now();
+  const next = migrateProject({ ...p, updatedAt: Date.now() });
   const persisted: Project = {
-    ...p,
-    audio: stripAssetUrl(p.audio),
-    logo: stripAssetUrl(p.logo),
-    background: stripAssetUrl(p.background),
+    ...next,
+    audio: stripAssetUrl(next.audio),
+    logo: stripAssetUrl(next.logo),
+    background: stripAssetUrl(next.background),
   };
   if (i >= 0) all[i] = persisted; else all.unshift(persisted);
   persistProjects(all);
@@ -242,21 +270,133 @@ function migrateProject(p: Project): Project {
   const dv = defaultVisualizer();
   const dl = defaultLyrics();
   const de = defaultEffects();
+  const dx = defaultExport();
+  const visualizer = p.visualizer || dv;
+  const lyrics = p.lyrics || dl;
+  const effects = p.effects || de;
+  const presetId = typeof visualizer.presetId === "string" && VALID_PRESET_IDS.has(visualizer.presetId)
+    ? visualizer.presetId
+    : dv.presetId;
+
   return {
     ...p,
-    visualizer: { ...dv, ...p.visualizer, position: { ...dv.position, ...(p.visualizer?.position || {}) }, logoPosition: { ...dv.logoPosition, ...(p.visualizer?.logoPosition || {}) } },
-    lyrics: { ...dl, ...(p.lyrics || {}) },
-    effects: { ...de, ...(p.effects || {}), particles: { ...de.particles, ...((p.effects?.particles) || {}) } },
+    id: sanitizeText(p.id, crypto.randomUUID()),
+    name: sanitizeText(p.name, "Untitled Project"),
+    createdAt: clamp(p.createdAt, 0, Number.MAX_SAFE_INTEGER, Date.now()),
+    updatedAt: clamp(p.updatedAt, 0, Number.MAX_SAFE_INTEGER, p.createdAt || Date.now()),
+    aspectRatio: VALID_ASPECT_RATIOS.has(p.aspectRatio) ? p.aspectRatio : "16:9",
+    audio: sanitizeAssetRef(p.audio),
+    logo: sanitizeAssetRef(p.logo),
+    background: sanitizeAssetRef(p.background),
+    visualizer: {
+      ...dv,
+      ...visualizer,
+      presetId,
+      primary: sanitizeColor(visualizer.primary, dv.primary),
+      secondary: sanitizeColor(visualizer.secondary, dv.secondary),
+      accent: sanitizeColor(visualizer.accent, dv.accent),
+      glow: sanitizeColor(visualizer.glow, dv.glow),
+      overlay: sanitizeColor(visualizer.overlay, dv.overlay),
+      backgroundTint: sanitizeColor(visualizer.backgroundTint, dv.backgroundTint),
+      overlayOpacity: clamp(visualizer.overlayOpacity, 0, 1, dv.overlayOpacity),
+      glowIntensity: clamp(visualizer.glowIntensity, 0, 3, dv.glowIntensity),
+      blur: clamp(visualizer.blur, 0, 24, dv.blur),
+      size: clamp(visualizer.size, 0.1, 2, dv.size),
+      thickness: clamp(visualizer.thickness, 1, 30, dv.thickness),
+      position: {
+        x: clamp(visualizer.position?.x, -1, 1, dv.position.x),
+        y: clamp(visualizer.position?.y, -1, 1, dv.position.y),
+      },
+      logoSize: clamp(visualizer.logoSize, 0.05, 1.2, dv.logoSize),
+      logoPosition: {
+        x: clamp(visualizer.logoPosition?.x, -1, 1, dv.logoPosition.x),
+        y: clamp(visualizer.logoPosition?.y, -1, 1, dv.logoPosition.y),
+      },
+      backgroundScale: clamp(visualizer.backgroundScale, 0.5, 2, dv.backgroundScale),
+      backgroundBlur: clamp(visualizer.backgroundBlur, 0, 24, dv.backgroundBlur),
+      backgroundTintOpacity: clamp(visualizer.backgroundTintOpacity, 0, 1, dv.backgroundTintOpacity),
+      animationSpeed: clamp(visualizer.animationSpeed, 0.1, 4, dv.animationSpeed),
+      sensitivity: clamp(visualizer.sensitivity, 0.1, 3, dv.sensitivity),
+      bassSensitivity: clamp(visualizer.bassSensitivity, 0.1, 3, dv.bassSensitivity),
+      midSensitivity: clamp(visualizer.midSensitivity, 0.1, 3, dv.midSensitivity),
+      trebleSensitivity: clamp(visualizer.trebleSensitivity, 0.1, 3, dv.trebleSensitivity),
+      smoothing: clamp(visualizer.smoothing, 0, 0.95, dv.smoothing),
+      rotation: clamp(visualizer.rotation, -Math.PI * 2, Math.PI * 2, dv.rotation),
+      movement: clamp(visualizer.movement, 0, 2, dv.movement),
+      shadow: clamp(visualizer.shadow, 0, 2, dv.shadow),
+      border: clamp(visualizer.border, 0, 2, dv.border),
+      reactivity: clamp(visualizer.reactivity, 0, 3, dv.reactivity),
+      bandCount: VALID_BAND_COUNTS.has(visualizer.bandCount) ? visualizer.bandCount : dv.bandCount,
+    },
+    lyrics: {
+      ...dl,
+      ...lyrics,
+      enabled: Boolean(lyrics.enabled),
+      lines: Array.isArray(lyrics.lines)
+        ? lyrics.lines
+            .filter((line): line is { time: number; text: string } => !!line && typeof line.text === "string")
+            .slice(0, 400)
+            .map((line) => ({
+              time: clamp(line.time, 0, Number.MAX_SAFE_INTEGER, 0),
+              text: line.text,
+            }))
+        : dl.lines,
+      fontFamily: sanitizeText(lyrics.fontFamily, dl.fontFamily),
+      fontSize: clamp(lyrics.fontSize, 12, 160, dl.fontSize),
+      color: sanitizeColor(lyrics.color, dl.color),
+    },
+    effects: {
+      ...de,
+      ...effects,
+      particles: {
+        ...de.particles,
+        ...(effects.particles || {}),
+        type: VALID_PARTICLE_TYPES.has(effects.particles?.type as typeof de.particles.type)
+          ? effects.particles!.type
+          : de.particles.type,
+        density: clamp(effects.particles?.density, 0, 120, de.particles.density),
+        speed: clamp(effects.particles?.speed, 0, 3, de.particles.speed),
+        color: sanitizeColor(effects.particles?.color, de.particles.color),
+        opacity: clamp(effects.particles?.opacity, 0, 1, de.particles.opacity),
+        reactivity: clamp(effects.particles?.reactivity, 0, 3, de.particles.reactivity),
+      },
+      beatFlash: Boolean(effects.beatFlash),
+      vignette: Boolean(effects.vignette),
+      noise: Boolean(effects.noise),
+      lensFlare: Boolean(effects.lensFlare),
+      logoPulse: Boolean(effects.logoPulse),
+      backgroundPulse: Boolean(effects.backgroundPulse),
+    },
+    export: {
+      ...dx,
+      ...(p.export || {}),
+      resolution: p.export?.resolution === "4k" || p.export?.resolution === "720p" || p.export?.resolution === "1080p"
+        ? p.export.resolution
+        : dx.resolution,
+      fps: p.export?.fps === 30 || p.export?.fps === 45 || p.export?.fps === 60 || p.export?.fps === 120
+        ? p.export.fps
+        : dx.fps,
+      quality: p.export?.quality === "standard" || p.export?.quality === "high"
+        ? p.export.quality
+        : dx.quality,
+    },
   };
 }
 
 async function hydrateProject(p: Project | undefined): Promise<Project | undefined> {
   if (!p) return p;
   const migrated = migrateProject(p);
+  const safeHydrate = async (asset: AssetRef | undefined) => {
+    try {
+      return await hydrateAsset(asset);
+    } catch {
+      return asset ? { ...asset, url: "" } : undefined;
+    }
+  };
   const [audio, logo, background] = await Promise.all([
-    hydrateAsset(migrated.audio),
-    hydrateAsset(migrated.logo),
-    hydrateAsset(migrated.background),
+    safeHydrate(migrated.audio),
+    safeHydrate(migrated.logo),
+    safeHydrate(migrated.background),
   ]);
   return { ...migrated, audio, logo, background };
 }
@@ -266,11 +406,19 @@ export function useProject(id: string) {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    getProjectFromStorage(id).then(hydrateProject).then(p => {
-      if (cancelled) return;
-      setProject(p);
-      setLoaded(true);
-    });
+    getProjectFromStorage(id)
+      .then(hydrateProject)
+      .then((p) => {
+        if (cancelled) return;
+        setProject(p);
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        const fallback = getProject(id);
+        setProject(fallback ? migrateProject(fallback) : undefined);
+        setLoaded(true);
+      });
     return () => { cancelled = true; };
   }, [id]);
   const update = useCallback((updater: (p: Project) => Project) => {
