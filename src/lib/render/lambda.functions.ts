@@ -107,24 +107,29 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       });
       const { renderMediaOnLambda } = loadRemotionLambdaClient();
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
-      // IMPORTANT: we intentionally keep framesPerLambda high (1501) so the
-      // render splits into ~10-12 chunks instead of 100+. Each Lambda worker
-      // gets ~30-40s of video. At ~160ms/frame (1080p heuristic) that's
-      // ~240s render time per worker, well under AWS's 900s hard timeout.
-      // This trades worker wall-time for fewer concurrent invocations, which
-      // is required because our AWS account has a low unreserved concurrency
-      // limit (10). If you raise that limit, you can lower framesPerLambda.
+      // We hard-cap render workers at MAX_WORKERS so concurrent Lambda
+      // invocations + the 1 main lambda stay safely under our AWS account
+      // concurrency limit of 10. framesPerLambda is derived so that
+      // ceil(totalFrames / framesPerLambda) <= MAX_WORKERS, with a floor of
+      // 2000 frames/worker so short videos still get coarse chunks.
+      const MAX_WORKERS = 9;
+      const MIN_FRAMES_PER_LAMBDA = 2000;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
       while (true) {
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const framesPerLambda = 2000;
+          const framesPerLambda = Math.max(
+            MIN_FRAMES_PER_LAMBDA,
+            Math.ceil(totalFrames / MAX_WORKERS),
+          );
+          const actualWorkers = Math.ceil(totalFrames / framesPerLambda);
           console.log("[lambda-render-server] renderMediaOnLambda params", {
             framesPerLambda,
             totalFrames,
-            estimatedWorkers: totalFrames / framesPerLambda,
+            actualWorkers,
+            maxWorkers: MAX_WORKERS,
             fps: data.fps,
             durationInFrames: totalFrames,
           });
