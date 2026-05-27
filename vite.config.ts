@@ -5,6 +5,9 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... } }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { fileURLToPath } from "node:url";
+
+const processShimPath = fileURLToPath(new URL("./src/lib/render/process-shim.ts", import.meta.url));
 
 // Patch @remotion/lambda(-client) ESM entries: their generated bundle starts with
 //   var __require = createRequire(import.meta.url);
@@ -39,6 +42,12 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    resolve: {
+      alias: {
+        "node:process": processShimPath,
+        process: processShimPath,
+      },
+    },
     plugins: [patchRemotionLambdaCreateRequire],
   },
 });
