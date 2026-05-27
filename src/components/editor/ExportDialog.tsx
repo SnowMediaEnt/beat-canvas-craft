@@ -10,7 +10,7 @@ import { saveJob, listJobs } from "@/lib/project/store";
 import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
-import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
+import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
@@ -38,6 +38,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
   const pollRef = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Browser recording state
   const [recording, setRecording] = useState(false);
@@ -49,6 +51,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
+  const cancelRender = useServerFn(cancelLambdaRender);
+
 
   const downloadFile = async (url: string, filename: string) => {
     console.log("[browser-record] download click", { url, filename });
@@ -245,6 +249,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       config: project.export, aspectRatio: project.aspectRatio,
     };
     setJob(j); persistJob(j); setProgress(0); setDownloadUrl(null);
+    cancelledRef.current = false;
+
 
     try {
       setStage("Uploading assets…");
@@ -323,9 +329,15 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
         const runPoll = async () => {
           try {
+            if (cancelledRef.current) {
+              stop();
+              resolve();
+              return;
+            }
             const p = await pollProgress({ data: { renderId, bucketName } });
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
+
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
               stop();
@@ -358,6 +370,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         void runPoll();
       });
     } catch (e: any) {
+      if (cancelledRef.current) {
+        const cancelled: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: "Cancelled by user" };
+        setJob(cancelled); persistJob(cancelled);
+        setStage("Cancelled");
+        return;
+      }
       console.error("[lambda-render]", e);
       const failed: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: e?.message || "Unknown error" };
       setJob(failed); persistJob(failed);
@@ -365,6 +383,30 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       setStage("");
     }
   };
+
+  const killRender = async () => {
+    cancelledRef.current = true;
+    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
+    setCancelling(true);
+    setStage("Cancelling render…");
+    try {
+      if (job?.renderId && job?.bucketName) {
+        await cancelRender({ data: { renderId: job.renderId, bucketName: job.bucketName } });
+      }
+      toast.success("Render cancelled");
+      const cancelled: RenderJob | null = job
+        ? { ...job, status: "failed", error: "Cancelled by user" }
+        : null;
+      if (cancelled) { setJob(cancelled); persistJob(cancelled); }
+      setStage("Cancelled");
+    } catch (e: any) {
+      console.error("[lambda-render] cancel failed", e);
+      toast.error(`Cancel failed: ${e?.message || "unknown"}`);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -538,6 +580,14 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               <Video className="size-4" />
               {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
             </Button>
+
+            {(job?.status === "rendering" || job?.status === "queued") && (
+              <Button onClick={killRender} disabled={cancelling} variant="destructive" className="w-full gap-2">
+                <Square className="size-4" />
+                {cancelling ? "Cancelling…" : "Kill Render"}
+              </Button>
+            )}
+
 
             <div className="text-[10px] text-muted-foreground">
               {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history

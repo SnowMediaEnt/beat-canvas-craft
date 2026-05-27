@@ -252,3 +252,25 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
       inFlightProgress.delete(cacheKey);
     }
   });
+
+export const cancelLambdaRender = createServerFn({ method: "POST" })
+  .inputValidator((input) =>
+    z.object({ renderId: z.string(), bucketName: z.string() }).parse(input),
+  )
+  .handler(async ({ data }) => {
+    const { deleteRender } = loadRemotionLambdaClient();
+    const { region } = awsConfig();
+    try {
+      await deleteRender({
+        region: region as any,
+        bucketName: data.bucketName,
+        renderId: data.renderId,
+      });
+      progressCache.delete(`${data.bucketName}:${data.renderId}`);
+      return { cancelled: true };
+    } catch (error) {
+      console.error("[lambda-render-server] cancel failed", error);
+      throw error;
+    }
+  });
+
