@@ -10,7 +10,7 @@ import { saveJob, listJobs } from "@/lib/project/store";
 import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
-import { startLambdaRender, getLambdaProgress } from "@/lib/render/lambda.functions";
+import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
