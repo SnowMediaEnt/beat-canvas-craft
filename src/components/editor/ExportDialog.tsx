@@ -313,6 +313,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
       await new Promise<void>((resolve, reject) => {
         let stopped = false;
+        const stop = () => {
+          stopped = true;
+          if (pollRef.current) {
+            window.clearTimeout(pollRef.current);
+            pollRef.current = null;
+          }
+        };
 
         const runPoll = async () => {
           try {
@@ -321,7 +328,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             setProgress(pct);
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
-              pollRef.current = null;
+              stop();
               setDownloadUrl(p.outputFile);
               const done: RenderJob = { ...running, kind: "lambda", fileFormat: "mp4", status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
               setJob(done); persistJob(done); setProgress(100);
@@ -331,7 +338,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               return;
             }
             if (p.fatalErrorEncountered && !p.outputFile) {
-              pollRef.current = null;
+              stop();
               const msg = p.errors[0]?.message || "Lambda render failed";
               reject(new Error(msg));
               return;
@@ -343,18 +350,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               }, 3000);
             }
           } catch (e: any) {
-            pollRef.current = null;
+            stop();
             reject(e);
           }
         };
 
         void runPoll();
-
-        pollRef.current = window.setTimeout(() => {
-          stopped = true;
-        }, 0);
-        window.clearTimeout(pollRef.current);
-        pollRef.current = null;
       });
     } catch (e: any) {
       console.error("[lambda-render]", e);
