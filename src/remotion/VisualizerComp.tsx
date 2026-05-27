@@ -5,7 +5,7 @@ import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import type { AudioData } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
 import { drawForegroundLayers } from "../lib/visualizer/render-shared";
-import { bandLevels } from "../lib/visualizer/presets";
+
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
 
@@ -143,6 +143,7 @@ type AudioState = {
  */
 function buildAudioData(
   bins: number[] | null,
+  waveSamples: Float32Array | null,
   time: number,
   duration: number,
   cfg: VisualizerConfig,
@@ -157,23 +158,18 @@ function buildAudioData(
     for (let i = 0; i < freqLen; i++) {
       freq[i] = linearToByte(bins[i]);
     }
-    // Synthesize a plausible time-domain waveform from the first 24 bins so
-    // oscilloscope-style presets have something to draw. Use the dB-scaled
-    // byte values (matching what AnalyserNode would give the live preview)
-    // so high harmonics actually have visible amplitude — using raw linear
-    // bins[k] here produces a near-flat line because mids/highs are tiny.
-    const harmonics = Math.min(24, freqLen);
-    let energy = 0;
-    for (let k = 1; k < harmonics; k++) energy += freq[k] / 255;
-    const norm = energy > 0 ? 1 / energy : 0;
+  }
+
+  if (waveSamples && waveSamples.length > 0) {
+    // Real time-domain waveform sampled from the audio file at this frame.
+    // Matches AnalyserNode.getByteTimeDomainData() in the live preview, so
+    // oscilloscope / horizontal-waveform presets draw an actual waveform
+    // instead of a synthetic FFT-harmonic sum.
+    const srcLen = waveSamples.length;
     for (let i = 0; i < waveLen; i++) {
-      let sum = 0;
-      for (let k = 1; k < harmonics; k++) {
-        const amp = (freq[k] / 255);
-        sum += amp * Math.sin((i / waveLen) * k * Math.PI * 2 + time * k * 0.7);
-      }
-      // Normalize so total amplitude is bounded, then scale to fill ~±100.
-      wave[i] = Math.max(0, Math.min(255, Math.round(128 + sum * norm * 110)));
+      const idx = Math.min(srcLen - 1, Math.max(0, (i / waveLen) * srcLen | 0));
+      const v = waveSamples[idx]; // -1..1
+      wave[i] = Math.max(0, Math.min(255, Math.round(128 + v * 127)));
     }
   } else {
     wave.fill(128);
@@ -199,7 +195,6 @@ function buildAudioData(
   for (let i = 0; i < freqLen; i++) sum += freq[i];
   const volume = Math.min(1, (sum / freqLen / 255) * master);
 
-  // Beat detection with cooldown — matches AudioEngine.read() exactly.
   let beat = false;
   if (state.beatCooldown > 0) state.beatCooldown--;
   if (bass > 0.55 && bass > state.lastBass * 1.25 && state.beatCooldown === 0) {
@@ -295,8 +290,6 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     canvas.height = height;
 
     const cfg = props.visualizer;
-    // eslint-disable-next-line no-console
-    if (frame % 30 === 0) console.log("[size-trace] received cfg.size =", cfg?.size);
     const time = (frame / fps) * (cfg.animationSpeed ?? 1);
 
     let bins: number[] | null = null;
@@ -309,59 +302,37 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
           numberOfSamples: FFT_SAMPLES,
         });
         bins = Array.from(out);
-        if (frame % 30 === 0) {
-          const firstNonZero = bins.find((v) => v > 0) ?? 0;
-          const firstNonZeroIdx = bins.findIndex((v) => v > 0);
-          // eslint-disable-next-line no-console
-          console.log("[audio-raw]", {
-            frame,
-            audioDataNumChannels: audioData.numberOfChannels,
-            audioDataSampleRate: audioData.sampleRate,
-            audioDataDurationInSeconds: audioData.durationInSeconds,
-            firstBins: bins.slice(0, 5),
-            maxBin: bins.reduce((m, v) => Math.max(m, v), 0),
-            firstNonZero,
-            firstNonZeroIdx,
-          });
-        }
-      } catch (err) {
+      } catch {
         bins = null;
-        if (frame % 30 === 0) {
-          // eslint-disable-next-line no-console
-          console.log("[audio-raw] visualizeAudio threw", err instanceof Error ? err.message : String(err));
-        }
       }
-    } else if (frame % 30 === 0) {
-      // eslint-disable-next-line no-console
-      console.log("[audio-raw] audioData is null (useAudioData not yet resolved)");
     }
 
-
-    const audio = buildAudioData(bins, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
-
-    if (frame % 30 === 0) {
-      // eslint-disable-next-line no-console
-      console.log("[audio-amplitude]", "frame", frame,
-        "bass", +audio.bass.toFixed(4),
-        "volume", +audio.volume.toFixed(4),
-        "bins[0]", audio.freq[0],
-        "binsLen", audio.freq.length,
-        "rawBin0", bins ? bins[0] : null);
+    // Pull the actual time-domain samples for this frame from the decoded
+    // audio so oscilloscope-style presets render the real waveform (matching
+    // AnalyserNode.getByteTimeDomainData in the live preview). Window size
+    // ~2048 samples centred on the current frame, mixed down to mono.
+    let waveSamples: Float32Array | null = null;
+    if (audioData && audioData.channelWaveforms.length > 0) {
+      const sr = audioData.sampleRate;
+      const center = Math.floor((frame / fps) * sr);
+      const WIN = 2048;
+      const start = Math.max(0, center - WIN / 2);
+      const channels = audioData.channelWaveforms;
+      const ch0 = channels[0];
+      const ch1 = channels[1];
+      const end = Math.min(ch0.length, start + WIN);
+      const slice = new Float32Array(end - start);
+      if (ch1) {
+        for (let i = 0; i < slice.length; i++) {
+          slice[i] = (ch0[start + i] + ch1[start + i]) * 0.5;
+        }
+      } else {
+        for (let i = 0; i < slice.length; i++) slice[i] = ch0[start + i];
+      }
+      waveSamples = slice;
     }
 
-    // [DIAG] log every 30 frames during render
-    if (frame % 30 === 0) {
-      const lv = bandLevels(audio.freq, cfg.bandCount ?? 12, 0.7, cfg);
-      // eslint-disable-next-line no-console
-      console.log("[DIAG render]", {
-        frame, t: +(frame / fps).toFixed(2),
-        freq: [audio.freq[0], audio.freq[5], audio.freq[10], audio.freq[15]],
-        bass: +audio.bass.toFixed(3), mid: +audio.mid.toFixed(3),
-        treble: +audio.treble.toFixed(3), volume: +audio.volume.toFixed(3),
-        levels: lv.slice(0, 5).map(v => +v.toFixed(3)),
-        size: cfg.size, sensitivity: cfg.sensitivity,
-      });
-    }
+    const audio = buildAudioData(bins, waveSamples, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
