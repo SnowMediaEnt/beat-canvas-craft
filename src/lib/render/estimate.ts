@@ -35,11 +35,10 @@ export function estimateRender(opts: {
   durationSeconds: number;
   fps: number;
   resolution: "720p" | "1080p" | "4k";
-  maxWorkers: number;
+  framesPerLambda: number;
 }): RenderEstimate {
   const totalFrames = Math.max(1, Math.ceil(opts.durationSeconds * opts.fps));
-  const targetWorkers = Math.max(1, opts.maxWorkers);
-  const framesPerWorker = Math.max(30, Math.ceil(totalFrames / targetWorkers));
+  const framesPerWorker = Math.max(1, opts.framesPerLambda);
   const estimatedWorkers = Math.ceil(totalFrames / framesPerWorker);
 
   // File size: bitrate * duration. Scale a bit with fps above 30.
