@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { PRESETS } from "@/lib/visualizer/presets";
 import { PRESET_BACKGROUNDS, presetBackgroundRef, PRESET_BG_PREFIX, COLOR_BG_PREFIX, solidColorBackgroundRef } from "@/lib/visualizer/backgrounds";
 import { PACKAGES, applyPackage } from "@/lib/visualizer/packages";
@@ -42,10 +42,38 @@ function Section({ title, defaultOpen = true, count, children }: { title: string
 }
 
 export function LeftPanel({ project, update }: Props) {
+  const [width, setWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return 288;
+    const saved = Number(localStorage.getItem("leftPanelWidth"));
+    return saved >= 240 && saved <= 560 ? saved : 288;
+  });
+  const draggingRef = useRef(false);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const next = Math.min(560, Math.max(240, e.clientX - 12)); // 12 = outer padding
+      setWidth(next);
+    };
+    const onUp = () => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      localStorage.setItem("leftPanelWidth", String(width));
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [width]);
+
   return (
-    <aside className="w-72 shrink-0 panel rounded-xl overflow-hidden flex flex-col">
+    <aside className="shrink-0 panel rounded-xl overflow-hidden flex flex-col relative" style={{ width }}>
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-5">
+        <div className="p-4 pr-5 space-y-5">
           <Section title="Assets" defaultOpen>
             <UploadField label="Audio" accept="audio/*" value={project.audio}
               onChange={(a) => update(p => ({ ...p, audio: a }))} />
@@ -187,6 +215,19 @@ export function LeftPanel({ project, update }: Props) {
           </Section>
         </div>
       </ScrollArea>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          draggingRef.current = true;
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+        }}
+        onDoubleClick={() => setWidth(288)}
+        title="Drag to resize · double-click to reset"
+        className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+      />
     </aside>
   );
 }
