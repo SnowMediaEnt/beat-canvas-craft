@@ -27,8 +27,14 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
       <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2">
         <span className="text-xs font-mono text-foreground/70">{value.toUpperCase()}</span>
-        <label className="size-7 rounded-md border border-border cursor-pointer overflow-hidden" style={{ background: value }}>
-          <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="opacity-0 size-0" />
+        <label className="relative size-7 rounded-md border border-border cursor-pointer overflow-hidden block" style={{ background: value }}>
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          />
         </label>
       </div>
     </div>
