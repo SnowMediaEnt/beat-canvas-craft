@@ -112,7 +112,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       // concurrency limit of 10. framesPerLambda is derived so that
       // ceil(totalFrames / framesPerLambda) <= MAX_WORKERS, with a floor of
       // 2000 frames/worker so short videos still get coarse chunks.
-      const MAX_WORKERS = 9;
+      const MAX_WORKERS = 4;
       const MIN_FRAMES_PER_LAMBDA = 2000;
       let result;
       let attempt = 0;
