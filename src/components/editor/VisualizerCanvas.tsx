@@ -28,7 +28,9 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
   const bgImgRef = useRef<HTMLImageElement | null>(null);
   const bgVidRef = useRef<HTMLVideoElement | null>(null);
   const startRef = useRef<number>(performance.now());
+  const renderErrorRef = useRef<string | null>(null);
   const [size, setSize] = useState({ w: 800, h: 450 });
+  const [renderError, setRenderError] = useState<string | null>(null);
 
   const { w: rw, h: rh } = ratioToWH(project.aspectRatio);
 
@@ -76,8 +78,9 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext("2d"); if (!ctx) return;
     canvas.width = rw; canvas.height = rh;
+    renderErrorRef.current = null;
+    setRenderError(null);
     let raf = 0;
-    let dbgFrame = 0;
     const empty: AudioData = {
       freq: new Uint8Array(new ArrayBuffer(1024)) as Uint8Array<ArrayBuffer>,
       wave: new Uint8Array(new ArrayBuffer(2048)) as Uint8Array<ArrayBuffer>,
@@ -91,20 +94,6 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
       const audio = engineRef.current
         ? engineRef.current.read({ master: cfg.sensitivity, bass: cfg.bassSensitivity, mid: cfg.midSensitivity, treble: cfg.trebleSensitivity })
         : empty;
-
-      // [DIAG] log every 30 frames while audio is playing
-      if (engineRef.current && !audioRef.current?.paused && (dbgFrame++ % 30) === 0) {
-        const lv = bandLevels(audio.freq, cfg.bandCount ?? 12, 0.7, cfg);
-        // eslint-disable-next-line no-console
-        console.log("[DIAG preview]", {
-          t: +audio.time.toFixed(2),
-          freq: [audio.freq[0], audio.freq[5], audio.freq[10], audio.freq[15]],
-          bass: +audio.bass.toFixed(3), mid: +audio.mid.toFixed(3),
-          treble: +audio.treble.toFixed(3), volume: +audio.volume.toFixed(3),
-          levels: lv.slice(0, 5).map(v => +v.toFixed(3)),
-          size: cfg.size, sensitivity: cfg.sensitivity,
-        });
-      }
 
       // Background
       ctx.fillStyle = "#000"; ctx.fillRect(0, 0, rw, rh);
@@ -147,11 +136,39 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
       // Foreground (visualizer + logo + effects + lyrics) — scaled to a
       // 1080p baseline inside `drawForegroundLayers` so the same draw code
       // produces identical proportions at any export resolution.
-      drawForegroundLayers({
-        ctx, w: rw, h: rh, cfg, audio, t,
-        effects: project.effects, lyrics: project.lyrics,
-        logo: logoRef.current,
-      });
+      try {
+        drawForegroundLayers({
+          ctx, w: rw, h: rh, cfg, audio, t,
+          effects: project.effects, lyrics: project.lyrics,
+          logo: logoRef.current,
+        });
+      } catch (error) {
+        if (cfg.presetId !== "circular-spectrum") {
+          try {
+            drawForegroundLayers({
+              ctx,
+              w: rw,
+              h: rh,
+              cfg: { ...cfg, presetId: "circular-spectrum" },
+              audio,
+              t,
+              effects: project.effects,
+              lyrics: project.lyrics,
+              logo: logoRef.current,
+            });
+            return;
+          } catch {
+            // fall through to friendly error state below
+          }
+        }
+
+        if (!renderErrorRef.current) {
+          const message = error instanceof Error ? error.message : "Visualizer render failed";
+          renderErrorRef.current = message;
+          setRenderError(message);
+          console.error("[visualizer] preview render failed", error);
+        }
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -175,6 +192,11 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
         style={{ width: size.w, height: size.h }}
       >
         <canvas ref={canvasRef} className="w-full h-full block" />
+        {renderError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-background/80 text-sm text-muted-foreground">
+            This project loaded with a safer visualizer fallback.
+          </div>
+        )}
         {!project.audio && (
           <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
             Upload an audio file to begin
