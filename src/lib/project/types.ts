@@ -8,6 +8,27 @@ export interface AssetRef {
   url: string;
 }
 
+export interface CustomEqualizerConfig {
+  /** Visual primitive used to render each band. */
+  shape: "bars" | "mirrored" | "radial" | "ring" | "wave" | "dots" | "triangles";
+  /** Number of bands (3..256). */
+  count: number;
+  /** Gap between bands as a fraction of slot width (0..0.9). */
+  spacing: number;
+  /** Min/max bar length multiplier vs available space (0..2). */
+  amplitude: number;
+  /** Stroke / bar width in baseline px (1..40). 0 = use cfg.thickness. */
+  thickness: number;
+  /** Rounded ends / corners. */
+  rounded: boolean;
+  /** Mirror left↔right for symmetric layouts. */
+  symmetric: boolean;
+  /** Local reactivity multiplier (0..3). */
+  reactivity: number;
+  /** Inner radius fraction for radial/ring (0..1). */
+  innerRadius: number;
+}
+
 export interface VisualizerConfig {
   presetId: string;
   primary: string;
@@ -38,8 +59,11 @@ export interface VisualizerConfig {
   shadow: number;
   border: number;
   blendMode: GlobalCompositeOperation;
-  reactivity: number; // visual amplitude multiplier (0..3)
-  bandCount: number;  // number of equalizer bands (3,5,7,10,12,16,24,32)
+  reactivity: number;
+  bandCount: number;
+  /** Settings used by the "custom-equalizer" preset only. Always present
+   *  so the renderer and the preview share defaults. */
+  custom: CustomEqualizerConfig;
 }
 
 export interface LyricLine { time: number; text: string; }
