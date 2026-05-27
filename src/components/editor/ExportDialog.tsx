@@ -494,7 +494,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
                     <span>Duration</span><span className="text-right font-mono text-foreground/90">{formatDuration(duration)}</span>
                     <span>Total frames</span><span className="text-right font-mono text-foreground/90">{est.totalFrames.toLocaleString()}</span>
-                    <span>Workers (cap 9)</span><span className="text-right font-mono text-foreground/90">{est.estimatedWorkers} × {est.framesPerWorker}f</span>
+                    <span>Workers (cap 4)</span><span className="text-right font-mono text-foreground/90">{est.estimatedWorkers} × {est.framesPerWorker}f</span>
                     <span>Est. file size</span><span className="text-right font-mono text-foreground/90">{formatBytes(est.estimatedSizeMB)}</span>
                     <span>Est. render time</span><span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
                   </div>
