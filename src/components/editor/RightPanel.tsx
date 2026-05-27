@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Project } from "@/lib/project/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -5,6 +6,12 @@ import { SliderField, ColorField } from "./SliderField";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useServerFn } from "@tanstack/react-start";
+import { generateVisualizerFromPrompt } from "@/lib/visualizer/ai-generate.functions";
+import { toast } from "sonner";
+import { Sparkles, Loader2 } from "lucide-react";
 
 interface Props { project: Project; update: (u: (p: Project) => Project) => void }
 
