@@ -636,11 +636,211 @@ const lissajous: Preset = {
   },
 };
 
+// ============================================================
+// ORGANIC MOTION presets — inspired by natural flow:
+// fluid currents, aurora veils, swarming murmurations, tidal
+// blooms, silk strands. Each one layers many frequency bands
+// at different temporal scales so the movement breathes instead
+// of snapping in lockstep with a single amplitude value.
+// ============================================================
+
+// Cheap, deterministic 2D pseudo-noise (no allocations).
+// Smooth interpolation across an implicit lattice — good enough for
+// flow-field directions without pulling in a real perlin lib.
+function noise2(x: number, y: number): number {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+  const h = (a: number, b: number) => {
+    const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+  const a = h(xi, yi), b = h(xi + 1, yi);
+  const c = h(xi, yi + 1), dd = h(xi + 1, yi + 1);
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + dd * u) * v;
+}
+
+// 26. Fluid Flow — layered flowing curves driven by a noise field +
+// the full spectrum. Bass slows + thickens the field, treble adds
+// shimmer to high-frequency lines. Reads like wind on water.
+const fluidFlow: Preset = {
+  id: "fluid-flow", name: "Fluid Flow", category: "Organic",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const lines = 28;
+    const step = 14;
+    const react = cfg.reactivity ?? 1;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
+    ctx.lineCap = "round";
+    for (let l = 0; l < lines; l++) {
+      const p = l / (lines - 1);
+      const band = freqAt(audio.freq, Math.floor(p * audio.freq.length * 0.55), cfg);
+      const amp = (30 + band * 220 + audio.volume * 40) * cfg.size * react;
+      const baseY = h * (0.15 + p * 0.7);
+      const tt = t * (0.35 + p * 0.4) + audio.bass * 0.6;
+      const col = l % 3 === 0 ? cfg.primary : l % 3 === 1 ? cfg.accent : cfg.secondary;
+      ctx.strokeStyle = hexA(col, 0.35 + band * 0.55);
+      ctx.lineWidth = (cfg.thickness * 0.6) + band * cfg.thickness * 1.5;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += step) {
+        const nx = x * 0.0035;
+        const n1 = noise2(nx + tt * 0.5, p * 3.7 + tt * 0.2) - 0.5;
+        const n2 = noise2(nx * 3 + tt * 1.2, p * 7.1) - 0.5;
+        const y = baseY + n1 * amp + n2 * amp * 0.35 + Math.sin(x * 0.01 + tt * 1.7) * 8;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.lineCap = "butt"; ctx.shadowBlur = 0;
+  },
+};
+
+// 27. Aurora Veil — flowing curtains of light, each mapped to a different
+// frequency slice. Mids = waver, treble = shimmer, bass = breadth.
+const auroraVeil: Preset = {
+  id: "aurora-veil", name: "Aurora Veil", category: "Organic",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const curtains = 6;
+    const react = cfg.reactivity ?? 1;
+    ctx.globalCompositeOperation = "lighter";
+    for (let c = 0; c < curtains; c++) {
+      const p = c / (curtains - 1);
+      const band = freqAt(audio.freq, Math.floor((0.05 + p * 0.55) * audio.freq.length), cfg);
+      const phase = t * (0.6 + p * 0.5) + p * 1.7;
+      const cx = w * (0.15 + p * 0.7) + Math.sin(phase) * 80 + audio.bass * 60 * (p - 0.5);
+      const width = (90 + band * 220 + audio.bass * 80) * cfg.size * react;
+      const col = c % 3 === 0 ? cfg.primary : c % 3 === 1 ? cfg.accent : cfg.secondary;
+      ctx.beginPath();
+      const segs = 40;
+      for (let i = 0; i <= segs; i++) {
+        const yy = (i / segs) * h;
+        const wob = Math.sin(yy * 0.012 + phase * 1.6) * (24 + audio.mid * 60) +
+                    Math.sin(yy * 0.04 + phase * 3) * (8 + audio.treble * 30);
+        ctx.lineTo(cx + wob - width / 2, yy);
+      }
+      for (let i = segs; i >= 0; i--) {
+        const yy = (i / segs) * h;
+        const wob = Math.sin(yy * 0.012 + phase * 1.6) * (24 + audio.mid * 60) +
+                    Math.sin(yy * 0.04 + phase * 3) * (8 + audio.treble * 30);
+        ctx.lineTo(cx + wob + width / 2, yy);
+      }
+      ctx.closePath();
+      const g = ctx.createLinearGradient(cx - width, 0, cx + width, 0);
+      g.addColorStop(0, "rgba(0,0,0,0)");
+      g.addColorStop(0.5, hexA(col, 0.35 + band * 0.45));
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = "source-over";
+  },
+};
+
+// 28. Murmuration — swarming particles flowing through a noise vector field.
+const murmuration: Preset = {
+  id: "murmuration", name: "Murmuration", category: "Organic",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const count = 260;
+    const react = cfg.reactivity ?? 1;
+    const kick = audio.beat ? 1.6 : 1;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.4);
+    for (let i = 0; i < count; i++) {
+      const seed = i * 0.6180339;
+      const hx = ((seed * 53.13) % 1) * w;
+      const hy = ((seed * 71.71) % 1) * h;
+      const nx = hx * 0.005 + t * 0.25;
+      const ny = hy * 0.005 + t * 0.3;
+      const ang = noise2(nx, ny) * Math.PI * 4 + t * 0.4;
+      const radius = (40 + audio.volume * 160 + audio.bass * 90) * cfg.size * react * kick;
+      const px = hx + Math.cos(ang) * radius;
+      const py = hy + Math.sin(ang) * radius * 0.85;
+      const band = freqAt(audio.freq, (i * 3) % audio.freq.length, cfg);
+      const r = 1 + band * 4 + (audio.beat ? 1.5 : 0);
+      const col = i % 3 === 0 ? cfg.primary : i % 3 === 1 ? cfg.accent : cfg.secondary;
+      ctx.fillStyle = hexA(col, 0.35 + band * 0.6);
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 29. Tidal Bloom — concentric pond-ripples, continuously emitted.
+const tidalBloom: Preset = {
+  id: "tidal-bloom", name: "Tidal Bloom", category: "Organic",
+  draw: (d) => {
+    const { ctx, cfg, audio, t } = d;
+    const { cx, cy } = center(d);
+    const react = cfg.reactivity ?? 1;
+    const ringCount = 18;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+    for (let i = 0; i < ringCount; i++) {
+      const cycle = 2.2;
+      const localT = ((t + (i / ringCount) * cycle) % cycle) / cycle;
+      const r = localT * Math.min(d.w, d.h) * 0.55 * cfg.size * (1 + audio.bass * 0.4 * react);
+      const fade = 1 - localT;
+      ctx.strokeStyle = hexA(i % 2 ? cfg.primary : cfg.accent, fade * (0.55 + audio.volume * 0.4));
+      ctx.lineWidth = cfg.thickness * (0.4 + fade * 1.4);
+      ctx.beginPath();
+      const segs = 80;
+      for (let s = 0; s <= segs; s++) {
+        const a = (s / segs) * Math.PI * 2;
+        const band = freqAt(audio.freq, Math.floor(((s / segs) * 0.5) * audio.freq.length), cfg);
+        const wob = Math.sin(a * 6 + t * 2 + i) * (4 + audio.mid * 24) +
+                    Math.sin(a * 14 - t * 3) * (audio.treble * 16);
+        const rr = r + wob + band * 30 * fade;
+        const x = cx + Math.cos(a) * rr;
+        const y = cy + Math.sin(a) * rr;
+        s === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// 30. Silk Strands — many thin strands at different frequencies and phases.
+const silkStrands: Preset = {
+  id: "silk-strands", name: "Silk Strands", category: "Organic",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const strands = 36;
+    const react = cfg.reactivity ?? 1;
+    const levels = bandLevels(audio.freq, strands, 0.8, cfg);
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
+    for (let s = 0; s < strands; s++) {
+      const p = s / (strands - 1);
+      const v = levels[s];
+      const freq = 0.6 + p * 3.4;
+      const phase = t * freq + p * 6.28;
+      const amp = (18 + v * 140 + audio.volume * 30) * cfg.size * react;
+      const cyBase = h * (0.5 + Math.sin(p * 3.1 + t * 0.3) * 0.06);
+      const col = s % 3 === 0 ? cfg.primary : s % 3 === 1 ? cfg.accent : cfg.secondary;
+      ctx.strokeStyle = hexA(col, 0.3 + v * 0.6);
+      ctx.lineWidth = (cfg.thickness * 0.4) + v * cfg.thickness;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 8) {
+        const y = cyBase
+          + Math.sin(x * 0.008 + phase) * amp
+          + Math.sin(x * 0.025 + phase * 1.7) * amp * 0.3
+          + (p - 0.5) * 220 * cfg.size;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
 export const PRESETS: Preset[] = [
   circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
   radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
   logoOutline, bottomWave, ambient, floatingOrb, snowField, lightWave,
   rollingWave, spiralBars, fractalTree, leafBorder, lissajous,
+  // Organic motion — natural flow, layered movement across the spectrum
+  fluidFlow, auroraVeil, murmuration, tidalBloom, silkStrands,
 ];
 
 export const getPreset = (id: string) => PRESETS.find(p => p.id === id) || PRESETS[0];
