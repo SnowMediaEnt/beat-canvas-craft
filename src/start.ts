@@ -11,7 +11,7 @@ function isServerFunctionRequest(request: Request) {
   );
 }
 
-const errorMiddleware = createMiddleware().server(async ({ next }) => {
+const errorMiddleware = createMiddleware().server(async ({ next, request }) => {
   try {
     return await next();
   } catch (error) {
@@ -19,10 +19,7 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
       throw error;
     }
     console.error(error);
-    const request = globalThis instanceof Object && "__TSS_REQUEST" in globalThis
-      ? ((globalThis as Record<string, unknown>).__TSS_REQUEST as Request | undefined)
-      : undefined;
-    if (request && isServerFunctionRequest(request)) {
+    if (isServerFunctionRequest(request)) {
       throw error;
     }
     return new Response(renderErrorPage(), {
