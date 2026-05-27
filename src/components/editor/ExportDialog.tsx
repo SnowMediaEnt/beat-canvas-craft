@@ -312,14 +312,16 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       setJob(running); persistJob(running);
 
       await new Promise<void>((resolve, reject) => {
-        pollRef.current = window.setInterval(async () => {
+        let stopped = false;
+
+        const runPoll = async () => {
           try {
             const p = await pollProgress({ data: { renderId, bucketName } });
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
-              window.clearInterval(pollRef.current!); pollRef.current = null;
+              pollRef.current = null;
               setDownloadUrl(p.outputFile);
               const done: RenderJob = { ...running, kind: "lambda", fileFormat: "mp4", status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
               setJob(done); persistJob(done); setProgress(100);
@@ -329,15 +331,30 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               return;
             }
             if (p.fatalErrorEncountered && !p.outputFile) {
+              pollRef.current = null;
               const msg = p.errors[0]?.message || "Lambda render failed";
-              window.clearInterval(pollRef.current!); pollRef.current = null;
-              reject(new Error(msg)); return;
+              reject(new Error(msg));
+              return;
+            }
+
+            if (!stopped) {
+              pollRef.current = window.setTimeout(() => {
+                void runPoll();
+              }, 3000);
             }
           } catch (e: any) {
-            window.clearInterval(pollRef.current!); pollRef.current = null;
+            pollRef.current = null;
             reject(e);
           }
-        }, 3000);
+        };
+
+        void runPoll();
+
+        pollRef.current = window.setTimeout(() => {
+          stopped = true;
+        }, 0);
+        window.clearTimeout(pollRef.current);
+        pollRef.current = null;
       });
     } catch (e: any) {
       console.error("[lambda-render]", e);
