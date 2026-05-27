@@ -295,18 +295,24 @@ const liquidBlob: Preset = {
   },
 };
 
-// 11. Oscilloscope
+// 11. Oscilloscope — uses primary→accent gradient, honors size + thickness.
 const oscilloscope: Preset = {
   id: "oscilloscope", name: "Oscilloscope", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
+    const cy = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
-    ctx.lineWidth = cfg.thickness; ctx.strokeStyle = cfg.primary;
+    ctx.lineWidth = Math.max(1, cfg.thickness * (0.8 + cfg.size * 0.4));
+    const g = ctx.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, cfg.primary);
+    g.addColorStop(0.5, cfg.accent);
+    g.addColorStop(1, cfg.secondary);
+    ctx.strokeStyle = g;
     ctx.beginPath();
     const wave = audio.wave;
     for (let i = 0; i < wave.length; i++) {
       const x = (i / wave.length) * w;
-      const y = h / 2 + ((wave[i] - 128) / 128) * h * 0.45 * cfg.size;
+      const y = cy + ((wave[i] - 128) / 128) * h * 0.45 * cfg.size;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.stroke(); ctx.shadowBlur = 0;
@@ -393,31 +399,53 @@ const logoOutline: Preset = {
   },
 };
 
-// 16. Minimal bottom waveform
+// 16. Minimal bottom waveform — log-spaced bands, gradient fill + glow.
 const bottomWave: Preset = {
   id: "bottom-wave", name: "Minimal Bottom Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const baseY = h - 60;
-    ctx.fillStyle = hexA(cfg.primary, 0.85);
+    const bars = Math.max(8, (cfg.bandCount || 12) * 4);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const baseY = h - 60 + cfg.position.y * h * 0.2;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+    const g = ctx.createLinearGradient(0, baseY - 200 * cfg.size, 0, h);
+    g.addColorStop(0, hexA(cfg.accent, 0.9));
+    g.addColorStop(1, hexA(cfg.primary, 0.85));
+    ctx.fillStyle = g;
     ctx.beginPath(); ctx.moveTo(0, h);
-    for (let x = 0; x <= w; x += 4) {
-      const i = Math.floor((x / w) * audio.freq.length * 0.5);
-      const v = freqAt(audio.freq, i, cfg);
-      const y = baseY - v * 90 * cfg.size;
+    for (let i = 0; i < bars; i++) {
+      const x = (i / (bars - 1)) * w;
+      const v = levels[i];
+      const y = baseY - v * 180 * cfg.size;
       ctx.lineTo(x, y);
     }
     ctx.lineTo(w, h); ctx.closePath(); ctx.fill();
+    // Top stroke for definition; honors thickness.
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = cfg.accent;
+    ctx.lineWidth = Math.max(1, cfg.thickness * 0.8);
+    ctx.beginPath();
+    for (let i = 0; i < bars; i++) {
+      const x = (i / (bars - 1)) * w;
+      const v = levels[i];
+      const y = baseY - v * 180 * cfg.size;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
   },
 };
 
-// 17. Ambient pulse
+// 17. Ambient pulse — uses primary + accent, honors size + bass sensitivity.
 const ambient: Preset = {
   id: "ambient-pulse", name: "Ambient Pulse", category: "Ambient",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h));
-    g.addColorStop(0, hexA(cfg.primary, 0.25 + audio.volume * 0.4));
+    const { cx, cy } = center(d);
+    const radius = Math.max(w, h) * cfg.size;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    const intensity = 0.25 + audio.volume * 0.55 + audio.bass * 0.25;
+    g.addColorStop(0, hexA(cfg.primary, Math.min(1, intensity)));
+    g.addColorStop(0.45, hexA(cfg.accent, Math.min(1, intensity * 0.55)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
   },

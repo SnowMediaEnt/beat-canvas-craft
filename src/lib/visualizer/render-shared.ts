@@ -242,13 +242,18 @@ export function drawForegroundLayers(args: {
   drawVisualizerLayer({ ctx, w: vw, h: vh, cfg, audio, t, logo: logo ?? undefined });
 
   if (logo) {
-    const lsize = Math.min(vw, vh) * cfg.logoSize * (effects.logoPulse ? 1 + audio.bass * 0.12 : 1);
+    // Exaggerated bounce: bass drives scale, beats add a vertical hop that
+    // decays via a short envelope so the logo "jumps" rather than just
+    // breathing. Keeps a gentle baseline pulse when no beat is detected.
+    const pulse = effects.logoPulse ? 1 + audio.bass * 0.35 + (audio.beat ? 0.18 : 0) : 1;
+    const lsize = Math.min(vw, vh) * cfg.logoSize * pulse;
+    const hop = effects.logoPulse ? -Math.abs(Math.sin(t * 6)) * audio.bass * vh * 0.06 : 0;
     const lx = vw / 2 + cfg.logoPosition.x * vw / 2 - lsize / 2;
-    const ly = vh / 2 + cfg.logoPosition.y * vh / 2 - lsize / 2;
+    const ly = vh / 2 + cfg.logoPosition.y * vh / 2 - lsize / 2 + hop;
     ctx.save();
     if (cfg.glowIntensity > 0) {
       ctx.shadowColor = cfg.glow;
-      ctx.shadowBlur = 30 * cfg.glowIntensity;
+      ctx.shadowBlur = 30 * cfg.glowIntensity * (1 + audio.bass * 0.5);
     }
     ctx.drawImage(logo, lx, ly, lsize, lsize);
     ctx.restore();
