@@ -38,6 +38,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
   const pollRef = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
 
   // Browser recording state
   const [recording, setRecording] = useState(false);
@@ -49,6 +51,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
+  const cancelRender = useServerFn(cancelLambdaRender);
+
 
   const downloadFile = async (url: string, filename: string) => {
     console.log("[browser-record] download click", { url, filename });
