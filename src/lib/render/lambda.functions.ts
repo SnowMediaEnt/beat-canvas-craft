@@ -107,29 +107,21 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       });
       const { renderMediaOnLambda } = loadRemotionLambdaClient();
       console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
-      // We hard-cap render workers at MAX_WORKERS so concurrent Lambda
-      // invocations + the 1 main lambda stay safely under our AWS account
-      // concurrency limit of 10. framesPerLambda is derived so that
-      // ceil(totalFrames / framesPerLambda) <= MAX_WORKERS, with a floor of
-      // 2000 frames/worker so short videos still get coarse chunks.
-      const MAX_WORKERS = 4;
-      const MIN_FRAMES_PER_LAMBDA = 2000;
+      // AWS account concurrency limit is 1000, so we let framesPerLambda alone
+      // control chunk size with no worker ceiling.
+      const FRAMES_PER_LAMBDA = 500;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
       while (true) {
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const framesPerLambda = Math.max(
-            MIN_FRAMES_PER_LAMBDA,
-            Math.ceil(totalFrames / MAX_WORKERS),
-          );
+          const framesPerLambda = FRAMES_PER_LAMBDA;
           const actualWorkers = Math.ceil(totalFrames / framesPerLambda);
           console.log("[lambda-render-server] renderMediaOnLambda params", {
             framesPerLambda,
             totalFrames,
             actualWorkers,
-            maxWorkers: MAX_WORKERS,
             fps: data.fps,
             durationInFrames: totalFrames,
           });
