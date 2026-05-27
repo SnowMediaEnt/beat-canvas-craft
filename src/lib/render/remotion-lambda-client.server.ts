@@ -1,4 +1,10 @@
-import { createRequire } from "node:module";
+// Cloudflare Workers cannot do runtime module resolution — `createRequire()`
+// returns a stub that throws `No such module "@remotion/lambda-client"`.
+// Use a static ESM import so Vite bundles the package into the worker.
+// The ESM entry's `createRequire(import.meta.url)` call (which would otherwise
+// crash on undefined `import.meta.url`) is rewritten by the
+// `patchRemotionLambdaCreateRequire` plugin in vite.config.ts.
+import * as remotionLambdaClient from "@remotion/lambda-client";
 
 type ProcessLike = {
   env?: Record<string, string | undefined>;
@@ -9,13 +15,6 @@ type ProcessLike = {
 };
 
 type RemotionLambdaClient = typeof import("@remotion/lambda-client");
-
-// `import.meta.url` can be undefined in the Cloudflare Worker SSR bundle.
-// createRequire throws ERR_INVALID_ARG_VALUE when given undefined, which
-// crashes module init and 500s every serverFn that imports this file.
-const require = createRequire(
-  (typeof import.meta !== "undefined" && import.meta.url) || "file:///worker.js",
-);
 
 let cachedClient: RemotionLambdaClient | null = null;
 
@@ -31,13 +30,7 @@ function ensureProcessFallback() {
 
 export function loadRemotionLambdaClient(): RemotionLambdaClient {
   if (cachedClient) return cachedClient;
-
-  // Load the CommonJS entry on the server so package exports resolve the
-  // `require` condition instead of the ESM `import` condition. The ESM path
-  // inside @aws-sdk/core imports `node:process`, which is what breaks in the
-  // Lambda render runtime; the CJS path relies on the Node-compatible require
-  // shim and works with the runtime's global `process` fallback.
   ensureProcessFallback();
-  cachedClient = require("@remotion/lambda-client") as RemotionLambdaClient;
+  cachedClient = remotionLambdaClient as RemotionLambdaClient;
   return cachedClient;
 }
