@@ -22,12 +22,18 @@ export class AudioEngine {
   private lastBass = 0;
   private beatCooldown = 0;
 
-  constructor(el: HTMLAudioElement, smoothing = 0.78) {
+  constructor(el: HTMLAudioElement, smoothing = 0.5) {
     this.el = el;
-    this.ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+    // `latencyHint: "interactive"` asks the browser for the smallest stable
+    // output buffer, which shrinks the gap between sample playback and the
+    // analyser's view of that sample.
+    const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+    this.ctx = new Ctx({ latencyHint: "interactive" });
     this.src = this.ctx.createMediaElementSource(el);
     this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 2048;
+    // Smaller FFT = shorter analysis window = faster visual reaction.
+    // 1024 samples ≈ 21ms @ 48kHz vs 2048 ≈ 43ms.
+    this.analyser.fftSize = 1024;
     this.analyser.smoothingTimeConstant = smoothing;
     this.dest = this.ctx.createMediaStreamDestination();
     this.src.connect(this.analyser);
