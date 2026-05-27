@@ -94,6 +94,10 @@ export const defaultVisualizerProps: VisualizerProps = {
     blendMode: "source-over",
     reactivity: 1,
     bandCount: 12,
+    custom: {
+      shape: "bars", count: 48, spacing: 0.25, amplitude: 1, thickness: 0,
+      rounded: true, symmetric: false, reactivity: 1, innerRadius: 0.35,
+    },
   },
   effects: {
     particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
