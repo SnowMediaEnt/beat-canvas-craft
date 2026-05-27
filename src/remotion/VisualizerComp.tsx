@@ -101,7 +101,7 @@ export const defaultVisualizerProps: VisualizerProps = {
   },
   effects: {
     particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
-    beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, backgroundPulse: false,
+    beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, logoBounce: false, backgroundPulse: false,
   },
   lyrics: {
     enabled: false, lines: [] as LyricLine[], style: "subtitle", position: "bottom",

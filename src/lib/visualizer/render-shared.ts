@@ -242,12 +242,11 @@ export function drawForegroundLayers(args: {
   drawVisualizerLayer({ ctx, w: vw, h: vh, cfg, audio, t, logo: logo ?? undefined });
 
   if (logo) {
-    // Exaggerated bounce: bass drives scale, beats add a vertical hop that
-    // decays via a short envelope so the logo "jumps" rather than just
-    // breathing. Keeps a gentle baseline pulse when no beat is detected.
+    // logoPulse  → bass-reactive scale (reacts to music)
+    // logoBounce → exaggerated vertical hop on beats (independent toggle)
     const pulse = effects.logoPulse ? 1 + audio.bass * 0.35 + (audio.beat ? 0.18 : 0) : 1;
+    const hop = effects.logoBounce ? -Math.abs(Math.sin(t * 6)) * audio.bass * vh * 0.06 : 0;
     const lsize = Math.min(vw, vh) * cfg.logoSize * pulse;
-    const hop = effects.logoPulse ? -Math.abs(Math.sin(t * 6)) * audio.bass * vh * 0.06 : 0;
     const lx = vw / 2 + cfg.logoPosition.x * vw / 2 - lsize / 2;
     const ly = vh / 2 + cfg.logoPosition.y * vh / 2 - lsize / 2 + hop;
     ctx.save();

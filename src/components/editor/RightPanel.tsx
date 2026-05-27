@@ -188,6 +188,7 @@ export function RightPanel({ project, update }: Props) {
               <Toggle label="Noise texture" value={E.noise} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, noise: v } }))} />
               <Toggle label="Lens flare" value={E.lensFlare} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, lensFlare: v } }))} />
               <Toggle label="Logo pulse" value={E.logoPulse} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, logoPulse: v } }))} />
+              <Toggle label="Logo bounce" value={E.logoBounce} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, logoBounce: v } }))} />
               <Toggle label="Background pulse" value={E.backgroundPulse} onChange={(v) => update(p => ({ ...p, effects: { ...p.effects, backgroundPulse: v } }))} />
             </Section>
           </TabsContent>

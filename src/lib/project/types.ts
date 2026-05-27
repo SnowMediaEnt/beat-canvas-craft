@@ -89,6 +89,7 @@ export interface EffectsConfig {
   noise: boolean;
   lensFlare: boolean;
   logoPulse: boolean;
+  logoBounce: boolean;
   backgroundPulse: boolean;
 }
 
