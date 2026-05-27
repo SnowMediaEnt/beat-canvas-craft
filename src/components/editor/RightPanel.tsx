@@ -723,8 +723,8 @@ function Toggle({
 
 function TabPanel({ value, children }: { value: string; children: React.ReactNode }) {
   return (
-    <TabsContent value={value} className="mt-0 flex-1 min-h-0 overflow-hidden">
-      <ScrollArea className="h-full">
+    <TabsContent value={value} className="mt-0 flex-1 min-h-0 data-[state=inactive]:hidden">
+      <ScrollArea className="h-full max-h-full">
         <div className="space-y-4 p-4 pt-2">{children}</div>
       </ScrollArea>
     </TabsContent>
