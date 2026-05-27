@@ -36,7 +36,7 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
   bassSensitivity: 1.3,
   midSensitivity: 1,
   trebleSensitivity: 1,
-  smoothing: 0.78,
+  smoothing: 0.5,
   rotation: 0,
   movement: 0,
   shadow: 0.4,
