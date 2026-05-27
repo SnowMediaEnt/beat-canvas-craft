@@ -10,7 +10,12 @@ type ProcessLike = {
 
 type RemotionLambdaClient = typeof import("@remotion/lambda-client");
 
-const require = createRequire(import.meta.url);
+// `import.meta.url` can be undefined in the Cloudflare Worker SSR bundle.
+// createRequire throws ERR_INVALID_ARG_VALUE when given undefined, which
+// crashes module init and 500s every serverFn that imports this file.
+const require = createRequire(
+  (typeof import.meta !== "undefined" && import.meta.url) || "file:///worker.js",
+);
 
 let cachedClient: RemotionLambdaClient | null = null;
 
