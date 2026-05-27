@@ -435,13 +435,17 @@ const bottomWave: Preset = {
   },
 };
 
-// 17. Ambient pulse
+// 17. Ambient pulse — uses primary + accent, honors size + bass sensitivity.
 const ambient: Preset = {
   id: "ambient-pulse", name: "Ambient Pulse", category: "Ambient",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h));
-    g.addColorStop(0, hexA(cfg.primary, 0.25 + audio.volume * 0.4));
+    const { cx, cy } = center(d);
+    const radius = Math.max(w, h) * cfg.size;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+    const intensity = 0.25 + audio.volume * 0.55 + audio.bass * 0.25;
+    g.addColorStop(0, hexA(cfg.primary, Math.min(1, intensity)));
+    g.addColorStop(0.45, hexA(cfg.accent, Math.min(1, intensity * 0.55)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
   },
