@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
 import { Route as ApiPublicRenderUploadRouteImport } from './routes/api/public/render-upload'
+import { Route as ApiPublicRenderDownloadRouteImport } from './routes/api/public/render-download'
 import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
 
 const IndexRoute = IndexRouteImport.update({
@@ -29,6 +30,11 @@ const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
   path: '/api/public/render-upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicRenderDownloadRoute = ApiPublicRenderDownloadRouteImport.update({
+  id: '/api/public/render-download',
+  path: '/api/public/render-download',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
   id: '/api/public/elevenlabs-key',
   path: '/api/public/elevenlabs-key',
@@ -39,12 +45,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
 export interface FileRoutesById {
@@ -52,6 +60,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
 export interface FileRouteTypes {
@@ -60,18 +69,21 @@ export interface FileRouteTypes {
     | '/'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/render-download'
     | '/api/public/render-upload'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/render-download'
     | '/api/public/render-upload'
   id:
     | '__root__'
     | '/'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/render-download'
     | '/api/public/render-upload'
   fileRoutesById: FileRoutesById
 }
@@ -79,6 +91,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EditorProjectIdRoute: typeof EditorProjectIdRoute
   ApiPublicElevenlabsKeyRoute: typeof ApiPublicElevenlabsKeyRoute
+  ApiPublicRenderDownloadRoute: typeof ApiPublicRenderDownloadRoute
   ApiPublicRenderUploadRoute: typeof ApiPublicRenderUploadRoute
 }
 
@@ -105,6 +118,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicRenderUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/render-download': {
+      id: '/api/public/render-download'
+      path: '/api/public/render-download'
+      fullPath: '/api/public/render-download'
+      preLoaderRoute: typeof ApiPublicRenderDownloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/elevenlabs-key': {
       id: '/api/public/elevenlabs-key'
       path: '/api/public/elevenlabs-key'
@@ -119,8 +139,19 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EditorProjectIdRoute: EditorProjectIdRoute,
   ApiPublicElevenlabsKeyRoute: ApiPublicElevenlabsKeyRoute,
+  ApiPublicRenderDownloadRoute: ApiPublicRenderDownloadRoute,
   ApiPublicRenderUploadRoute: ApiPublicRenderUploadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
