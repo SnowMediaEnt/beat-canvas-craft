@@ -203,6 +203,12 @@ export function CompletedDialog({ project }: Props) {
       const downloadHref = isRemote
         ? `/api/public/render-download?url=${encodeURIComponent(href)}&filename=${encodeURIComponent(filename)}`
         : href;
+
+      if (isRemote) {
+        window.location.assign(downloadHref);
+        return;
+      }
+
       const a = document.createElement("a");
       a.href = downloadHref;
       a.download = filename;
