@@ -901,7 +901,18 @@ const customEqualizer: Preset = {
       return g;
     };
 
-    const drawLine = (i: number) => c.symmetric ? Math.abs(i - (count - 1) / 2) / ((count - 1) / 2) : 1;
+    // Symmetric mode mirrors the spectrum around the center so the same
+    // bands appear on both sides (bass in the middle, treble fanning out).
+    // The old implementation multiplied amplitude by |i - mid|/mid, which
+    // forced the center bars (the mid-frequency range) to zero — that's
+    // what caused the AI-generated wave preset to look like a V with no
+    // vocals or snare visible. Mirroring the *index* fixes it without
+    // suppressing any frequency band.
+    const bandIndex = (i: number) => {
+      if (!c.symmetric) return i;
+      const half = count / 2;
+      return i < half ? Math.floor(half - 1 - i) : Math.floor(i - half);
+    };
 
     if (c.shape === "bars" || c.shape === "mirrored" || c.shape === "wave") {
       const slot = w / count;
