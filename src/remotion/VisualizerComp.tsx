@@ -324,8 +324,10 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       const channels = audioData.channelWaveforms;
       const ch0 = channels[0];
       const ch1 = channels[1];
-      const end = Math.min(ch0.length, start + WIN);
-      const slice = new Float32Array(end - start);
+      const safeStart = Math.min(start, ch0.length);
+      const end = Math.min(ch0.length, safeStart + WIN);
+      const sliceLen = Math.max(0, end - safeStart);
+      const slice = new Float32Array(sliceLen);
       if (ch1) {
         for (let i = 0; i < slice.length; i++) {
           slice[i] = (ch0[start + i] + ch1[start + i]) * 0.5;
