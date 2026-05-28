@@ -330,10 +330,10 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       const slice = new Float32Array(sliceLen);
       if (ch1) {
         for (let i = 0; i < slice.length; i++) {
-          slice[i] = (ch0[start + i] + ch1[start + i]) * 0.5;
+          slice[i] = (ch0[safeStart + i] + ch1[safeStart + i]) * 0.5;
         }
       } else {
-        for (let i = 0; i < slice.length; i++) slice[i] = ch0[start + i];
+        for (let i = 0; i < slice.length; i++) slice[i] = ch0[safeStart + i];
       }
       waveSamples = slice;
     }
