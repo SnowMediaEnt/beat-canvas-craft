@@ -6,8 +6,20 @@ const urlCache = new Map<string, string>();
 
 export async function storeAsset(file: File): Promise<AssetRef> {
   const id = crypto.randomUUID();
+  // Read the bytes into memory and store a fresh Blob, not the File itself.
+  // A File is backed by an OS file handle — after a browser restart, or if the
+  // user moves / renames / deletes the source file, reading it later throws
+  // NotReadableError ("The I/O read operation failed.") when we try to upload.
+  let blob: Blob;
   try {
-    await set(`asset:${id}`, file);
+    const buf = await file.arrayBuffer();
+    blob = new Blob([buf], { type: file.type || "application/octet-stream" });
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : "";
+    throw new Error(raw || "Couldn't read the selected file from disk.");
+  }
+  try {
+    await set(`asset:${id}`, blob);
   } catch (err) {
     // idb-keyval can reject with a DOMException or a raw IDB error event whose
     // .message is empty / null (notably in Safari private mode or when storage
@@ -25,9 +37,9 @@ export async function storeAsset(file: File): Promise<AssetRef> {
       `Browser storage rejected the file (${sizeMB} MB). It may be too large, storage is full, or private/incognito mode is blocking IndexedDB.`;
     throw new Error(detail);
   }
-  const url = URL.createObjectURL(file);
+  const url = URL.createObjectURL(blob);
   urlCache.set(id, url);
-  return { id, name: file.name, type: file.type, url };
+  return { id, name: file.name, type: blob.type, url };
 }
 
 export async function hydrateAsset(ref: AssetRef | undefined): Promise<AssetRef | undefined> {
