@@ -196,31 +196,20 @@ export function CompletedDialog({ project }: Props) {
         return;
       }
 
-      // Cross-origin URLs (S3) ignore the `download` attribute, so the browser
-      // navigates instead of downloading. Fetch as a blob and download from a
-      // same-origin object URL. Falls back to opening in a new tab on failure.
-      let objectUrl: string | null = null;
-      try {
-        const isRemote = /^https?:/i.test(href);
-        if (isRemote) {
-          const res = await fetch(href);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const blob = await res.blob();
-          objectUrl = URL.createObjectURL(blob);
-        }
-        const a = document.createElement("a");
-        a.href = objectUrl || href;
-        a.download = filename;
-        a.style.display = "none";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      } catch (err) {
-        console.error("[download] blob fetch failed, opening in new tab:", err);
-        window.open(href, "_blank");
-      } finally {
-        if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl!), 60_000);
-      }
+      // Cross-origin S3 URLs ignore the `download` attribute AND often have no
+      // CORS, so a direct fetch starts then aborts. Route remote URLs through
+      // our same-origin proxy which streams the file with attachment headers.
+      const isRemote = /^https?:/i.test(href);
+      const downloadHref = isRemote
+        ? `/api/public/render-download?url=${encodeURIComponent(href)}&filename=${encodeURIComponent(filename)}`
+        : href;
+      const a = document.createElement("a");
+      a.href = downloadHref;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     } finally {
       setBusyId(null);
     }
