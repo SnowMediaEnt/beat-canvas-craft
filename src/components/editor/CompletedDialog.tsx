@@ -196,13 +196,31 @@ export function CompletedDialog({ project }: Props) {
         return;
       }
 
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = filename;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // Cross-origin URLs (S3) ignore the `download` attribute, so the browser
+      // navigates instead of downloading. Fetch as a blob and download from a
+      // same-origin object URL. Falls back to opening in a new tab on failure.
+      let objectUrl: string | null = null;
+      try {
+        const isRemote = /^https?:/i.test(href);
+        if (isRemote) {
+          const res = await fetch(href);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          objectUrl = URL.createObjectURL(blob);
+        }
+        const a = document.createElement("a");
+        a.href = objectUrl || href;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } catch (err) {
+        console.error("[download] blob fetch failed, opening in new tab:", err);
+        window.open(href, "_blank");
+      } finally {
+        if (objectUrl) setTimeout(() => URL.revokeObjectURL(objectUrl!), 60_000);
+      }
     } finally {
       setBusyId(null);
     }
