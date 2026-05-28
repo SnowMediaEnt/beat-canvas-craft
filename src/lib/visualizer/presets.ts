@@ -993,13 +993,92 @@ const customEqualizer: Preset = {
   },
 };
 
+// 31. Noodle Equalizer — each frequency band is a long curved ribbon that
+// undulates with sine-wave distortion. Amplitude bends the wave; the curve
+// itself never snaps up and down like a bar. Warm pasta/wheat palette is
+// applied per-strand so it reads as "noodles" regardless of cfg colors.
+const PASTA_TONES = [
+  "#e8c98a", // wheat
+  "#d9a86c", // toasted pasta
+  "#c98a4a", // bronze crust
+  "#f0d9a0", // semolina
+  "#b87333", // amber
+  "#e0b074", // golden
+];
+const noodleEqualizer: Preset = {
+  id: "noodle-equalizer", name: "Noodle Equalizer", category: "Organic",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio, t } = d;
+    const strands = Math.max(6, Math.min(24, cfg.bandCount || 12));
+    const levels = bandLevels(audio.freq, strands, 0.8, cfg);
+    const react = cfg.reactivity ?? 1;
+    const baseY = h / 2 + cfg.position.y * h / 2;
+    const bandSpacing = (h * 0.55 * cfg.size) / strands;
+
+    setGlow(ctx, "#caa472", cfg.glowIntensity * 0.55);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    for (let s = 0; s < strands; s++) {
+      const p = s / Math.max(1, strands - 1);
+      const v = levels[s] * react;
+
+      // Each strand has its own slow phase + frequency so they drift out of
+      // sync, like noodles swirling in a pot rather than parallel bars.
+      const freq1 = 0.6 + p * 1.8;
+      const freq2 = 1.4 + p * 2.6;
+      const phase = t * (0.5 + p * 0.7) + p * 6.28;
+
+      // Amplitude is driven by the band level + a tiny constant so the
+      // noodle is always slightly wavy even in silence.
+      const amp = (12 + v * 90 + audio.volume * 18) * cfg.size;
+
+      // Vertical center for this strand — gently breathing up/down so the
+      // whole tangle feels alive.
+      const cy = baseY + (p - 0.5) * bandSpacing * strands * 0.6
+                       + Math.sin(t * 0.4 + p * 2.3) * 6;
+
+      const color = PASTA_TONES[s % PASTA_TONES.length];
+      const next = PASTA_TONES[(s + 2) % PASTA_TONES.length];
+      const g = ctx.createLinearGradient(0, cy - amp, w, cy + amp);
+      g.addColorStop(0, hexA(color, 0.55 + v * 0.4));
+      g.addColorStop(1, hexA(next, 0.55 + v * 0.4));
+      ctx.strokeStyle = g;
+      ctx.lineWidth = (cfg.thickness * 0.6) + 2 + v * cfg.thickness * 1.4;
+
+      // Build the noodle as a quadratic-smoothed polyline. Two sine layers
+      // at different frequencies make the curl feel organic; the third
+      // term adds a subtle frequency-driven bulge so the noodle "pulses"
+      // along its length.
+      ctx.beginPath();
+      const step = 12;
+      for (let x = 0; x <= w; x += step) {
+        const u = x / w;
+        const wave1 = Math.sin(u * Math.PI * 2 * freq1 + phase) * amp;
+        const wave2 = Math.sin(u * Math.PI * 2 * freq2 - phase * 1.3) * amp * 0.35;
+        const bulge = Math.sin(u * Math.PI + phase * 0.5) * v * 24 * cfg.size;
+        // Soft envelope so noodles taper at the screen edges instead of
+        // hitting the wall flat.
+        const env = Math.sin(u * Math.PI);
+        const y = cy + (wave1 + wave2 + bulge) * env;
+        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    ctx.lineCap = "butt";
+    ctx.lineJoin = "miter";
+    ctx.shadowBlur = 0;
+  },
+};
+
 export const PRESETS: Preset[] = [
   circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
   radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
   logoOutline, bottomWave, ambient, floatingOrb, snowField, lightWave,
   rollingWave, spiralBars, fractalTree, leafBorder, lissajous,
   // Organic motion — natural flow, layered movement across the spectrum
-  fluidFlow, auroraVeil, murmuration, tidalBloom, silkStrands,
+  fluidFlow, auroraVeil, murmuration, tidalBloom, silkStrands, noodleEqualizer,
   // User-tunable preset (Custom Builder + AI Generator write to cfg.custom)
   customEqualizer,
 ];
