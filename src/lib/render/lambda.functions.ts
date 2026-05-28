@@ -113,7 +113,10 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       // ~5600 frames theoretical max, but heavy presets + cold starts push
       // per-frame cost much higher. Keep chunks small so workers finish well
       // under the cap; AWS concurrency (1000) easily covers the extra workers.
-      const FRAMES_PER_LAMBDA = 150;
+      // Smaller chunks = each worker finishes well under the 900s Lambda cap.
+      // Heavy presets (SVG noodles, effects) can take >5s/frame; 60 frames
+      // keeps worst-case worker time around ~5min with comfortable headroom.
+      const FRAMES_PER_LAMBDA = 60;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
