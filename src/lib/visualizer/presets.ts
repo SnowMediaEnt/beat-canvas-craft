@@ -901,14 +901,25 @@ const customEqualizer: Preset = {
       return g;
     };
 
-    const drawLine = (i: number) => c.symmetric ? Math.abs(i - (count - 1) / 2) / ((count - 1) / 2) : 1;
+    // Symmetric mode mirrors the spectrum around the center so the same
+    // bands appear on both sides (bass in the middle, treble fanning out).
+    // The old implementation multiplied amplitude by |i - mid|/mid, which
+    // forced the center bars (the mid-frequency range) to zero — that's
+    // what caused the AI-generated wave preset to look like a V with no
+    // vocals or snare visible. Mirroring the *index* fixes it without
+    // suppressing any frequency band.
+    const bandIndex = (i: number) => {
+      if (!c.symmetric) return i;
+      const half = count / 2;
+      return i < half ? Math.floor(half - 1 - i) : Math.floor(i - half);
+    };
 
     if (c.shape === "bars" || c.shape === "mirrored" || c.shape === "wave") {
       const slot = w / count;
       const bw = Math.max(1, slot * (1 - c.spacing));
       const mid = c.shape === "mirrored" ? h / 2 + cfg.position.y * h / 2 : h;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const x = i * slot + (slot - bw) / 2;
         if (c.shape === "wave") {
           const baseY = h / 2 + cfg.position.y * h / 2;
@@ -940,7 +951,7 @@ const customEqualizer: Preset = {
       const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
       ctx.lineWidth = Math.max(1, stroke * 1.4);
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const a = (i / count) * Math.PI * 2 + cfg.rotation;
         if (c.shape === "ring") {
           const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
@@ -964,7 +975,7 @@ const customEqualizer: Preset = {
       const cy = h / 2 + cfg.position.y * h / 2;
       const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const a = (i / count) * Math.PI * 2 + cfg.rotation;
         const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
         const x = cx + Math.cos(a) * r;
@@ -978,7 +989,7 @@ const customEqualizer: Preset = {
       const bw = Math.max(2, slot * (1 - c.spacing));
       const baseY = h - 40;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const x = i * slot + slot / 2;
         const peak = baseY - v * h * 0.7 * cfg.size;
         ctx.fillStyle = grad(x, baseY, x, peak);
