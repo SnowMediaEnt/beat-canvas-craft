@@ -528,7 +528,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 durationSeconds: duration,
                 fps: project.export.fps,
                 resolution: project.export.resolution,
-                framesPerLambda: 500,
+                framesPerLambda: 60,
               });
               return (
                 <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
@@ -540,7 +540,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                     <span>Est. file size</span><span className="text-right font-mono text-foreground/90">{formatBytes(est.estimatedSizeMB)}</span>
                     <span>Est. render time</span><span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">framesPerLambda = 500. AWS account concurrency limit is 1000, so workers scale freely with video length.</p>
+                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">framesPerLambda = 60. Small chunks keep each worker well under the 900s Lambda timeout for heavy presets.</p>
                   <div className="rounded bg-background/60 p-2 space-y-1">
                     <p className="text-[10px] text-muted-foreground/80">If you changed presets, effects, or colors since the last deploy, Lambda is still using the old bundle. Redeploy from your local machine:</p>
                     <code className="block font-mono text-[10px] text-foreground/90 bg-black/30 rounded px-1.5 py-1 select-all">
