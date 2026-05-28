@@ -50,12 +50,25 @@ export function RightPanel({ project, update }: Props) {
     setBusy(true);
     try {
       const { patch } = await generate({ data: { prompt: prompt.trim() } });
+      const customPatch = (patch.custom as { shape?: string } | undefined) || {};
+      const shape = customPatch.shape;
+      // Anchor floor-based shapes at the bottom by default; centered shapes
+      // (radial/ring) keep the canvas center. Users can still override via
+      // Style → Visualizer → Position Y.
+      const floorShapes = new Set(["bars", "wave", "triangles", "dots", "mirrored"]);
+      const defaultPosition =
+        shape && floorShapes.has(shape)
+          ? { x: 0, y: 1 }
+          : shape === "radial" || shape === "ring"
+            ? { x: 0, y: 0 }
+            : undefined;
       update((p) => ({
         ...p,
         visualizer: {
           ...p.visualizer,
           ...patch,
           presetId: "custom-equalizer",
+          position: defaultPosition ?? p.visualizer.position,
           custom: { ...p.visualizer.custom, ...((patch.custom as object) || {}) },
         } as Project["visualizer"],
       }));
