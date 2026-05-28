@@ -6,7 +6,25 @@ const urlCache = new Map<string, string>();
 
 export async function storeAsset(file: File): Promise<AssetRef> {
   const id = crypto.randomUUID();
-  await set(`asset:${id}`, file);
+  try {
+    await set(`asset:${id}`, file);
+  } catch (err) {
+    // idb-keyval can reject with a DOMException or a raw IDB error event whose
+    // .message is empty / null (notably in Safari private mode or when storage
+    // is full). Re-throw with a useful message so the UI can show something
+    // other than "null".
+    const raw =
+      err instanceof Error
+        ? err.message
+        : err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message ?? "")
+          : "";
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    const detail =
+      raw ||
+      `Browser storage rejected the file (${sizeMB} MB). It may be too large, storage is full, or private/incognito mode is blocking IndexedDB.`;
+    throw new Error(detail);
+  }
   const url = URL.createObjectURL(file);
   urlCache.set(id, url);
   return { id, name: file.name, type: file.type, url };
