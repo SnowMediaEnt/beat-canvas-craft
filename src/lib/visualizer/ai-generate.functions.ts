@@ -34,7 +34,11 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
             size: { type: "number", minimum: 0.4, maximum: 1.8 },
             thickness: { type: "number", minimum: 1, maximum: 24 },
             animationSpeed: { type: "number", minimum: 0.3, maximum: 2.5 },
-            sensitivity: { type: "number", minimum: 0.5, maximum: 2.5 },
+            sensitivity: { type: "number", minimum: 0.5, maximum: 2.5, description: "Master gain across all bands." },
+            bassSensitivity: { type: "number", minimum: 0.5, maximum: 2.5, description: "Low-frequency (kick/bass) gain. Default near 1.0." },
+            midSensitivity: { type: "number", minimum: 0.5, maximum: 2.5, description: "Mid-frequency (vocals/snare/guitar) gain. Default near 1.0 — do NOT drop below 0.9 unless the prompt explicitly asks for a hollow / scooped sound, otherwise the visualizer goes flat through the most important part of the song." },
+            trebleSensitivity: { type: "number", minimum: 0.5, maximum: 2.5, description: "High-frequency (hat/cymbal/air) gain. Default near 1.0." },
+            bandCount: { type: "integer", minimum: 8, maximum: 192, description: "Number of frequency bands the equalizer resolves. 32–96 is a good default; lower for chunky/lofi, higher for detailed." },
             custom: {
               type: "object",
               properties: {
@@ -52,7 +56,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
               additionalProperties: false,
             },
           },
-          required: ["primary", "secondary", "accent", "glow", "custom"],
+          required: ["primary", "secondary", "accent", "glow", "bassSensitivity", "midSensitivity", "trebleSensitivity", "custom"],
           additionalProperties: false,
         },
       },
@@ -64,7 +68,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts." },
+          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts. CRITICAL: keep the frequency spectrum balanced. Default bassSensitivity, midSensitivity, and trebleSensitivity all to ~1.0 (range 0.9–1.3) so the mid range — where vocals, snare, and most melody live — stays audible in the visualizer. Only push one band above 1.5 or below 0.9 when the prompt explicitly calls for it (e.g. 'bass-heavy', 'airy', 'crispy highs')." },
           { role: "user", content: data.prompt },
         ],
         tools: [tool],
