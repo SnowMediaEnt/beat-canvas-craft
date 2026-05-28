@@ -919,7 +919,7 @@ const customEqualizer: Preset = {
       const bw = Math.max(1, slot * (1 - c.spacing));
       const mid = c.shape === "mirrored" ? h / 2 + cfg.position.y * h / 2 : h;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const x = i * slot + (slot - bw) / 2;
         if (c.shape === "wave") {
           const baseY = h / 2 + cfg.position.y * h / 2;
@@ -951,7 +951,7 @@ const customEqualizer: Preset = {
       const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
       ctx.lineWidth = Math.max(1, stroke * 1.4);
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const a = (i / count) * Math.PI * 2 + cfg.rotation;
         if (c.shape === "ring") {
           const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
@@ -975,7 +975,7 @@ const customEqualizer: Preset = {
       const cy = h / 2 + cfg.position.y * h / 2;
       const baseR = Math.min(w, h) * c.innerRadius * cfg.size;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const a = (i / count) * Math.PI * 2 + cfg.rotation;
         const r = baseR + v * Math.min(w, h) * 0.25 * cfg.size;
         const x = cx + Math.cos(a) * r;
@@ -989,7 +989,7 @@ const customEqualizer: Preset = {
       const bw = Math.max(2, slot * (1 - c.spacing));
       const baseY = h - 40;
       for (let i = 0; i < count; i++) {
-        const v = levels[i] * c.amplitude * react * drawLine(i);
+        const v = levels[bandIndex(i)] * c.amplitude * react;
         const x = i * slot + slot / 2;
         const peak = baseY - v * h * 0.7 * cfg.size;
         ctx.fillStyle = grad(x, baseY, x, peak);
