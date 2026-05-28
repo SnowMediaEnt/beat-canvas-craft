@@ -68,7 +68,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts." },
+          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts. CRITICAL: keep the frequency spectrum balanced. Default bassSensitivity, midSensitivity, and trebleSensitivity all to ~1.0 (range 0.9–1.3) so the mid range — where vocals, snare, and most melody live — stays audible in the visualizer. Only push one band above 1.5 or below 0.9 when the prompt explicitly calls for it (e.g. 'bass-heavy', 'airy', 'crispy highs')." },
           { role: "user", content: data.prompt },
         ],
         tools: [tool],
