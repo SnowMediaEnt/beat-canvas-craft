@@ -15,19 +15,32 @@ const ratioToWH = (r: string) => {
 const PREVIEW_DPR_CAP = 1.25;
 const PREVIEW_PARTICLE_CAP = 72;
 const PREVIEW_SNOW_PARTICLE_CAP = 48;
+// Preview caps exist to keep the editor responsive when band counts get huge.
+// They should be permissive enough that the slider visibly affects the preview
+// across its full useful range — exports always use the raw bandCount.
 const PREVIEW_BAND_CAPS: Record<string, number> = {
-  "circular-spectrum": 48,
-  "double-circular": 40,
-  "radial-bars": 48,
-  "liquid-blob": 40,
-  "tunnel": 24,
-  "bottom-wave": 36,
-  "rolling-wave": 36,
-  "spiral-bars": 24,
-  "leaf-border": 48,
-  "custom-equalizer": 48,
-  "itunes-classic": 48,
-  "wmp-bars-waves": 64,
+  "circular-spectrum": 192,
+  "double-circular": 128,
+  "radial-bars": 128,
+  "liquid-blob": 96,
+  "tunnel": 64,
+  "bottom-wave": 96,
+  "rolling-wave": 96,
+  "spiral-bars": 40,
+  "leaf-border": 128,
+  "custom-equalizer": 128,
+  "itunes-classic": 64,
+  "wmp-bars-waves": 96,
+  "tidal-bloom": 64,
+  "aurora-veil": 48,
+  "silk-strands": 48,
+  "fluid-flow": 48,
+  "lissajous": 128,
+  "ribbons": 48,
+  "light-wave": 48,
+  "murmuration": 96,
+  "snow-field": 96,
+  "particle-burst": 96,
 };
 
 const getPreviewSafeProject = (project: Project): Project => {
