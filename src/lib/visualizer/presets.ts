@@ -712,7 +712,7 @@ const lissajous: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const R = Math.min(d.w, d.h) * 0.32 * cfg.size;
-    const steps = 360;
+    const steps = Math.max(120, Math.min(2048, (cfg.bandCount || 12) * 12));
     const a = 3 + Math.floor(audio.bass * 3);
     const b = 2 + Math.floor(audio.mid * 4);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
