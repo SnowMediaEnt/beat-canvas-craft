@@ -19,5 +19,14 @@ function getProxyDownloadUrl(remoteUrl: string, filename: string) {
 }
 
 export function triggerDownload(href: string, filename: string, isRemote: boolean) {
-  directDownload(isRemote ? getProxyDownloadUrl(href, filename) : href, filename);
+  if (!isRemote) {
+    directDownload(href, filename);
+    return;
+  }
+
+  const proxyUrl = getProxyDownloadUrl(href, filename);
+  const popup = window.open(proxyUrl, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    window.location.assign(proxyUrl);
+  }
 }
