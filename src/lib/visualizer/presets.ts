@@ -72,19 +72,20 @@ export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: Visu
 }
 
 
-// 1. Circular spectrum
+// 1. Circular spectrum — log-spaced N-band equalizer wrapped in a ring.
 const circular: Preset = {
   id: "circular-spectrum", name: "Circular Spectrum", category: "Circular",
   draw: ({ ctx, w, h, cfg, audio }) => {
     const { cx, cy } = center({ ctx, w, h, cfg, audio, t: 0 } as DrawContext);
-    const radius = Math.min(w, h) * 0.22 * cfg.size;
-    const bars = 96;
-    const freq = audio.freq;
+    const react = cfg.reactivity ?? 1;
+    const radius = Math.min(w, h) * 0.22 * cfg.size * (1 + audio.bass * 0.25 * react);
+    const bars = Math.max(8, cfg.bandCount || 96);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness;
     for (let i = 0; i < bars; i++) {
-      const v = freqAt(freq, Math.floor((i / bars) * freq.length * 0.6), cfg);
-      const len = v * 120 * cfg.size + 4;
+      const v = levels[i];
+      const len = (8 + v * 220 * react) * cfg.size;
       const a = (i / bars) * Math.PI * 2 + cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
       const y1 = cy + Math.sin(a) * radius;
@@ -100,21 +101,23 @@ const circular: Preset = {
   },
 };
 
-// 2. Double circular
+// 2. Double circular — inner + outer rings, each a full N-band EQ.
 const doubleCircular: Preset = {
   id: "double-circular", name: "Double Circular", category: "Circular",
   draw: (d) => {
     circular.draw(d);
     const { ctx, w, h, cfg, audio } = d;
     const { cx, cy } = center(d);
-    const radius = Math.min(w, h) * 0.34 * cfg.size;
-    const bars = 64;
+    const react = cfg.reactivity ?? 1;
+    const radius = Math.min(w, h) * 0.34 * cfg.size * (1 + audio.bass * 0.2 * react);
+    const bars = Math.max(8, cfg.bandCount || 64);
+    const levels = bandLevels(audio.freq, bars, 0.8, cfg);
     setGlow(ctx, cfg.secondary, cfg.glowIntensity * 0.8);
     ctx.lineWidth = cfg.thickness * 0.7;
     ctx.strokeStyle = cfg.secondary;
     for (let i = 0; i < bars; i++) {
-      const v = freqAt(audio.freq, Math.floor((i / bars) * audio.freq.length * 0.5), cfg);
-      const len = v * 80 * cfg.size + 2;
+      const v = levels[i];
+      const len = (4 + v * 160 * react) * cfg.size;
       const a = -(i / bars) * Math.PI * 2 - cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
       const y1 = cy + Math.sin(a) * radius;
@@ -126,35 +129,45 @@ const doubleCircular: Preset = {
   },
 };
 
-// 3. Pulsing ring
+// 3. Pulsing ring — heavy bass-driven breathing + beat kick.
 const pulsingRing: Preset = {
   id: "pulsing-ring", name: "Pulsing Ring", category: "Circular",
   draw: (d) => {
-    const { ctx, cfg, audio } = d;
+    const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
+    const react = cfg.reactivity ?? 1;
     const base = Math.min(d.w, d.h) * 0.22 * cfg.size;
-    const r = base + audio.bass * 80 * cfg.size;
-    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass));
-    ctx.lineWidth = cfg.thickness + audio.volume * 8;
+    const beatKick = audio.beat ? 40 : 0;
+    const r = base + (audio.bass * 200 + audio.volume * 60 + beatKick) * react * cfg.size;
+    const wob = Math.sin(t * 4) * audio.mid * 18 * react;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 1.5));
+    ctx.lineWidth = cfg.thickness + audio.volume * 18 * react;
     ctx.strokeStyle = cfg.primary;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r + wob, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = cfg.thickness * 0.5;
     ctx.strokeStyle = hexA(cfg.accent, 0.6);
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.2 + audio.mid * 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.25 + audio.mid * 90 * react, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = hexA(cfg.secondary, 0.4);
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.55 + audio.treble * 70 * react, 0, Math.PI * 2); ctx.stroke();
     ctx.shadowBlur = 0;
   },
 };
 
-// 4. Soft bass glow
+// 4. Soft bass glow — radius and intensity react aggressively to bass + beat.
 const bassGlow: Preset = {
   id: "bass-glow", name: "Soft Bass Glow", category: "Ambient",
   draw: (d) => {
-    const { ctx, cfg, audio } = d;
+    const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const r = Math.min(d.w, d.h) * (0.25 + audio.bass * 0.3) * cfg.size;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, hexA(cfg.primary, 0.6 * cfg.glowIntensity));
-    g.addColorStop(0.6, hexA(cfg.accent, 0.2 * cfg.glowIntensity));
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 0.25 : 0;
+    const r = Math.min(d.w, d.h) * (0.22 + (audio.bass * 0.7 + audio.volume * 0.25 + beatKick) * react) * cfg.size;
+    const ox = Math.sin(t * 0.9) * audio.mid * 80 * react;
+    const oy = Math.cos(t * 0.7) * audio.mid * 60 * react;
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
+    const boost = 1 + audio.volume * 0.5;
+    g.addColorStop(0, hexA(cfg.primary, Math.min(1, 0.7 * cfg.glowIntensity * boost)));
+    g.addColorStop(0.55, hexA(cfg.accent, Math.min(1, 0.28 * cfg.glowIntensity * boost)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, d.w, d.h);
   },
@@ -272,28 +285,56 @@ const particleBurst: Preset = {
   },
 };
 
-// 10. Liquid blob
+// 10. Liquid blob — N-band perimeter, heavy bass swell, dual layer wobble.
 const liquidBlob: Preset = {
   id: "liquid-blob", name: "Liquid Blob", category: "Morph",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const base = Math.min(d.w, d.h) * 0.2 * cfg.size;
-    const points = 80;
-    setGlow(ctx, cfg.glow, cfg.glowIntensity);
-    ctx.fillStyle = hexA(cfg.primary, 0.7);
+    const react = cfg.reactivity ?? 1;
+    const points = Math.max(24, cfg.bandCount || 80);
+    const levels = bandLevels(audio.freq, points, 0.8, cfg);
+    const beatKick = audio.beat ? 30 : 0;
+    const base = Math.min(d.w, d.h) * 0.2 * cfg.size * (1 + audio.bass * 0.45 * react);
+    const ox = Math.sin(t * 1.1) * audio.mid * 50 * react;
+    const oy = Math.cos(t * 0.9) * audio.mid * 40 * react;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 0.8));
+
+    // Outer halo blob
+    ctx.fillStyle = hexA(cfg.accent, 0.35);
+    ctx.beginPath();
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2 + cfg.rotation * 0.5;
+      const v = levels[i % points];
+      const r = base * 1.25 + (v * 180 + beatKick) * react * cfg.size
+        + Math.sin(t * 1.7 + i * 0.4) * (14 + audio.treble * 40 * react);
+      const x = cx + ox + Math.cos(a) * r;
+      const y = cy + oy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+
+    // Core blob
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, base * 0.2, cx + ox, cy + oy, base * 1.4);
+    g.addColorStop(0, hexA(cfg.primary, 0.9));
+    g.addColorStop(1, hexA(cfg.accent, 0.4));
+    ctx.fillStyle = g;
     ctx.beginPath();
     for (let i = 0; i <= points; i++) {
       const a = (i / points) * Math.PI * 2;
-      const v = freqAt(audio.freq, Math.floor((i / points) * audio.freq.length * 0.4), cfg);
-      const r = base + v * 60 + Math.sin(t * 2 + i * 0.3) * 12;
-      const x = cx + Math.cos(a) * r; const y = cy + Math.sin(a) * r;
+      const v = levels[i % points];
+      const r = base + (v * 220 + beatKick * 1.4) * react * cfg.size
+        + Math.sin(t * 3 + i * 0.7) * (10 + audio.mid * 30 * react)
+        + Math.sin(t * 5.5 + i * 1.3) * audio.treble * 18 * react;
+      const x = cx + ox + Math.cos(a) * r;
+      const y = cy + oy + Math.sin(a) * r;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.closePath(); ctx.fill();
     ctx.shadowBlur = 0;
   },
 };
+
 
 // 11. Oscilloscope — uses primary→accent gradient, honors size + thickness.
 const oscilloscope: Preset = {
@@ -340,24 +381,27 @@ const ribbons: Preset = {
   },
 };
 
-// 13. Frequency tunnel
+// 13. Frequency tunnel — N-band log-spaced rings, bass-driven depth surge.
 const tunnel: Preset = {
   id: "tunnel", name: "Frequency Tunnel", category: "3D",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
+    const react = cfg.reactivity ?? 1;
     const rings = 14;
+    const verts = Math.max(24, cfg.bandCount || 60);
+    const levels = bandLevels(audio.freq, verts, 0.85, cfg);
+    const speed = 0.5 + audio.bass * 1.4 * react;
     for (let i = 0; i < rings; i++) {
-      const p = ((i + (t * 0.5) % 1) / rings);
-      const r = p * Math.min(d.w, d.h) * 0.7 * cfg.size;
+      const p = ((i + (t * speed) % 1) / rings);
+      const r = p * Math.min(d.w, d.h) * 0.7 * cfg.size * (1 + audio.bass * 0.25 * react);
       ctx.strokeStyle = hexA(i % 2 ? cfg.primary : cfg.accent, 1 - p);
       ctx.lineWidth = (1 - p) * cfg.thickness * 2;
       ctx.beginPath();
-      const verts = 60;
       for (let v = 0; v <= verts; v++) {
-        const a = (v / verts) * Math.PI * 2;
-        const f = freqAt(audio.freq, (v * 4) % audio.freq.length, cfg);
-        const rr = r + f * 30;
+        const a = (v / verts) * Math.PI * 2 + cfg.rotation * p;
+        const f = levels[v % verts];
+        const rr = r + f * 80 * react * cfg.size * (1 - p * 0.5);
         const x = cx + Math.cos(a) * rr; const y = cy + Math.sin(a) * rr;
         v === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
@@ -435,36 +479,61 @@ const bottomWave: Preset = {
   },
 };
 
-// 17. Ambient pulse — uses primary + accent, honors size + bass sensitivity.
+// 17. Ambient pulse — full-frame radial glow that breathes with bass + beat.
 const ambient: Preset = {
   id: "ambient-pulse", name: "Ambient Pulse", category: "Ambient",
   draw: (d) => {
-    const { ctx, w, h, cfg, audio } = d;
+    const { ctx, w, h, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const radius = Math.max(w, h) * cfg.size;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    const intensity = 0.25 + audio.volume * 0.55 + audio.bass * 0.25;
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 0.35 : 0;
+    const pulse = 0.7 + (audio.bass * 0.6 + audio.volume * 0.3 + beatKick) * react;
+    const radius = Math.max(w, h) * cfg.size * pulse;
+    const ox = Math.sin(t * 0.6) * audio.mid * 100 * react;
+    const oy = Math.cos(t * 0.45) * audio.mid * 80 * react;
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, radius);
+    const intensity = 0.3 + (audio.volume * 0.8 + audio.bass * 0.5 + beatKick) * react;
     g.addColorStop(0, hexA(cfg.primary, Math.min(1, intensity)));
-    g.addColorStop(0.45, hexA(cfg.accent, Math.min(1, intensity * 0.55)));
+    g.addColorStop(0.4, hexA(cfg.accent, Math.min(1, intensity * 0.65)));
+    g.addColorStop(0.75, hexA(cfg.secondary, Math.min(1, intensity * 0.3)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
   },
 };
 
-// 18. Floating orb
+// 18. Floating orb — wide drifting motion, scale + glow surge with the music.
 const floatingOrb: Preset = {
   id: "floating-orb", name: "Floating Orb", category: "Ambient",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const x = cx + Math.sin(t * 0.7) * 80;
-    const y = cy + Math.cos(t * 0.5) * 50;
-    const r = 80 * cfg.size + audio.bass * 60;
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 50 : 0;
+    // Drift amplitude scales with mids + treble — orb wanders across the frame.
+    const driftX = Math.min(d.w, d.h) * 0.32 * (0.4 + audio.mid * 1.2 * react);
+    const driftY = Math.min(d.w, d.h) * 0.22 * (0.4 + audio.treble * 1.2 * react);
+    const x = cx + Math.sin(t * 1.1 + audio.volume * 2) * driftX
+      + Math.sin(t * 2.7) * audio.treble * 40 * react;
+    const y = cy + Math.cos(t * 0.85 + audio.bass * 2) * driftY
+      + Math.cos(t * 3.1) * audio.treble * 30 * react;
+    const r = (80 * cfg.size) + (audio.bass * 220 + audio.volume * 80 + beatKick) * react;
+
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 1.2));
+    // Trailing echo orb for motion smear.
+    const tx = cx + Math.sin(t * 1.1 - 0.4 + audio.volume * 2) * driftX;
+    const ty = cy + Math.cos(t * 0.85 - 0.4 + audio.bass * 2) * driftY;
+    const tg = ctx.createRadialGradient(tx, ty, 0, tx, ty, r * 1.1);
+    tg.addColorStop(0, hexA(cfg.accent, 0.35));
+    tg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = tg; ctx.beginPath(); ctx.arc(tx, ty, r * 1.1, 0, Math.PI * 2); ctx.fill();
+
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, hexA(cfg.primary, 0.9));
-    g.addColorStop(0.4, hexA(cfg.accent, 0.5));
+    g.addColorStop(0, hexA(cfg.primary, 0.95));
+    g.addColorStop(0.35, hexA(cfg.accent, 0.6));
+    g.addColorStop(0.75, hexA(cfg.secondary, 0.25));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
   },
 };
 
