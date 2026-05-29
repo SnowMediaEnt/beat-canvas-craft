@@ -117,7 +117,7 @@ const circular: Preset = {
     const react = cfg.reactivity ?? 1;
     const radius = Math.min(w, h) * 0.22 * cfg.size * (1 + audio.bass * 0.25 * react);
     const bars = Math.max(8, cfg.bandCount || 96);
-    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg, audio);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness;
     for (let i = 0; i < bars; i++) {
@@ -148,7 +148,7 @@ const doubleCircular: Preset = {
     const react = cfg.reactivity ?? 1;
     const radius = Math.min(w, h) * 0.34 * cfg.size * (1 + audio.bass * 0.2 * react);
     const bars = Math.max(8, cfg.bandCount || 64);
-    const levels = bandLevels(audio.freq, bars, 0.8, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.8, cfg, audio);
     setGlow(ctx, cfg.secondary, cfg.glowIntensity * 0.8);
     ctx.lineWidth = cfg.thickness * 0.7;
     ctx.strokeStyle = cfg.secondary;
@@ -240,7 +240,7 @@ const eqBars: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(2, cfg.bandCount || 12);
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg, audio);
     const slot = w / bars;
     const bw = slot * 0.7;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
@@ -262,7 +262,7 @@ const mirroredBars: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(2, cfg.bandCount || 12);
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg, audio);
     const mid = h / 2 + cfg.position.y * h / 2;
     const slot = w / bars;
     const bw = slot * 0.7;
@@ -286,7 +286,7 @@ const radialBars: Preset = {
     const { ctx, cfg, audio } = d;
     const { cx, cy } = center(d);
     const bars = Math.max(3, cfg.bandCount || 12); const radius = Math.min(d.w, d.h) * 0.15 * cfg.size;
-    const levels = bandLevels(audio.freq, bars, 0.7, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.7, cfg, audio);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness * 2.2; ctx.lineCap = "round";
     for (let i = 0; i < bars; i++) {
@@ -330,7 +330,7 @@ const liquidBlob: Preset = {
     const { cx, cy } = center(d);
     const react = cfg.reactivity ?? 1;
     const points = Math.max(24, cfg.bandCount || 80);
-    const levels = bandLevels(audio.freq, points, 0.8, cfg);
+    const levels = bandLevels(audio.freq, points, 0.8, cfg, audio);
     const beatKick = audio.beat ? 30 : 0;
     const base = Math.min(d.w, d.h) * 0.2 * cfg.size * (1 + audio.bass * 0.45 * react);
     const ox = Math.sin(t * 1.1) * audio.mid * 50 * react;
@@ -409,7 +409,7 @@ const ribbons: Preset = {
       ctx.beginPath();
       for (let x = 0; x <= w; x += 6) {
         const i = Math.floor((x / w) * audio.freq.length * 0.5);
-        const v = freqAt(audio.freq, i, cfg);
+        const v = freqAt(audio.freq, i, cfg, audio.sampleRate);
         const y = h / 2 + Math.sin(x * 0.01 + t * (1 + l * 0.3)) * (40 + v * 80) * cfg.size + (l - layers / 2) * 18;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
@@ -427,7 +427,7 @@ const tunnel: Preset = {
     const react = cfg.reactivity ?? 1;
     const rings = Math.max(4, Math.min(48, Math.round((cfg.bandCount || 60) / 4)));
     const verts = Math.max(24, cfg.bandCount || 60);
-    const levels = bandLevels(audio.freq, verts, 0.85, cfg);
+    const levels = bandLevels(audio.freq, verts, 0.85, cfg, audio);
     const speed = 0.5 + audio.bass * 1.4 * react;
     for (let i = 0; i < rings; i++) {
       const p = ((i + (t * speed) % 1) / rings);
@@ -486,7 +486,7 @@ const bottomWave: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.min(384, Math.max(8, (cfg.bandCount || 12) * 4));
-    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg, audio);
     const baseY = h - 60 + cfg.position.y * h * 0.2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
     const g = ctx.createLinearGradient(0, baseY - 200 * cfg.size, 0, h);
@@ -621,7 +621,7 @@ const rollingWave: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
     const bars = Math.min(384, Math.max(8, cfg.bandCount || 12) * 4);
-    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg, audio);
     const baseY = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
     ctx.lineCap = "round";
@@ -652,7 +652,7 @@ const spiralBars: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const bars = Math.min(512, Math.max(40, (cfg.bandCount || 12) * 8));
-    const levels = bandLevels(audio.freq, bars, 0.85, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.85, cfg, audio);
     const turns = 4;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     ctx.lineCap = "round";
@@ -713,7 +713,7 @@ const leafBorder: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const leaves = Math.min(256, Math.max(12, (cfg.bandCount || 12) * 2));
-    const levels = bandLevels(audio.freq, leaves, 0.7, cfg);
+    const levels = bandLevels(audio.freq, leaves, 0.7, cfg, audio);
     const baseR = Math.min(d.w, d.h) * (0.18 + cfg.logoSize * 0.3) * cfg.size;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
     for (let i = 0; i < leaves; i++) {
@@ -956,7 +956,7 @@ const silkStrands: Preset = {
     const { ctx, w, h, cfg, audio, t } = d;
     const strands = Math.max(4, Math.min(64, cfg.bandCount || 22));
     const react = cfg.reactivity ?? 1;
-    const levels = bandLevels(audio.freq, strands, 0.8, cfg);
+    const levels = bandLevels(audio.freq, strands, 0.8, cfg, audio);
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
     for (let s = 0; s < strands; s++) {
       const p = s / (strands - 1);
@@ -994,7 +994,7 @@ const customEqualizer: Preset = {
     const { ctx, w, h, cfg, audio, t } = d;
     const c = cfg.custom;
     const count = Math.max(3, Math.min(256, c.count | 0));
-    const levels = bandLevels(audio.freq, count, 0.75, cfg);
+    const levels = bandLevels(audio.freq, count, 0.75, cfg, audio);
     const react = c.reactivity * (cfg.reactivity ?? 1);
     const stroke = c.thickness > 0 ? c.thickness : cfg.thickness;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
@@ -1128,7 +1128,7 @@ const noodleEqualizer: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
     const strands = Math.max(6, Math.min(24, cfg.bandCount || 12));
-    const levels = bandLevels(audio.freq, strands, 0.8, cfg);
+    const levels = bandLevels(audio.freq, strands, 0.8, cfg, audio);
     const react = cfg.reactivity ?? 1;
     const baseY = h / 2 + cfg.position.y * h / 2;
     const bandSpacing = (h * 0.55 * cfg.size) / strands;
@@ -1211,7 +1211,7 @@ const itunesClassic: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(4, Math.min(64, cfg.bandCount || 16));
-    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg, audio);
     ensurePeakState(itunesPeaks, bars);
 
     const slot = w / bars;
@@ -1262,7 +1262,7 @@ const wmpBarsAndWaves: Preset = {
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
     const bars = Math.max(8, Math.min(96, cfg.bandCount || 24));
-    const levels = bandLevels(audio.freq, bars, 0.72, cfg);
+    const levels = bandLevels(audio.freq, bars, 0.72, cfg, audio);
     ensurePeakState(wmpPeaks, bars);
 
     const slot = w / bars;
