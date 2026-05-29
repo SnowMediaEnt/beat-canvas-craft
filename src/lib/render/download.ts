@@ -1,8 +1,9 @@
-function directDownload(href: string, filename?: string) {
+function directDownload(href: string, filename?: string, target?: "_blank") {
   const a = document.createElement("a");
   a.href = href;
   if (filename) a.download = filename;
-  a.rel = "noopener";
+  if (target) a.target = target;
+  a.rel = "noopener noreferrer";
   a.style.position = "fixed";
   a.style.left = "-9999px";
   a.style.top = "0";
@@ -11,25 +12,15 @@ function directDownload(href: string, filename?: string) {
   document.body.removeChild(a);
 }
 
-export function openPendingDownloadWindow() {
-  return window.open("", "_blank");
-}
-
-export function triggerDownload(
-  href: string,
-  filename?: string,
-  openInNewTab = false,
-  pendingWindow?: Window | null,
-) {
+export function triggerDownload(href: string, filename?: string, openInNewTab = false) {
   if (openInNewTab) {
-    if (pendingWindow && !pendingWindow.closed) {
-      pendingWindow.location.href = href;
-      return;
-    }
-
-    const opened = window.open(href, "_blank");
+    const opened = window.open(href, "_blank", "noopener,noreferrer");
     if (!opened) {
-      directDownload(href, filename);
+      try {
+        directDownload(href, filename, "_blank");
+      } catch {
+        window.location.assign(href);
+      }
     }
     return;
   }

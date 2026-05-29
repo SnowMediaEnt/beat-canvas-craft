@@ -33,7 +33,7 @@ import {
   uploadAssetForRender,
   uploadBlobForRender,
 } from "@/lib/render/upload";
-import { openPendingDownloadWindow, triggerDownload } from "@/lib/render/download";
+import { triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
@@ -89,7 +89,6 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     try {
       console.log("[render-download] download click", { url, filename, kind });
       const isRemote = /^https?:/i.test(url);
-      const pendingWindow = kind === "lambda" && isRemote ? openPendingDownloadWindow() : null;
       let nextUrl = url;
 
       if (kind === "lambda" && isRemote) {
@@ -102,7 +101,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         filename,
         kind,
       });
-      triggerDownload(nextUrl, filename, isRemote, pendingWindow);
+      triggerDownload(nextUrl, filename, isRemote);
     } catch (error) {
       console.error("[render-download] failed", { url, filename, kind, error });
       toast.error("Download failed. Please try again.");

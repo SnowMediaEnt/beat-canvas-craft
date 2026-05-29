@@ -27,7 +27,7 @@ import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
 import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
-import { openPendingDownloadWindow, triggerDownload } from "@/lib/render/download";
+import { triggerDownload } from "@/lib/render/download";
 
 interface Props {
   project: Project;
@@ -237,7 +237,6 @@ export function CompletedDialog({ project }: Props) {
 
       let href = storedHref;
       const isRemote = /^https?:/i.test(storedHref);
-      const pendingWindow = entry.kind === "lambda" && isRemote ? openPendingDownloadWindow() : null;
 
       if (entry.kind === "lambda" && isRemote) {
         href = await getFreshDownloadUrl({ data: { url: storedHref, filename } });
@@ -250,7 +249,7 @@ export function CompletedDialog({ project }: Props) {
         finalUrl: href,
         kind: entry.kind,
       });
-      triggerDownload(href, filename, isRemote, pendingWindow);
+      triggerDownload(href, filename, isRemote);
     } catch (error) {
       console.error("[render-download] failed", { entryId: entry.id, error });
       toast.error("Download failed. Please try again.");
