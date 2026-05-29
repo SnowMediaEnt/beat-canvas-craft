@@ -12,6 +12,7 @@ import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
+import { triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
