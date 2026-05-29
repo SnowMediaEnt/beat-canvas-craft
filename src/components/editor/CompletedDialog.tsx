@@ -11,6 +11,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
 import { toast } from "sonner";
+import { triggerDownload } from "@/lib/render/download";
 
 interface Props {
   project: Project;
@@ -196,26 +197,8 @@ export function CompletedDialog({ project }: Props) {
         return;
       }
 
-      // Cross-origin S3 URLs ignore the `download` attribute AND often have no
-      // CORS, so a direct fetch starts then aborts. Route remote URLs through
-      // our same-origin proxy which streams the file with attachment headers.
       const isRemote = /^https?:/i.test(href);
-      const downloadHref = isRemote
-        ? `/api/public/render-download?url=${encodeURIComponent(href)}&filename=${encodeURIComponent(filename)}`
-        : href;
-
-      if (isRemote) {
-        window.location.assign(downloadHref);
-        return;
-      }
-
-      const a = document.createElement("a");
-      a.href = downloadHref;
-      a.download = filename;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      await triggerDownload(href, filename, isRemote);
     } finally {
       setBusyId(null);
     }

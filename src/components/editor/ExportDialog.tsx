@@ -12,6 +12,7 @@ import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
+import { triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
@@ -57,23 +58,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const downloadFile = async (url: string, filename: string) => {
     console.log("[browser-record] download click", { url, filename });
     const isRemote = /^https?:/i.test(url);
-    const href = isRemote
-      ? `/api/public/render-download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`
-      : url;
-
-    if (isRemote) {
-      window.location.assign(href);
-      return;
-    }
-
-    const a = document.createElement("a");
-    a.href = href;
-    a.download = filename;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    console.log("[browser-record] download triggered", { href, filename });
+    await triggerDownload(url, filename, isRemote);
+    console.log("[browser-record] download triggered", { url, filename });
   };
 
   useEffect(() => () => {
