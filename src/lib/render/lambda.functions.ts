@@ -117,14 +117,23 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       // Heavy presets (SVG noodles, effects) can take >5s/frame; 60 frames
       // keeps worst-case worker time around ~5min with comfortable headroom.
       const FRAMES_PER_LAMBDA = 60;
+      const MAX_WORKERS = 200;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
       while (true) {
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const framesPerLambda = FRAMES_PER_LAMBDA;
+          // Remotion caps workers at 200. Scale chunk size up for long renders
+          // so we never exceed that ceiling. Round up to a multiple of the GOP
+          // (Remotion requires framesPerLambda be a multiple of the keyframe
+          // interval, which defaults to ~ fps/2). Using fps as the step is safe.
+          const step = Math.max(1, Math.round(data.fps));
+          const minForCap = Math.ceil(totalFrames / MAX_WORKERS);
+          const rawFramesPerLambda = Math.max(FRAMES_PER_LAMBDA, minForCap);
+          const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
           const actualWorkers = Math.ceil(totalFrames / framesPerLambda);
+
           console.log("[lambda-render-server] renderMediaOnLambda params", {
             framesPerLambda,
             totalFrames,
