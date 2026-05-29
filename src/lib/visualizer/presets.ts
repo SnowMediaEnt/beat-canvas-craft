@@ -273,7 +273,7 @@ const particleBurst: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const count = 60;
+    const count = Math.max(12, Math.min(360, (cfg.bandCount || 12) * 5));
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2;
       const dist = (50 + ((t * 40 + i * 9) % 300)) * (0.5 + audio.volume);
@@ -365,7 +365,7 @@ const ribbons: Preset = {
   id: "ribbons", name: "Wave Ribbons", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const layers = 5;
+    const layers = Math.max(2, Math.min(24, Math.round((cfg.bandCount || 5) / 2)));
     for (let l = 0; l < layers; l++) {
       ctx.strokeStyle = hexA(l % 2 ? cfg.primary : cfg.accent, 0.4 + l * 0.1);
       ctx.lineWidth = cfg.thickness * (0.5 + l * 0.2);
@@ -388,7 +388,7 @@ const tunnel: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const react = cfg.reactivity ?? 1;
-    const rings = 14;
+    const rings = Math.max(4, Math.min(48, Math.round((cfg.bandCount || 60) / 4)));
     const verts = Math.max(24, cfg.bandCount || 60);
     const levels = bandLevels(audio.freq, verts, 0.85, cfg);
     const speed = 0.5 + audio.bass * 1.4 * react;
@@ -542,7 +542,7 @@ const snowField: Preset = {
   id: "snow-field", name: "Snow Field", category: "Particles",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const count = 120;
+    const count = Math.max(20, Math.min(400, (cfg.bandCount || 12) * 10));
     for (let i = 0; i < count; i++) {
       const seed = i * 37.3;
       const x = ((seed * 91 + t * 30) % w + w) % w;
@@ -559,7 +559,8 @@ const lightWave: Preset = {
   id: "light-wave", name: "Cinematic Light Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    for (let l = 0; l < 3; l++) {
+    const layerCount = Math.max(2, Math.min(12, Math.round((cfg.bandCount || 3))));
+    for (let l = 0; l < layerCount; l++) {
       const grad = ctx.createLinearGradient(0, 0, w, 0);
       grad.addColorStop(0, "rgba(0,0,0,0)");
       grad.addColorStop(0.5, hexA(l === 0 ? cfg.primary : l === 1 ? cfg.accent : cfg.secondary, 0.6));
@@ -712,7 +713,7 @@ const lissajous: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const R = Math.min(d.w, d.h) * 0.32 * cfg.size;
-    const steps = 360;
+    const steps = Math.max(120, Math.min(2048, (cfg.bandCount || 12) * 12));
     const a = 3 + Math.floor(audio.bass * 3);
     const b = 2 + Math.floor(audio.mid * 4);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
@@ -763,7 +764,7 @@ const fluidFlow: Preset = {
   id: "fluid-flow", name: "Fluid Flow", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const lines = 18;
+    const lines = Math.max(6, Math.min(64, Math.round((cfg.bandCount || 18) * 1.5)));
     const step = 18;
 
     const react = cfg.reactivity ?? 1;
@@ -798,7 +799,7 @@ const auroraVeil: Preset = {
   id: "aurora-veil", name: "Aurora Veil", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const curtains = 6;
+    const curtains = Math.max(2, Math.min(32, Math.round((cfg.bandCount || 6) / 2)));
     const react = cfg.reactivity ?? 1;
     ctx.globalCompositeOperation = "lighter";
     for (let c = 0; c < curtains; c++) {
@@ -853,7 +854,7 @@ const murmuration: Preset = {
   id: "murmuration", name: "Murmuration", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const count = 140;
+    const count = Math.max(40, Math.min(400, (cfg.bandCount || 12) * 12));
     ensureMurmurationSeeds(count, w, h);
     const react = cfg.reactivity ?? 1;
     const kick = audio.beat ? 1.6 : 1;
@@ -884,7 +885,7 @@ const tidalBloom: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const react = cfg.reactivity ?? 1;
-    const ringCount = 18;
+    const ringCount = Math.max(4, Math.min(64, cfg.bandCount || 18));
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
     for (let i = 0; i < ringCount; i++) {
       const cycle = 2.2;
@@ -916,7 +917,7 @@ const silkStrands: Preset = {
   id: "silk-strands", name: "Silk Strands", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const strands = 22;
+    const strands = Math.max(4, Math.min(64, cfg.bandCount || 22));
     const react = cfg.reactivity ?? 1;
     const levels = bandLevels(audio.freq, strands, 0.8, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
