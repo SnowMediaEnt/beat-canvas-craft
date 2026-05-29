@@ -80,7 +80,9 @@ export interface LyricsConfig {
   shadow: boolean;
   glow: boolean;
   fade: boolean;
+  timingOffset?: number; // seconds; positive = show earlier, negative = show later
 }
+
 
 export interface EffectsConfig {
   particles: { enabled: boolean; type: "snow" | "dust" | "sparks" | "bokeh" | "lights"; density: number; speed: number; color: string; opacity: number; reactivity: number };
