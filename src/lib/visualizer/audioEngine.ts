@@ -9,6 +9,29 @@ export interface AudioData {
   beat: boolean;
   time: number;
   duration: number;
+  /** Sample rate of the source audio (Hz). Used to map FFT bins to real Hz
+   *  so every preset divides the audible 20 Hz – 20 kHz range identically. */
+  sampleRate: number;
+}
+
+// Audible range used by every visualizer for band division + bass/mid/treble
+// slicing. Mid/treble crossover points roughly match human perception of
+// kick/snare vs vocal vs cymbal/air.
+export const AUDIBLE_MIN_HZ = 20;
+export const AUDIBLE_MAX_HZ = 20000;
+export const BASS_MAX_HZ = 250;
+export const MID_MAX_HZ = 4000;
+
+/** Convert a frequency in Hz to a fractional FFT bin index. */
+export function hzToBin(hz: number, freqLen: number, sampleRate: number): number {
+  const fftSize = freqLen * 2; // AnalyserNode: frequencyBinCount = fftSize/2
+  return (hz * fftSize) / Math.max(1, sampleRate);
+}
+
+/** Convert an FFT bin index back to Hz. */
+export function binToHz(bin: number, freqLen: number, sampleRate: number): number {
+  const fftSize = freqLen * 2;
+  return (bin * sampleRate) / Math.max(1, fftSize);
 }
 
 export class AudioEngine {
