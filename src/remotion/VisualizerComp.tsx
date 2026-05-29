@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { AbsoluteFill, Audio, Loop, OffthreadVideo, continueRender, delayRender, useCurrentFrame, useVideoConfig } from "remotion";
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
-import type { AudioData } from "../lib/visualizer/audioEngine";
+import { type AudioData, AUDIBLE_MIN_HZ, AUDIBLE_MAX_HZ, BASS_MAX_HZ, MID_MAX_HZ } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
 import { drawForegroundLayers } from "../lib/visualizer/render-shared";
 
