@@ -282,8 +282,12 @@ export function drawForegroundLayers(args: {
     ctx.restore();
   }
 
-  drawEffects({ ctx, w: vw, h: vh, cfg, audio, t }, effects);
-  drawLyrics(ctx, vw, vh, lyrics, audio.time, cfg.glow);
-
-  ctx.restore();
+    drawEffects({ ctx, w: vw, h: vh, cfg, audio, t }, effects);
+    drawLyrics(ctx, vw, vh, lyrics, audio.time, cfg.glow);
+  } finally {
+    ctx.restore();
+    (proto as any).createLinearGradient = origLinear;
+    (proto as any).createRadialGradient = origRadial;
+  }
 }
+
