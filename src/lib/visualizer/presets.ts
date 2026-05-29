@@ -854,7 +854,7 @@ const murmuration: Preset = {
   id: "murmuration", name: "Murmuration", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const count = 140;
+    const count = Math.max(40, Math.min(400, (cfg.bandCount || 12) * 12));
     ensureMurmurationSeeds(count, w, h);
     const react = cfg.reactivity ?? 1;
     const kick = audio.beat ? 1.6 : 1;
