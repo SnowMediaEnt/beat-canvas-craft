@@ -606,7 +606,7 @@ const lightWave: Preset = {
       ctx.lineWidth = cfg.thickness * (3 - l) + audio.volume * 10;
       ctx.beginPath();
       for (let x = 0; x <= w; x += 5) {
-        const v = freqAt(audio.freq, Math.floor((x / w) * audio.freq.length * 0.3), cfg);
+        const v = freqAt(audio.freq, Math.floor((x / w) * audio.freq.length * 0.3), cfg, audio.sampleRate);
         const y = h / 2 + Math.sin(x * 0.005 + t * 1.5 + l) * (60 + v * 100) + (l - 1) * 30;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
@@ -809,7 +809,7 @@ const fluidFlow: Preset = {
     ctx.lineCap = "round";
     for (let l = 0; l < lines; l++) {
       const p = l / (lines - 1);
-      const band = freqAt(audio.freq, Math.floor(p * audio.freq.length * 0.55), cfg);
+      const band = freqAt(audio.freq, Math.floor(p * audio.freq.length * 0.55), cfg, audio.sampleRate);
       const amp = (30 + band * 220 + audio.volume * 40) * cfg.size * react;
       const baseY = h * (0.15 + p * 0.7);
       const tt = t * (0.35 + p * 0.4) + audio.bass * 0.6;
@@ -841,7 +841,7 @@ const auroraVeil: Preset = {
     ctx.globalCompositeOperation = "lighter";
     for (let c = 0; c < curtains; c++) {
       const p = c / (curtains - 1);
-      const band = freqAt(audio.freq, Math.floor((0.05 + p * 0.55) * audio.freq.length), cfg);
+      const band = freqAt(audio.freq, Math.floor((0.05 + p * 0.55) * audio.freq.length), cfg, audio.sampleRate);
       const phase = t * (0.6 + p * 0.5) + p * 1.7;
       const cx = w * (0.15 + p * 0.7) + Math.sin(phase) * 80 + audio.bass * 60 * (p - 0.5);
       const width = (90 + band * 220 + audio.bass * 80) * cfg.size * react;
@@ -905,7 +905,7 @@ const murmuration: Preset = {
       const radius = (40 + audio.volume * 160 + audio.bass * 90) * cfg.size * react * kick;
       const px = hx + Math.cos(ang) * radius;
       const py = hy + Math.sin(ang) * radius * 0.85;
-      const band = freqAt(audio.freq, (i * 3) % audio.freq.length, cfg);
+      const band = freqAt(audio.freq, (i * 3) % audio.freq.length, cfg, audio.sampleRate);
       const r = 1 + band * 4 + (audio.beat ? 1.5 : 0);
       const col = i % 3 === 0 ? cfg.primary : i % 3 === 1 ? cfg.accent : cfg.secondary;
       ctx.fillStyle = hexA(col, 0.4 + band * 0.6);
@@ -935,7 +935,7 @@ const tidalBloom: Preset = {
       const segs = 80;
       for (let s = 0; s <= segs; s++) {
         const a = (s / segs) * Math.PI * 2;
-        const band = freqAt(audio.freq, Math.floor(((s / segs) * 0.5) * audio.freq.length), cfg);
+        const band = freqAt(audio.freq, Math.floor(((s / segs) * 0.5) * audio.freq.length), cfg, audio.sampleRate);
         const wob = Math.sin(a * 6 + t * 2 + i) * (4 + audio.mid * 24) +
                     Math.sin(a * 14 - t * 3) * (audio.treble * 16);
         const rr = r + wob + band * 30 * fade;
