@@ -92,6 +92,9 @@ export function drawLyrics(
   glowColor: string,
 ) {
   if (!L.enabled || !L.lines.length) return;
+  // Positive offset = lyrics appear earlier (we pretend time has advanced more).
+  audioTime = audioTime + (L.timingOffset ?? 0);
+
 
   // Find current + next line for karaoke progress and fade timing.
   const sorted = [...L.lines].sort((a, b) => a.time - b.time);
