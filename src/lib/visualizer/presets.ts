@@ -365,7 +365,7 @@ const ribbons: Preset = {
   id: "ribbons", name: "Wave Ribbons", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const layers = 5;
+    const layers = Math.max(2, Math.min(24, Math.round((cfg.bandCount || 5) / 2)));
     for (let l = 0; l < layers; l++) {
       ctx.strokeStyle = hexA(l % 2 ? cfg.primary : cfg.accent, 0.4 + l * 0.1);
       ctx.lineWidth = cfg.thickness * (0.5 + l * 0.2);
