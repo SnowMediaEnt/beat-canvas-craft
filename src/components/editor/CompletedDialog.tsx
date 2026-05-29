@@ -56,6 +56,7 @@ export function CompletedDialog({ project }: Props) {
   const [cloudOnly, setCloudOnly] = useState<RenderJob[]>([]);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
   const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
@@ -216,6 +217,7 @@ export function CompletedDialog({ project }: Props) {
 
   const handleDownload = async (entry: RenderJob) => {
     setBusyId(entry.id);
+    setInlineError(null);
     try {
       const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
       const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
@@ -231,6 +233,7 @@ export function CompletedDialog({ project }: Props) {
           filename,
           kind: entry.kind,
         });
+        setInlineError("This file is not available yet.");
         toast.error("File is not available yet");
         return;
       }
@@ -252,6 +255,7 @@ export function CompletedDialog({ project }: Props) {
       triggerDownload(href, filename, isRemote);
     } catch (error) {
       console.error("[render-download] failed", { entryId: entry.id, error });
+      setInlineError("Download failed. Please try again.");
       toast.error("Download failed. Please try again.");
     } finally {
       setBusyId(null);
@@ -283,6 +287,12 @@ export function CompletedDialog({ project }: Props) {
             <CheckCircle2 className="size-4" /> Completed renders
           </DialogTitle>
         </DialogHeader>
+
+        {inlineError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {inlineError}
+          </div>
+        )}
 
         <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
           Finished AWS Lambda renders and browser recordings stay here so you can re-download them
