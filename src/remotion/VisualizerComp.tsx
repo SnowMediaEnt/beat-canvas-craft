@@ -152,6 +152,7 @@ function buildAudioData(
   duration: number,
   cfg: VisualizerConfig,
   state: AudioState,
+  sampleRate: number,
 ): AudioData {
   const freqLen = bins?.length ?? FFT_SAMPLES;
   const freq = new Uint8Array(new ArrayBuffer(freqLen)) as Uint8Array<ArrayBuffer>;
@@ -165,23 +166,25 @@ function buildAudioData(
   }
 
   if (waveSamples && waveSamples.length > 0) {
-    // Real time-domain waveform sampled from the audio file at this frame.
-    // Matches AnalyserNode.getByteTimeDomainData() in the live preview, so
-    // oscilloscope / horizontal-waveform presets draw an actual waveform
-    // instead of a synthetic FFT-harmonic sum.
     const srcLen = waveSamples.length;
     for (let i = 0; i < waveLen; i++) {
       const idx = Math.min(srcLen - 1, Math.max(0, (i / waveLen) * srcLen | 0));
-      const v = waveSamples[idx]; // -1..1
+      const v = waveSamples[idx];
       wave[i] = Math.max(0, Math.min(255, Math.round(128 + v * 127)));
     }
   } else {
     wave.fill(128);
   }
 
-
-  const sliceAvg = (lo: number, hi: number) => {
-    const a = Math.floor(lo * freqLen), b = Math.floor(hi * freqLen);
+  // Hz-based band slicing — identical to AudioEngine.read in the live
+  // preview. Maps real Hz boundaries through the file's sample rate so
+  // 20Hz–20kHz divides the same way regardless of FFT size or source.
+  const sr = sampleRate > 0 ? sampleRate : 48000;
+  const fftSize = freqLen * 2;
+  const hzToIdx = (hz: number) => (hz * fftSize) / sr;
+  const sliceAvgHz = (loHz: number, hiHz: number) => {
+    const a = Math.max(0, Math.min(freqLen - 1, Math.floor(hzToIdx(loHz))));
+    const b = Math.max(a + 1, Math.min(freqLen, Math.ceil(hzToIdx(hiHz))));
     let s = 0;
     for (let i = a; i < b; i++) s += freq[i];
     return (s / Math.max(1, b - a)) / 255;
@@ -192,9 +195,9 @@ function buildAudioData(
   const midMul = cfg.midSensitivity ?? 1;
   const trebMul = cfg.trebleSensitivity ?? 1;
 
-  const bass = Math.min(1, sliceAvg(0, 0.08) * bassMul * master);
-  const mid = Math.min(1, sliceAvg(0.08, 0.4) * midMul * master);
-  const treble = Math.min(1, sliceAvg(0.4, 1) * trebMul * master);
+  const bass = Math.min(1, sliceAvgHz(AUDIBLE_MIN_HZ, BASS_MAX_HZ) * bassMul * master);
+  const mid = Math.min(1, sliceAvgHz(BASS_MAX_HZ, MID_MAX_HZ) * midMul * master);
+  const treble = Math.min(1, sliceAvgHz(MID_MAX_HZ, AUDIBLE_MAX_HZ) * trebMul * master);
   let sum = 0;
   for (let i = 0; i < freqLen; i++) sum += freq[i];
   const volume = Math.min(1, (sum / freqLen / 255) * master);
@@ -207,7 +210,7 @@ function buildAudioData(
   }
   state.lastBass = bass;
 
-  return { freq, wave, bass, mid, treble, volume, beat, time, duration };
+  return { freq, wave, bass, mid, treble, volume, beat, time, duration, sampleRate: sr };
 }
 
 export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
