@@ -476,36 +476,61 @@ const bottomWave: Preset = {
   },
 };
 
-// 17. Ambient pulse — uses primary + accent, honors size + bass sensitivity.
+// 17. Ambient pulse — full-frame radial glow that breathes with bass + beat.
 const ambient: Preset = {
   id: "ambient-pulse", name: "Ambient Pulse", category: "Ambient",
   draw: (d) => {
-    const { ctx, w, h, cfg, audio } = d;
+    const { ctx, w, h, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const radius = Math.max(w, h) * cfg.size;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-    const intensity = 0.25 + audio.volume * 0.55 + audio.bass * 0.25;
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 0.35 : 0;
+    const pulse = 0.7 + (audio.bass * 0.6 + audio.volume * 0.3 + beatKick) * react;
+    const radius = Math.max(w, h) * cfg.size * pulse;
+    const ox = Math.sin(t * 0.6) * audio.mid * 100 * react;
+    const oy = Math.cos(t * 0.45) * audio.mid * 80 * react;
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, radius);
+    const intensity = 0.3 + (audio.volume * 0.8 + audio.bass * 0.5 + beatKick) * react;
     g.addColorStop(0, hexA(cfg.primary, Math.min(1, intensity)));
-    g.addColorStop(0.45, hexA(cfg.accent, Math.min(1, intensity * 0.55)));
+    g.addColorStop(0.4, hexA(cfg.accent, Math.min(1, intensity * 0.65)));
+    g.addColorStop(0.75, hexA(cfg.secondary, Math.min(1, intensity * 0.3)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
   },
 };
 
-// 18. Floating orb
+// 18. Floating orb — wide drifting motion, scale + glow surge with the music.
 const floatingOrb: Preset = {
   id: "floating-orb", name: "Floating Orb", category: "Ambient",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const x = cx + Math.sin(t * 0.7) * 80;
-    const y = cy + Math.cos(t * 0.5) * 50;
-    const r = 80 * cfg.size + audio.bass * 60;
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 50 : 0;
+    // Drift amplitude scales with mids + treble — orb wanders across the frame.
+    const driftX = Math.min(d.w, d.h) * 0.32 * (0.4 + audio.mid * 1.2 * react);
+    const driftY = Math.min(d.w, d.h) * 0.22 * (0.4 + audio.treble * 1.2 * react);
+    const x = cx + Math.sin(t * 1.1 + audio.volume * 2) * driftX
+      + Math.sin(t * 2.7) * audio.treble * 40 * react;
+    const y = cy + Math.cos(t * 0.85 + audio.bass * 2) * driftY
+      + Math.cos(t * 3.1) * audio.treble * 30 * react;
+    const r = (80 * cfg.size) + (audio.bass * 220 + audio.volume * 80 + beatKick) * react;
+
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 1.2));
+    // Trailing echo orb for motion smear.
+    const tx = cx + Math.sin(t * 1.1 - 0.4 + audio.volume * 2) * driftX;
+    const ty = cy + Math.cos(t * 0.85 - 0.4 + audio.bass * 2) * driftY;
+    const tg = ctx.createRadialGradient(tx, ty, 0, tx, ty, r * 1.1);
+    tg.addColorStop(0, hexA(cfg.accent, 0.35));
+    tg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = tg; ctx.beginPath(); ctx.arc(tx, ty, r * 1.1, 0, Math.PI * 2); ctx.fill();
+
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, hexA(cfg.primary, 0.9));
-    g.addColorStop(0.4, hexA(cfg.accent, 0.5));
+    g.addColorStop(0, hexA(cfg.primary, 0.95));
+    g.addColorStop(0.35, hexA(cfg.accent, 0.6));
+    g.addColorStop(0.75, hexA(cfg.secondary, 0.25));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowBlur = 0;
   },
 };
 
