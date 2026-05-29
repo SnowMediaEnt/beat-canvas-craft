@@ -431,8 +431,7 @@ const ribbons: Preset = {
       ctx.lineWidth = cfg.thickness * (0.5 + l * 0.2);
       ctx.beginPath();
       for (let x = 0; x <= w; x += 6) {
-        const i = Math.floor((x / w) * audio.freq.length * 0.5);
-        const v = freqAt(audio.freq, i, cfg, audio.sampleRate);
+        const v = freqAtPos(audio, x / w, cfg);
         const y = h / 2 + Math.sin(x * 0.01 + t * (1 + l * 0.3)) * (40 + v * 80) * cfg.size + (l - layers / 2) * 18;
         x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
