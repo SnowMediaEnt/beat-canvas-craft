@@ -11,9 +11,23 @@ function directDownload(href: string, filename?: string) {
   document.body.removeChild(a);
 }
 
-export function triggerDownload(href: string, filename?: string, openInNewTab = false) {
+export function openPendingDownloadWindow() {
+  return window.open("", "_blank");
+}
+
+export function triggerDownload(
+  href: string,
+  filename?: string,
+  openInNewTab = false,
+  pendingWindow?: Window | null,
+) {
   if (openInNewTab) {
-    const opened = window.open(href, "_blank", "noopener,noreferrer");
+    if (pendingWindow && !pendingWindow.closed) {
+      pendingWindow.location.href = href;
+      return;
+    }
+
+    const opened = window.open(href, "_blank");
     if (!opened) {
       directDownload(href, filename);
     }
