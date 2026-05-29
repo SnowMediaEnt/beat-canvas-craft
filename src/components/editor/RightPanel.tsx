@@ -488,7 +488,7 @@ export function RightPanel({ project, update }: Props) {
               label="Density"
               value={E.particles.density}
               min={0}
-              max={200}
+              max={120}
               step={1}
               onChange={(v) =>
                 update((p) => ({
@@ -498,6 +498,7 @@ export function RightPanel({ project, update }: Props) {
               }
               format={(n) => n.toFixed(0)}
             />
+
             <SliderField
               label="Speed"
               value={E.particles.speed}

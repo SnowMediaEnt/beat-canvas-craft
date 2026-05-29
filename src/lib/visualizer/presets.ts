@@ -448,7 +448,7 @@ const bottomWave: Preset = {
   id: "bottom-wave", name: "Minimal Bottom Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const bars = Math.max(8, (cfg.bandCount || 12) * 4);
+    const bars = Math.min(384, Math.max(8, (cfg.bandCount || 12) * 4));
     const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     const baseY = h - 60 + cfg.position.y * h * 0.2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
@@ -582,7 +582,7 @@ const rollingWave: Preset = {
   id: "rolling-wave", name: "Rolling Wave Bars", category: "Unconventional",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const bars = Math.max(8, cfg.bandCount || 12) * 4;
+    const bars = Math.min(384, Math.max(8, cfg.bandCount || 12) * 4);
     const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     const baseY = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
@@ -613,7 +613,7 @@ const spiralBars: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const bars = Math.max(40, (cfg.bandCount || 12) * 8);
+    const bars = Math.min(512, Math.max(40, (cfg.bandCount || 12) * 8));
     const levels = bandLevels(audio.freq, bars, 0.85, cfg);
     const turns = 4;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
@@ -674,7 +674,7 @@ const leafBorder: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const leaves = Math.max(12, (cfg.bandCount || 12) * 2);
+    const leaves = Math.min(256, Math.max(12, (cfg.bandCount || 12) * 2));
     const levels = bandLevels(audio.freq, leaves, 0.7, cfg);
     const baseR = Math.min(d.w, d.h) * (0.18 + cfg.logoSize * 0.3) * cfg.size;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
