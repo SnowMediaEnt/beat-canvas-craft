@@ -582,7 +582,7 @@ const rollingWave: Preset = {
   id: "rolling-wave", name: "Rolling Wave Bars", category: "Unconventional",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const bars = Math.max(8, cfg.bandCount || 12) * 4;
+    const bars = Math.min(384, Math.max(8, cfg.bandCount || 12) * 4);
     const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     const baseY = h / 2 + cfg.position.y * h / 2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
