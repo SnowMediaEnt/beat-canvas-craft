@@ -699,6 +699,16 @@ export function RightPanel({ project, update }: Props) {
               value={L.fade}
               onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, fade: v } }))}
             />
+            <SliderField
+              label="Timing offset"
+              value={L.timingOffset ?? 0}
+              min={-5}
+              max={5}
+              step={0.05}
+              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, timingOffset: v } }))}
+              format={(n) => `${n > 0 ? "+" : ""}${n.toFixed(2)}s`}
+            />
+
           </Section>
         </TabPanel>
       </Tabs>
