@@ -72,19 +72,20 @@ export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: Visu
 }
 
 
-// 1. Circular spectrum
+// 1. Circular spectrum — log-spaced N-band equalizer wrapped in a ring.
 const circular: Preset = {
   id: "circular-spectrum", name: "Circular Spectrum", category: "Circular",
   draw: ({ ctx, w, h, cfg, audio }) => {
     const { cx, cy } = center({ ctx, w, h, cfg, audio, t: 0 } as DrawContext);
-    const radius = Math.min(w, h) * 0.22 * cfg.size;
-    const bars = 96;
-    const freq = audio.freq;
+    const react = cfg.reactivity ?? 1;
+    const radius = Math.min(w, h) * 0.22 * cfg.size * (1 + audio.bass * 0.25 * react);
+    const bars = Math.max(8, cfg.bandCount || 96);
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity);
     ctx.lineWidth = cfg.thickness;
     for (let i = 0; i < bars; i++) {
-      const v = freqAt(freq, Math.floor((i / bars) * freq.length * 0.6), cfg);
-      const len = v * 120 * cfg.size + 4;
+      const v = levels[i];
+      const len = (8 + v * 220 * react) * cfg.size;
       const a = (i / bars) * Math.PI * 2 + cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
       const y1 = cy + Math.sin(a) * radius;
@@ -100,21 +101,23 @@ const circular: Preset = {
   },
 };
 
-// 2. Double circular
+// 2. Double circular — inner + outer rings, each a full N-band EQ.
 const doubleCircular: Preset = {
   id: "double-circular", name: "Double Circular", category: "Circular",
   draw: (d) => {
     circular.draw(d);
     const { ctx, w, h, cfg, audio } = d;
     const { cx, cy } = center(d);
-    const radius = Math.min(w, h) * 0.34 * cfg.size;
-    const bars = 64;
+    const react = cfg.reactivity ?? 1;
+    const radius = Math.min(w, h) * 0.34 * cfg.size * (1 + audio.bass * 0.2 * react);
+    const bars = Math.max(8, cfg.bandCount || 64);
+    const levels = bandLevels(audio.freq, bars, 0.8, cfg);
     setGlow(ctx, cfg.secondary, cfg.glowIntensity * 0.8);
     ctx.lineWidth = cfg.thickness * 0.7;
     ctx.strokeStyle = cfg.secondary;
     for (let i = 0; i < bars; i++) {
-      const v = freqAt(audio.freq, Math.floor((i / bars) * audio.freq.length * 0.5), cfg);
-      const len = v * 80 * cfg.size + 2;
+      const v = levels[i];
+      const len = (4 + v * 160 * react) * cfg.size;
       const a = -(i / bars) * Math.PI * 2 - cfg.rotation;
       const x1 = cx + Math.cos(a) * radius;
       const y1 = cy + Math.sin(a) * radius;
@@ -126,21 +129,26 @@ const doubleCircular: Preset = {
   },
 };
 
-// 3. Pulsing ring
+// 3. Pulsing ring — heavy bass-driven breathing + beat kick.
 const pulsingRing: Preset = {
   id: "pulsing-ring", name: "Pulsing Ring", category: "Circular",
   draw: (d) => {
-    const { ctx, cfg, audio } = d;
+    const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
+    const react = cfg.reactivity ?? 1;
     const base = Math.min(d.w, d.h) * 0.22 * cfg.size;
-    const r = base + audio.bass * 80 * cfg.size;
-    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass));
-    ctx.lineWidth = cfg.thickness + audio.volume * 8;
+    const beatKick = audio.beat ? 40 : 0;
+    const r = base + (audio.bass * 200 + audio.volume * 60 + beatKick) * react * cfg.size;
+    const wob = Math.sin(t * 4) * audio.mid * 18 * react;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 1.5));
+    ctx.lineWidth = cfg.thickness + audio.volume * 18 * react;
     ctx.strokeStyle = cfg.primary;
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r + wob, 0, Math.PI * 2); ctx.stroke();
     ctx.lineWidth = cfg.thickness * 0.5;
     ctx.strokeStyle = hexA(cfg.accent, 0.6);
-    ctx.beginPath(); ctx.arc(cx, cy, r * 1.2 + audio.mid * 30, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.25 + audio.mid * 90 * react, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = hexA(cfg.secondary, 0.4);
+    ctx.beginPath(); ctx.arc(cx, cy, r * 1.55 + audio.treble * 70 * react, 0, Math.PI * 2); ctx.stroke();
     ctx.shadowBlur = 0;
   },
 };
