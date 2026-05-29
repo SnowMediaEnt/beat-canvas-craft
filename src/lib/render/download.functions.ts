@@ -73,8 +73,13 @@ export const getFreshRenderDownloadUrl = createServerFn({ method: "POST" })
     }
 
     const { bucketName, objectKey, region } = parseS3Target(data.url);
-    const signedTarget = new URL(`https://s3.${region}.amazonaws.com/${bucketName}/${encodeObjectKey(objectKey)}`);
-    signedTarget.searchParams.set("response-content-disposition", `attachment; filename=\"${sanitizeFilename(data.filename)}\"`);
+    const signedTarget = new URL(
+      `https://s3.${region}.amazonaws.com/${bucketName}/${encodeObjectKey(objectKey)}`,
+    );
+    signedTarget.searchParams.set(
+      "response-content-disposition",
+      `attachment; filename=\"${sanitizeFilename(data.filename)}\"`,
+    );
 
     const client = new AwsClient({
       accessKeyId,
