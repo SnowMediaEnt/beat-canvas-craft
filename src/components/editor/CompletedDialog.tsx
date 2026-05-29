@@ -10,6 +10,7 @@ import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/as
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
+import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
 import { triggerDownload } from "@/lib/render/download";
 
@@ -42,6 +43,7 @@ export function CompletedDialog({ project }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
+  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
   const pollingRef = useRef<Set<string>>(new Set());
 
   const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
@@ -187,17 +189,30 @@ export function CompletedDialog({ project }: Props) {
       const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
       const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
       const hydratedLocalUrl = entry.localAsset?.url || null;
-      // Lambda renders only have a remote downloadUrl; browser recordings prefer local.
-      const href = entry.kind === "lambda"
+      const storedHref = entry.kind === "lambda"
         ? (entry.downloadUrl || hydratedLocalUrl)
         : (hydratedLocalUrl || entry.downloadUrl || await getAssetDownloadUrl(entry.localAsset));
 
-      if (!href) {
+      if (!storedHref) {
+        console.log("[render-download] missing url", { entryId: entry.id, filename, kind: entry.kind });
         toast.error("File is not available yet");
         return;
       }
 
-      const isRemote = /^https?:/i.test(href);
+      let href = storedHref;
+      const isRemote = /^https?:/i.test(storedHref);
+
+      if (entry.kind === "lambda" && isRemote) {
+        href = await getFreshDownloadUrl({ data: { url: storedHref, filename } });
+      }
+
+      console.log("[render-download] trigger", {
+        entryId: entry.id,
+        filename,
+        storedUrl: storedHref,
+        finalUrl: href,
+        kind: entry.kind,
+      });
       triggerDownload(href, filename, isRemote);
     } finally {
       setBusyId(null);
