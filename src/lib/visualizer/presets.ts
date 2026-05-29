@@ -1,4 +1,5 @@
 import type { AudioData } from "./audioEngine";
+import { AUDIBLE_MIN_HZ, AUDIBLE_MAX_HZ, BASS_MAX_HZ, MID_MAX_HZ, hzToBin, binToHz } from "./audioEngine";
 import type { VisualizerConfig } from "../project/types";
 
 export interface DrawContext {
