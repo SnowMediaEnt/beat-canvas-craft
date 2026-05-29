@@ -8,8 +8,9 @@ function directDownload(href: string, filename: string) {
   a.href = href;
   a.download = filename;
   a.rel = "noopener";
-  a.target = "_blank";
-  a.style.display = "none";
+  a.style.position = "fixed";
+  a.style.left = "-9999px";
+  a.style.top = "0";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -29,5 +30,16 @@ function getProxyDownloadUrl(remoteUrl: string, filename: string) {
 }
 
 export function triggerDownload(href: string, filename: string, isRemote: boolean) {
-  directDownload(isRemote ? getProxyDownloadUrl(href, filename) : href, filename);
+  const target = isRemote ? getProxyDownloadUrl(href, filename) : href;
+
+  // In the preview iframe, popup-like downloads (target=_blank or synthetic new
+  // browsing contexts) are often swallowed. A same-tab navigation to our
+  // attachment proxy is much more reliable and still keeps the app in place
+  // because the response is Content-Disposition: attachment.
+  if (isRemote) {
+    window.location.assign(target);
+    return;
+  }
+
+  directDownload(target, filename);
 }
