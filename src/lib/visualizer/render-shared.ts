@@ -236,10 +236,34 @@ export function drawForegroundLayers(args: {
   const vw = w / scale;
   const vh = h / scale;
 
+  // ────────────────────────────────────────────────────────────────
+  // Defensive gradient wrappers — Canvas throws a hard error if any
+  // coordinate is NaN/Infinity. Any preset math can produce a stray
+  // non-finite value on a quiet frame (zero levels, zero size, etc.)
+  // and that single NaN aborts the entire Lambda render. We patch the
+  // two factory methods for the duration of this draw call to swap
+  // bad inputs for finite fallbacks instead of throwing.
+  // ────────────────────────────────────────────────────────────────
+  const proto = Object.getPrototypeOf(ctx) as CanvasRenderingContext2D;
+  const origLinear = proto.createLinearGradient;
+  const origRadial = proto.createRadialGradient;
+  const safe = (n: unknown, fallback = 0) =>
+    typeof n === "number" && Number.isFinite(n) ? n : fallback;
+  (proto as any).createLinearGradient = function (x0: number, y0: number, x1: number, y1: number) {
+    return origLinear.call(this, safe(x0), safe(y0), safe(x1, 1), safe(y1));
+  };
+  (proto as any).createRadialGradient = function (x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) {
+    const sr0 = Math.max(0, safe(r0));
+    const sr1 = Math.max(sr0 + 0.0001, safe(r1, 1));
+    return origRadial.call(this, safe(x0), safe(y0), sr0, safe(x1), safe(y1), sr1);
+  };
+
   ctx.save();
   ctx.scale(scale, scale);
 
-  drawVisualizerLayer({ ctx, w: vw, h: vh, cfg, audio, t, logo: logo ?? undefined });
+  try {
+    drawVisualizerLayer({ ctx, w: vw, h: vh, cfg, audio, t, logo: logo ?? undefined });
+
 
   if (logo) {
     // logoPulse  → bass-reactive scale (reacts to music)
