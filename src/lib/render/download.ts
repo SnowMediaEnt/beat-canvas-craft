@@ -18,15 +18,22 @@ function getProxyDownloadUrl(remoteUrl: string, filename: string) {
   return `/api/public/render-download?url=${encodeURIComponent(remoteUrl)}&filename=${encodeURIComponent(filename)}`;
 }
 
+function downloadViaHiddenFrame(href: string) {
+  const frame = document.createElement("iframe");
+  frame.style.display = "none";
+  frame.setAttribute("aria-hidden", "true");
+  frame.src = href;
+  document.body.appendChild(frame);
+  window.setTimeout(() => {
+    frame.remove();
+  }, 60_000);
+}
+
 export function triggerDownload(href: string, filename: string, isRemote: boolean) {
   if (!isRemote) {
     directDownload(href, filename);
     return;
   }
 
-  const proxyUrl = getProxyDownloadUrl(href, filename);
-  const popup = window.open(proxyUrl, "_blank", "noopener,noreferrer");
-  if (!popup) {
-    window.location.assign(proxyUrl);
-  }
+  downloadViaHiddenFrame(getProxyDownloadUrl(href, filename));
 }
