@@ -613,7 +613,7 @@ const spiralBars: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const bars = Math.max(40, (cfg.bandCount || 12) * 8);
+    const bars = Math.min(512, Math.max(40, (cfg.bandCount || 12) * 8));
     const levels = bandLevels(audio.freq, bars, 0.85, cfg);
     const turns = 4;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
