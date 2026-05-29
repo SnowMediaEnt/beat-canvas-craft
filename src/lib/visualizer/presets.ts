@@ -47,41 +47,63 @@ const center = (d: DrawContext) => ({
 });
 
 /**
- * Compute log-spaced averaged band levels (0..1) — gives a clean, accurate
- * equalizer instead of raw, noisy FFT bins. Default 12 bands covers sub-bass
- * through presence; `upper` clips the very top end where most music is silent.
+ * Sensitivity multiplier for a band, chosen by its REAL Hz frequency.
+ * Crossover points match the live audio engine (bass < 250Hz,
+ * mid 250–4000Hz, treble > 4000Hz) so the bassSensitivity / midSensitivity /
+ * trebleSensitivity sliders affect the exact same chunk of the spectrum
+ * inside every preset — built-in or AI-generated.
  */
-function bandMulFor(frac: number, cfg?: VisualizerConfig): number {
+function bandMulForHz(hz: number, cfg?: VisualizerConfig): number {
   const master = cfg?.sensitivity ?? 1;
   const bassMul = cfg?.bassSensitivity ?? 1;
   const midMul = cfg?.midSensitivity ?? 1;
   const trebMul = cfg?.trebleSensitivity ?? 1;
-  const band = frac < 0.25 ? bassMul : frac < 0.6 ? midMul : trebMul;
+  const band = hz < BASS_MAX_HZ ? bassMul : hz < MID_MAX_HZ ? midMul : trebMul;
   return master * band;
 }
 
-/** Sample a frequency bin (0..1) scaled by sensitivity config. */
-function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig): number {
+/** Sample a frequency bin (0..1) scaled by Hz-based sensitivity config. */
+function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig, sampleRate = 48000): number {
   if (!freq.length) return 0;
   const i = Math.max(0, Math.min(freq.length - 1, idx | 0));
-  return (safeArrayValue(freq, i) / 255) * bandMulFor(i / freq.length, cfg);
+  const hz = binToHz(i, freq.length, sampleRate);
+  return (safeArrayValue(freq, i) / 255) * bandMulForHz(hz, cfg);
 }
 
-export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
+/**
+ * Compute log-spaced band levels across the audible range (20 Hz – 20 kHz).
+ * Every band covers an equal slice of log-Hz, so a 12-band equalizer always
+ * shows sub-bass → bass → low-mid → mid → high-mid → presence → brilliance
+ * proportions, no matter the FFT size or sample rate.
+ *
+ * `upper` clips the top of the audible range — pass 1.0 for full 20 kHz,
+ * 0.7 for ~14 kHz (most music has little useful energy above that). The
+ * `cfg` carries the per-band sensitivity sliders so they all affect the
+ * same Hz region inside every preset.
+ */
+export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig, audio?: AudioData): number[] {
   const safeCount = Math.max(1, finite(count, 12) | 0);
   const out = new Array(safeCount).fill(0);
   if (!freq.length) return out;
-  const lo = 2;
+  const sampleRate = audio?.sampleRate && audio.sampleRate > 0 ? audio.sampleRate : 48000;
+  const nyquist = sampleRate / 2;
   const clampedUpper = Math.max(0.05, Math.min(1, finite(upper, 0.7)));
-  const hi = Math.max(lo + safeCount, Math.floor(freq.length * clampedUpper));
-  const logLo = Math.log(lo), logHi = Math.log(hi);
+  const minHz = AUDIBLE_MIN_HZ;
+  const maxHz = Math.min(nyquist, AUDIBLE_MAX_HZ * clampedUpper);
+  const logLo = Math.log(minHz);
+  const logHi = Math.log(Math.max(minHz * 1.01, maxHz));
   for (let i = 0; i < safeCount; i++) {
-    const a = Math.floor(Math.exp(logLo + (i / safeCount) * (logHi - logLo)));
-    const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / safeCount) * (logHi - logLo))));
+    const hzA = Math.exp(logLo + (i / safeCount) * (logHi - logLo));
+    const hzB = Math.exp(logLo + ((i + 1) / safeCount) * (logHi - logLo));
+    const a = Math.max(0, Math.min(freq.length - 1, Math.floor(hzToBin(hzA, freq.length, sampleRate))));
+    const b = Math.max(a + 1, Math.min(freq.length, Math.ceil(hzToBin(hzB, freq.length, sampleRate))));
     let s = 0;
     for (let k = a; k < b; k++) s += safeArrayValue(freq, k);
+    // Gentle high-end tilt — high frequencies are perceptually quieter,
+    // so we boost them a touch to keep the equalizer visually balanced.
     const tilt = 1 + (i / safeCount) * 0.6;
-    out[i] = Math.max(0, finite(((s / Math.max(1, b - a)) / 255) * tilt * bandMulFor(i / safeCount, cfg), 0));
+    const centerHz = Math.sqrt(hzA * hzB);
+    out[i] = Math.max(0, finite(((s / Math.max(1, b - a)) / 255) * tilt * bandMulForHz(centerHz, cfg), 0));
   }
   return out;
 }
