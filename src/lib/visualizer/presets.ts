@@ -1152,6 +1152,134 @@ const noodleEqualizer: Preset = {
   },
 };
 
+// --- Classic media-player visualizers ---------------------------------------
+// Peak-hold state shared across frames. Keyed by bar count so changing
+// bandCount resets cleanly.
+const itunesPeaks: { count: number; peaks: number[]; vel: number[] } = { count: 0, peaks: [], vel: [] };
+const wmpPeaks: { count: number; peaks: number[]; vel: number[] } = { count: 0, peaks: [], vel: [] };
+
+function ensurePeakState(state: { count: number; peaks: number[]; vel: number[] }, n: number) {
+  if (state.count !== n) {
+    state.count = n;
+    state.peaks = new Array(n).fill(0);
+    state.vel = new Array(n).fill(0);
+  }
+}
+
+// iTunes-style EQ — chunky stacked-block bars with falling peak caps,
+// like the classic iTunes mini-window equalizer.
+const itunesClassic: Preset = {
+  id: "itunes-classic", name: "iTunes Classic EQ", category: "Bars",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const bars = Math.max(4, Math.min(64, cfg.bandCount || 16));
+    const levels = bandLevels(audio.freq, bars, 0.75, cfg);
+    ensurePeakState(itunesPeaks, bars);
+
+    const slot = w / bars;
+    const bw = slot * 0.78;
+    const baseY = h * 0.95 + cfg.position.y * h * 0.05;
+    const maxH = h * 0.78 * cfg.size;
+    const blockH = Math.max(4, h * 0.022);
+    const gap = Math.max(1, blockH * 0.25);
+    const unit = blockH + gap;
+    const totalBlocks = Math.max(1, Math.floor(maxH / unit));
+
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
+
+    for (let i = 0; i < bars; i++) {
+      const v = Math.min(1, levels[i]);
+      const bh = v * maxH;
+
+      if (bh > itunesPeaks.peaks[i]) {
+        itunesPeaks.peaks[i] = bh;
+        itunesPeaks.vel[i] = 0;
+      } else {
+        itunesPeaks.vel[i] += 0.6;
+        itunesPeaks.peaks[i] = Math.max(0, itunesPeaks.peaks[i] - itunesPeaks.vel[i]);
+      }
+
+      const x = i * slot + (slot - bw) / 2;
+      const blocks = Math.floor(bh / unit);
+      for (let b = 0; b < blocks; b++) {
+        const y = baseY - (b + 1) * unit;
+        const p = b / totalBlocks;
+        const color = p < 0.55 ? cfg.primary : p < 0.8 ? cfg.accent : cfg.secondary;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, bw, blockH);
+      }
+
+      const peakY = baseY - itunesPeaks.peaks[i];
+      ctx.fillStyle = cfg.secondary;
+      ctx.fillRect(x, peakY - blockH, bw, blockH);
+    }
+    ctx.shadowBlur = 0;
+  },
+};
+
+// Windows Media Player "Bars and Waves" — neon vertical bars with falling
+// peak caps and a glowing oscilloscope wave layered on top.
+const wmpBarsAndWaves: Preset = {
+  id: "wmp-bars-waves", name: "WMP Bars & Waves", category: "Bars",
+  draw: (d) => {
+    const { ctx, w, h, cfg, audio } = d;
+    const bars = Math.max(8, Math.min(96, cfg.bandCount || 24));
+    const levels = bandLevels(audio.freq, bars, 0.72, cfg);
+    ensurePeakState(wmpPeaks, bars);
+
+    const slot = w / bars;
+    const bw = slot * 0.82;
+    const baseY = h * 0.92 + cfg.position.y * h * 0.05;
+    const maxH = h * 0.72 * cfg.size;
+
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
+
+    for (let i = 0; i < bars; i++) {
+      const v = Math.min(1, levels[i]);
+      const bh = v * maxH;
+
+      if (bh > wmpPeaks.peaks[i]) {
+        wmpPeaks.peaks[i] = bh;
+        wmpPeaks.vel[i] = 0;
+      } else {
+        wmpPeaks.vel[i] += 0.5;
+        wmpPeaks.peaks[i] = Math.max(0, wmpPeaks.peaks[i] - wmpPeaks.vel[i]);
+      }
+
+      const x = i * slot + (slot - bw) / 2;
+      const top = baseY - bh;
+      const g = ctx.createLinearGradient(0, baseY, 0, baseY - maxH);
+      g.addColorStop(0, cfg.primary);
+      g.addColorStop(0.5, cfg.accent);
+      g.addColorStop(1, cfg.secondary);
+      ctx.fillStyle = g;
+      ctx.fillRect(x, top, bw, bh);
+
+      const peakY = baseY - wmpPeaks.peaks[i];
+      ctx.fillStyle = cfg.secondary;
+      ctx.fillRect(x, peakY - 3, bw, 3);
+    }
+
+    // Oscilloscope wave layered over the bars (the "Waves" half)
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = hexA(cfg.accent, 0.9);
+    ctx.lineWidth = Math.max(1.5, cfg.thickness * 0.6);
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    const wave = audio.wave;
+    const midY = h / 2 + cfg.position.y * h / 2;
+    const amp = h * 0.18 * cfg.size;
+    for (let x = 0; x <= w; x += 4) {
+      const idx = Math.floor((x / w) * wave.length);
+      const s = (wave[idx] - 128) / 128;
+      const y = midY + s * amp;
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.lineCap = "butt";
+  },
+};
+
 export const PRESETS: Preset[] = [
   circular, doubleCircular, pulsingRing, bassGlow, waveform, eqBars, mirroredBars,
   radialBars, particleBurst, liquidBlob, oscilloscope, ribbons, tunnel, diamond,
@@ -1159,6 +1287,8 @@ export const PRESETS: Preset[] = [
   rollingWave, spiralBars, fractalTree, leafBorder, lissajous,
   // Organic motion — natural flow, layered movement across the spectrum
   fluidFlow, auroraVeil, murmuration, tidalBloom, silkStrands, noodleEqualizer,
+  // Classic media-player throwbacks
+  itunesClassic, wmpBarsAndWaves,
   // User-tunable preset (Custom Builder + AI Generator write to cfg.custom)
   customEqualizer,
 ];
