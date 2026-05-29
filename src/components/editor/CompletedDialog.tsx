@@ -186,11 +186,11 @@ export function CompletedDialog({ project }: Props) {
     try {
       const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
       const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
-      const localUrl = await getAssetDownloadUrl(entry.localAsset);
+      const hydratedLocalUrl = entry.localAsset?.url || null;
       // Lambda renders only have a remote downloadUrl; browser recordings prefer local.
       const href = entry.kind === "lambda"
-        ? (entry.downloadUrl || localUrl)
-        : (localUrl || entry.downloadUrl);
+        ? (entry.downloadUrl || hydratedLocalUrl)
+        : (hydratedLocalUrl || entry.downloadUrl || await getAssetDownloadUrl(entry.localAsset));
 
       if (!href) {
         toast.error("File is not available yet");
@@ -198,7 +198,7 @@ export function CompletedDialog({ project }: Props) {
       }
 
       const isRemote = /^https?:/i.test(href);
-      await triggerDownload(href, filename, isRemote);
+      triggerDownload(href, filename, isRemote);
     } finally {
       setBusyId(null);
     }
