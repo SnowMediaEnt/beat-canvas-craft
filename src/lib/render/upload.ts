@@ -47,7 +47,22 @@ export async function uploadBlobForRender({
   // (notably Safari) fail with a generic "Load failed" when streaming a
   // Blob pulled from IndexedDB directly through fetch — reading it into
   // memory first avoids the streaming path and makes the upload reliable.
-  const body = await blob.arrayBuffer();
+  let body: ArrayBuffer;
+  try {
+    body = await blob.arrayBuffer();
+  } catch (err) {
+    // IndexedDB stores File/Blob objects "by reference" to an internal
+    // file handle. If the user moved/renamed/deleted the source file, or
+    // the browser evicted the backing store, reading throws
+    // NotFoundError ("The object can not be found here.").
+    const name = err instanceof Error ? err.name : "";
+    if (name === "NotFoundError" || name === "NotReadableError") {
+      throw new Error(
+        `"${fileName}" can't be read from your browser anymore. Please re-upload it in the editor and try again.`,
+      );
+    }
+    throw err;
+  }
 
   const res = await fetch(UPLOAD_ENDPOINT, {
     method: "POST",
@@ -59,6 +74,7 @@ export async function uploadBlobForRender({
     },
     body,
   });
+
 
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
