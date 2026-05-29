@@ -448,7 +448,7 @@ const bottomWave: Preset = {
   id: "bottom-wave", name: "Minimal Bottom Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio } = d;
-    const bars = Math.max(8, (cfg.bandCount || 12) * 4);
+    const bars = Math.min(384, Math.max(8, (cfg.bandCount || 12) * 4));
     const levels = bandLevels(audio.freq, bars, 0.75, cfg);
     const baseY = h - 60 + cfg.position.y * h * 0.2;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
