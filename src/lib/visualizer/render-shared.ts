@@ -235,7 +235,9 @@ export function drawForegroundLayers(args: {
   logo?: HTMLImageElement | null;
 }) {
   const { ctx, w, h, cfg, audio, t, effects, lyrics, logo } = args;
-  const scale = h / RENDER_BASELINE_HEIGHT;
+  const safe = (n: unknown, fallback = 0) =>
+    typeof n === "number" && Number.isFinite(n) ? n : fallback;
+  const scale = Math.max(0.0001, safe(h / RENDER_BASELINE_HEIGHT, 1));
   const vw = w / scale;
   const vh = h / scale;
 
@@ -247,18 +249,20 @@ export function drawForegroundLayers(args: {
   // two factory methods for the duration of this draw call to swap
   // bad inputs for finite fallbacks instead of throwing.
   // ────────────────────────────────────────────────────────────────
-  const proto = Object.getPrototypeOf(ctx) as CanvasRenderingContext2D;
-  const origLinear = proto.createLinearGradient;
-  const origRadial = proto.createRadialGradient;
-  const safe = (n: unknown, fallback = 0) =>
-    typeof n === "number" && Number.isFinite(n) ? n : fallback;
-  (proto as any).createLinearGradient = function (x0: number, y0: number, x1: number, y1: number) {
-    return origLinear.call(this, safe(x0), safe(y0), safe(x1, 1), safe(y1));
+  const origLinear = ctx.createLinearGradient.bind(ctx);
+  const origRadial = ctx.createRadialGradient.bind(ctx);
+  (ctx as any).createLinearGradient = (x0: number, y0: number, x1: number, y1: number) => {
+    const sx0 = safe(x0);
+    const sy0 = safe(y0);
+    let sx1 = safe(x1, sx0 + 1);
+    let sy1 = safe(y1, sy0);
+    if (sx0 === sx1 && sy0 === sy1) sx1 = sx0 + 1;
+    return origLinear(sx0, sy0, sx1, sy1);
   };
-  (proto as any).createRadialGradient = function (x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) {
+  (ctx as any).createRadialGradient = (x0: number, y0: number, r0: number, x1: number, y1: number, r1: number) => {
     const sr0 = Math.max(0, safe(r0));
     const sr1 = Math.max(sr0 + 0.0001, safe(r1, 1));
-    return origRadial.call(this, safe(x0), safe(y0), sr0, safe(x1), safe(y1), sr1);
+    return origRadial(safe(x0), safe(y0), sr0, safe(x1), safe(y1), sr1);
   };
 
   ctx.save();
@@ -289,8 +293,8 @@ export function drawForegroundLayers(args: {
     drawLyrics(ctx, vw, vh, lyrics, audio.time, cfg.glow);
   } finally {
     ctx.restore();
-    (proto as any).createLinearGradient = origLinear;
-    (proto as any).createRadialGradient = origRadial;
+    (ctx as any).createLinearGradient = origLinear;
+    (ctx as any).createRadialGradient = origRadial;
   }
 }
 
