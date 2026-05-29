@@ -916,7 +916,7 @@ const silkStrands: Preset = {
   id: "silk-strands", name: "Silk Strands", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const strands = 22;
+    const strands = Math.max(4, Math.min(64, cfg.bandCount || 22));
     const react = cfg.reactivity ?? 1;
     const levels = bandLevels(audio.freq, strands, 0.8, cfg);
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
