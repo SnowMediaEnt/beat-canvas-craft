@@ -11,6 +11,7 @@ import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
+import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
 import { triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
@@ -53,13 +54,31 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
   const cancelRender = useServerFn(cancelLambdaRender);
+  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
 
 
-  const downloadFile = (url: string, filename: string) => {
-    console.log("[browser-record] download click", { url, filename });
+  const downloadFile = async (url: string | null | undefined, filename: string, kind: "lambda" | "browser") => {
+    if (!url) {
+      console.log("[render-download] missing url", { filename, kind });
+      toast.error("Download failed: file URL is missing.");
+      return;
+    }
+
+    console.log("[render-download] download click", { url, filename, kind });
     const isRemote = /^https?:/i.test(url);
-    triggerDownload(url, filename, isRemote);
-    console.log("[browser-record] download triggered", { url, filename });
+    let nextUrl = url;
+
+    if (kind === "lambda" && isRemote) {
+      nextUrl = await getFreshDownloadUrl({ data: { url, filename } });
+    }
+
+    console.log("[render-download] download trigger", {
+      originalUrl: url,
+      finalUrl: nextUrl,
+      filename,
+      kind,
+    });
+    triggerDownload(nextUrl, filename, isRemote);
   };
 
   useEffect(() => () => {
@@ -443,7 +462,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`)}
+                    onClick={() => void downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`, "browser")}
                   >
                     <Download className="size-4" /> Download WebM
                   </Button>
@@ -561,7 +580,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
+                    onClick={() => void downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`, "lambda")}
                   >
                     <Download className="size-4" /> Download MP4
                   </Button>
