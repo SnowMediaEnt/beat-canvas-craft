@@ -26,6 +26,8 @@ const PREVIEW_BAND_CAPS: Record<string, number> = {
   "spiral-bars": 24,
   "leaf-border": 48,
   "custom-equalizer": 48,
+  "itunes-classic": 48,
+  "wmp-bars-waves": 64,
 };
 
 const getPreviewSafeProject = (project: Project): Project => {
