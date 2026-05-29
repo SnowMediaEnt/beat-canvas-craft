@@ -78,7 +78,7 @@ export const getFreshRenderDownloadUrl = createServerFn({ method: "POST" })
     );
     signedTarget.searchParams.set(
       "response-content-disposition",
-      `attachment; filename=\"${sanitizeFilename(data.filename)}\"`,
+      `attachment; filename="${sanitizeFilename(data.filename)}"`,
     );
 
     const client = new AwsClient({
