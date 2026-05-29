@@ -86,21 +86,26 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       return;
     }
 
-    console.log("[render-download] download click", { url, filename, kind });
-    const isRemote = /^https?:/i.test(url);
-    let nextUrl = url;
+    try {
+      console.log("[render-download] download click", { url, filename, kind });
+      const isRemote = /^https?:/i.test(url);
+      let nextUrl = url;
 
-    if (kind === "lambda" && isRemote) {
-      nextUrl = await getFreshDownloadUrl({ data: { url, filename } });
+      if (kind === "lambda" && isRemote) {
+        nextUrl = await getFreshDownloadUrl({ data: { url, filename } });
+      }
+
+      console.log("[render-download] download trigger", {
+        originalUrl: url,
+        finalUrl: nextUrl,
+        filename,
+        kind,
+      });
+      triggerDownload(nextUrl, filename, isRemote);
+    } catch (error) {
+      console.error("[render-download] failed", { url, filename, kind, error });
+      toast.error("Download failed. Please try again.");
     }
-
-    console.log("[render-download] download trigger", {
-      originalUrl: url,
-      finalUrl: nextUrl,
-      filename,
-      kind,
-    });
-    triggerDownload(nextUrl, filename, isRemote);
   };
 
   useEffect(
