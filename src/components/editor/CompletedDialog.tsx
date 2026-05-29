@@ -250,6 +250,9 @@ export function CompletedDialog({ project }: Props) {
         kind: entry.kind,
       });
       triggerDownload(href, filename, isRemote);
+    } catch (error) {
+      console.error("[render-download] failed", { entryId: entry.id, error });
+      toast.error("Download failed. Please try again.");
     } finally {
       setBusyId(null);
     }
