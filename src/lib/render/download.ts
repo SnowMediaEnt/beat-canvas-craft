@@ -15,7 +15,16 @@ function directDownload(href: string, filename: string) {
 }
 
 function getProxyDownloadUrl(remoteUrl: string, filename: string) {
-  return `/api/public/render-download?url=${encodeURIComponent(remoteUrl)}&filename=${encodeURIComponent(filename)}`;
+  const url = new URL("/api/public/render-download", window.location.origin);
+  url.searchParams.set("url", remoteUrl);
+  url.searchParams.set("filename", filename);
+
+  const previewToken = new URLSearchParams(window.location.search).get("__lovable_token");
+  if (previewToken) {
+    url.searchParams.set("__lovable_token", previewToken);
+  }
+
+  return url.toString();
 }
 
 function downloadViaHiddenFrame(href: string) {
