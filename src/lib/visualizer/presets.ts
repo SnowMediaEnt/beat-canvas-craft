@@ -31,6 +31,15 @@ const setGlow = (ctx: CanvasRenderingContext2D, color: string, intensity: number
   ctx.shadowBlur = 20 * intensity;
 };
 
+const finite = (value: unknown, fallback = 0) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const safeArrayValue = (arr: Uint8Array, index: number) => {
+  if (!arr.length) return 0;
+  const clamped = Math.max(0, Math.min(arr.length - 1, index | 0));
+  return finite(arr[clamped], 0);
+};
+
 const center = (d: DrawContext) => ({
   cx: d.w / 2 + d.cfg.position.x * d.w / 2,
   cy: d.h / 2 + d.cfg.position.y * d.h / 2,
@@ -52,21 +61,26 @@ function bandMulFor(frac: number, cfg?: VisualizerConfig): number {
 
 /** Sample a frequency bin (0..1) scaled by sensitivity config. */
 function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig): number {
+  if (!freq.length) return 0;
   const i = Math.max(0, Math.min(freq.length - 1, idx | 0));
-  return (freq[i] / 255) * bandMulFor(i / freq.length, cfg);
+  return (safeArrayValue(freq, i) / 255) * bandMulFor(i / freq.length, cfg);
 }
 
 export function bandLevels(freq: Uint8Array, count = 12, upper = 0.7, cfg?: VisualizerConfig): number[] {
-  const out = new Array(count);
+  const safeCount = Math.max(1, finite(count, 12) | 0);
+  const out = new Array(safeCount).fill(0);
+  if (!freq.length) return out;
   const lo = 2;
-  const hi = Math.max(lo + count, Math.floor(freq.length * upper));
+  const clampedUpper = Math.max(0.05, Math.min(1, finite(upper, 0.7)));
+  const hi = Math.max(lo + safeCount, Math.floor(freq.length * clampedUpper));
   const logLo = Math.log(lo), logHi = Math.log(hi);
-  for (let i = 0; i < count; i++) {
-    const a = Math.floor(Math.exp(logLo + (i / count) * (logHi - logLo)));
-    const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / count) * (logHi - logLo))));
-    let s = 0; for (let k = a; k < b; k++) s += freq[k];
-    const tilt = 1 + (i / count) * 0.6;
-    out[i] = Math.max(0, ((s / (b - a)) / 255) * tilt * bandMulFor(i / count, cfg));
+  for (let i = 0; i < safeCount; i++) {
+    const a = Math.floor(Math.exp(logLo + (i / safeCount) * (logHi - logLo)));
+    const b = Math.max(a + 1, Math.floor(Math.exp(logLo + ((i + 1) / safeCount) * (logHi - logLo))));
+    let s = 0;
+    for (let k = a; k < b; k++) s += safeArrayValue(freq, k);
+    const tilt = 1 + (i / safeCount) * 0.6;
+    out[i] = Math.max(0, finite(((s / Math.max(1, b - a)) / 255) * tilt * bandMulFor(i / safeCount, cfg), 0));
   }
   return out;
 }
