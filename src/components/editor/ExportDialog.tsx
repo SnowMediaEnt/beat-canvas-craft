@@ -55,10 +55,10 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const cancelRender = useServerFn(cancelLambdaRender);
 
 
-  const downloadFile = async (url: string, filename: string) => {
+  const downloadFile = (url: string, filename: string) => {
     console.log("[browser-record] download click", { url, filename });
     const isRemote = /^https?:/i.test(url);
-    await triggerDownload(url, filename, isRemote);
+    triggerDownload(url, filename, isRemote);
     console.log("[browser-record] download triggered", { url, filename });
   };
 
@@ -443,7 +443,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => void downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`)}
+                    onClick={() => downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`)}
                   >
                     <Download className="size-4" /> Download WebM
                   </Button>
@@ -561,7 +561,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => void downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
+                    onClick={() => downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
                   >
                     <Download className="size-4" /> Download MP4
                   </Button>
