@@ -147,7 +147,7 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
     const empty: AudioData = {
       freq: new Uint8Array(new ArrayBuffer(1024)) as Uint8Array<ArrayBuffer>,
       wave: new Uint8Array(new ArrayBuffer(2048)) as Uint8Array<ArrayBuffer>,
-      bass: 0, mid: 0, treble: 0, volume: 0, beat: false, time: 0, duration: 0,
+      bass: 0, mid: 0, treble: 0, volume: 0, beat: false, time: 0, duration: 0, sampleRate: 48000,
     };
 
     const loop = () => {
