@@ -763,7 +763,7 @@ const fluidFlow: Preset = {
   id: "fluid-flow", name: "Fluid Flow", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const lines = 18;
+    const lines = Math.max(6, Math.min(64, Math.round((cfg.bandCount || 18) * 1.5)));
     const step = 18;
 
     const react = cfg.reactivity ?? 1;
