@@ -798,7 +798,7 @@ const auroraVeil: Preset = {
   id: "aurora-veil", name: "Aurora Veil", category: "Organic",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const curtains = 6;
+    const curtains = Math.max(2, Math.min(32, Math.round((cfg.bandCount || 6) / 2)));
     const react = cfg.reactivity ?? 1;
     ctx.globalCompositeOperation = "lighter";
     for (let c = 0; c < curtains; c++) {
