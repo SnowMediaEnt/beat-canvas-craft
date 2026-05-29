@@ -381,24 +381,27 @@ const ribbons: Preset = {
   },
 };
 
-// 13. Frequency tunnel
+// 13. Frequency tunnel — N-band log-spaced rings, bass-driven depth surge.
 const tunnel: Preset = {
   id: "tunnel", name: "Frequency Tunnel", category: "3D",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
+    const react = cfg.reactivity ?? 1;
     const rings = 14;
+    const verts = Math.max(24, cfg.bandCount || 60);
+    const levels = bandLevels(audio.freq, verts, 0.85, cfg);
+    const speed = 0.5 + audio.bass * 1.4 * react;
     for (let i = 0; i < rings; i++) {
-      const p = ((i + (t * 0.5) % 1) / rings);
-      const r = p * Math.min(d.w, d.h) * 0.7 * cfg.size;
+      const p = ((i + (t * speed) % 1) / rings);
+      const r = p * Math.min(d.w, d.h) * 0.7 * cfg.size * (1 + audio.bass * 0.25 * react);
       ctx.strokeStyle = hexA(i % 2 ? cfg.primary : cfg.accent, 1 - p);
       ctx.lineWidth = (1 - p) * cfg.thickness * 2;
       ctx.beginPath();
-      const verts = 60;
       for (let v = 0; v <= verts; v++) {
-        const a = (v / verts) * Math.PI * 2;
-        const f = freqAt(audio.freq, (v * 4) % audio.freq.length, cfg);
-        const rr = r + f * 30;
+        const a = (v / verts) * Math.PI * 2 + cfg.rotation * p;
+        const f = levels[v % verts];
+        const rr = r + f * 80 * react * cfg.size * (1 - p * 0.5);
         const x = cx + Math.cos(a) * rr; const y = cy + Math.sin(a) * rr;
         v === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
       }
