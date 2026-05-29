@@ -927,7 +927,7 @@ const murmuration: Preset = {
       const radius = (40 + audio.volume * 160 + audio.bass * 90) * cfg.size * react * kick;
       const px = hx + Math.cos(ang) * radius;
       const py = hy + Math.sin(ang) * radius * 0.85;
-      const band = freqAt(audio.freq, (i * 3) % audio.freq.length, cfg, audio.sampleRate);
+      const band = freqAtPos(audio, (i % count) / Math.max(1, count - 1), cfg);
       const r = 1 + band * 4 + (audio.beat ? 1.5 : 0);
       const col = i % 3 === 0 ? cfg.primary : i % 3 === 1 ? cfg.accent : cfg.secondary;
       ctx.fillStyle = hexA(col, 0.4 + band * 0.6);
