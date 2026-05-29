@@ -341,7 +341,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       waveSamples = slice;
     }
 
-    const audio = buildAudioData(bins, waveSamples, frame / fps, durationInFrames / fps, cfg, audioStateRef.current);
+    const audio = buildAudioData(bins, waveSamples, frame / fps, durationInFrames / fps, cfg, audioStateRef.current, audioData?.sampleRate ?? 48000);
 
     // --- Identical paint pipeline as VisualizerCanvas.tsx ---
 
