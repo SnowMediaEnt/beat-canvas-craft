@@ -74,21 +74,27 @@ export class AudioEngine {
     this.analyser.getByteFrequencyData(this.freq);
     this.analyser.getByteTimeDomainData(this.wave);
     const len = this.freq.length;
-    const sliceAvg = (a: number, b: number) => {
-      let s = 0; const lo = Math.floor(a * len), hi = Math.floor(b * len);
+    const sr = this.ctx.sampleRate;
+    // Average bins between two real Hz boundaries. Mapping Hz → bin uses
+    // the analyser's sample rate so the same crossover points hold for
+    // any audio file (44.1k, 48k, etc.).
+    const sliceAvgHz = (loHz: number, hiHz: number) => {
+      const lo = Math.max(0, Math.min(len - 1, Math.floor(hzToBin(loHz, len, sr))));
+      const hi = Math.max(lo + 1, Math.min(len, Math.ceil(hzToBin(hiHz, len, sr))));
+      let s = 0;
       for (let i = lo; i < hi; i++) s += this.freq[i];
       return (s / Math.max(1, hi - lo)) / 255;
     };
-    const bass = Math.min(1, sliceAvg(0, 0.08) * sens.bass * sens.master);
-    const mid = Math.min(1, sliceAvg(0.08, 0.4) * sens.mid * sens.master);
-    const treble = Math.min(1, sliceAvg(0.4, 1) * sens.treble * sens.master);
+    const bass = Math.min(1, sliceAvgHz(AUDIBLE_MIN_HZ, BASS_MAX_HZ) * sens.bass * sens.master);
+    const mid = Math.min(1, sliceAvgHz(BASS_MAX_HZ, MID_MAX_HZ) * sens.mid * sens.master);
+    const treble = Math.min(1, sliceAvgHz(MID_MAX_HZ, AUDIBLE_MAX_HZ) * sens.treble * sens.master);
     let sum = 0; for (let i = 0; i < len; i++) sum += this.freq[i];
     const volume = Math.min(1, (sum / len / 255) * sens.master);
     let beat = false;
     if (this.beatCooldown > 0) this.beatCooldown--;
     if (bass > 0.55 && bass > this.lastBass * 1.25 && this.beatCooldown === 0) { beat = true; this.beatCooldown = 8; }
     this.lastBass = bass;
-    return { freq: this.freq, wave: this.wave, bass, mid, treble, volume, beat, time: this.el.currentTime, duration: this.el.duration || 0 };
+    return { freq: this.freq, wave: this.wave, bass, mid, treble, volume, beat, time: this.el.currentTime, duration: this.el.duration || 0, sampleRate: sr };
   }
 
   destroy() { try { this.src.disconnect(); this.analyser.disconnect(); this.ctx.close(); } catch { /* ignore */ } }
