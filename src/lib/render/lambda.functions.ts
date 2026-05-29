@@ -125,10 +125,11 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
           // Remotion caps workers at 200. Scale chunk size up for long renders
-          // so we never exceed that ceiling. Round up to a multiple of the GOP
-          // (Remotion requires framesPerLambda be a multiple of the keyframe
-          // interval, which defaults to ~ fps/2). Using fps as the step is safe.
-          const step = Math.max(1, Math.round(data.fps));
+          // so we never exceed that ceiling. framesPerLambda must be a multiple
+          // of the keyframe interval (defaults to ~fps/2) — use that as the
+          // step so we can pick the smallest legal chunk and give each worker
+          // maximum headroom against the 900s Lambda timeout.
+          const step = Math.max(1, Math.round(data.fps / 2));
           const minForCap = Math.ceil(totalFrames / MAX_WORKERS);
           const rawFramesPerLambda = Math.max(FRAMES_PER_LAMBDA, minForCap);
           const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
