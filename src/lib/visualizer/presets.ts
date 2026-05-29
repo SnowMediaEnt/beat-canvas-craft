@@ -153,16 +153,21 @@ const pulsingRing: Preset = {
   },
 };
 
-// 4. Soft bass glow
+// 4. Soft bass glow — radius and intensity react aggressively to bass + beat.
 const bassGlow: Preset = {
   id: "bass-glow", name: "Soft Bass Glow", category: "Ambient",
   draw: (d) => {
-    const { ctx, cfg, audio } = d;
+    const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const r = Math.min(d.w, d.h) * (0.25 + audio.bass * 0.3) * cfg.size;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, hexA(cfg.primary, 0.6 * cfg.glowIntensity));
-    g.addColorStop(0.6, hexA(cfg.accent, 0.2 * cfg.glowIntensity));
+    const react = cfg.reactivity ?? 1;
+    const beatKick = audio.beat ? 0.25 : 0;
+    const r = Math.min(d.w, d.h) * (0.22 + (audio.bass * 0.7 + audio.volume * 0.25 + beatKick) * react) * cfg.size;
+    const ox = Math.sin(t * 0.9) * audio.mid * 80 * react;
+    const oy = Math.cos(t * 0.7) * audio.mid * 60 * react;
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
+    const boost = 1 + audio.volume * 0.5;
+    g.addColorStop(0, hexA(cfg.primary, Math.min(1, 0.7 * cfg.glowIntensity * boost)));
+    g.addColorStop(0.55, hexA(cfg.accent, Math.min(1, 0.28 * cfg.glowIntensity * boost)));
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g; ctx.fillRect(0, 0, d.w, d.h);
   },
