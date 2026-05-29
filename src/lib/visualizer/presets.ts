@@ -559,7 +559,8 @@ const lightWave: Preset = {
   id: "light-wave", name: "Cinematic Light Wave", category: "Wave",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    for (let l = 0; l < 3; l++) {
+    const layerCount = Math.max(2, Math.min(12, Math.round((cfg.bandCount || 3))));
+    for (let l = 0; l < layerCount; l++) {
       const grad = ctx.createLinearGradient(0, 0, w, 0);
       grad.addColorStop(0, "rgba(0,0,0,0)");
       grad.addColorStop(0.5, hexA(l === 0 ? cfg.primary : l === 1 ? cfg.accent : cfg.secondary, 0.6));
