@@ -957,7 +957,7 @@ const tidalBloom: Preset = {
       const segs = 80;
       for (let s = 0; s <= segs; s++) {
         const a = (s / segs) * Math.PI * 2;
-        const band = freqAt(audio.freq, Math.floor(((s / segs) * 0.5) * audio.freq.length), cfg, audio.sampleRate);
+        const band = freqAtPos(audio, s / segs, cfg);
         const wob = Math.sin(a * 6 + t * 2 + i) * (4 + audio.mid * 24) +
                     Math.sin(a * 14 - t * 3) * (audio.treble * 16);
         const rr = r + wob + band * 30 * fade;
