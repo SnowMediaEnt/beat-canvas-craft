@@ -171,6 +171,30 @@ async function getBlob(ref: AssetRef): Promise<Blob | null> {
   return blob ?? null;
 }
 
+async function getBlobFromUrl(url: string, ref: AssetRef): Promise<Blob | null> {
+  if (!url) return null;
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error("[render-upload] fetch asset url failed", { assetId: ref.id, url, status: res.status });
+      return null;
+    }
+
+    const blob = await res.blob();
+    console.log("[render-upload] fetched asset from current url", {
+      assetId: ref.id,
+      name: ref.name,
+      url,
+      size: blob.size,
+    });
+    return blob;
+  } catch (error) {
+    console.error("[render-upload] fetch asset url error", { assetId: ref.id, url, error });
+    return null;
+  }
+}
+
 export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<string | null> {
   if (!ref) return null;
   const cached = uploadedCache.get(ref.id);
@@ -179,21 +203,23 @@ export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<s
     return cached;
   }
 
-  let blob = await getBlob(ref);
-  if (!blob && ref.url) {
-    // Preset / bundled asset: no IndexedDB blob, fetch the bundled URL instead.
-    try {
-      const res = await fetch(ref.url);
-      if (res.ok) {
-        blob = await res.blob();
-        console.log("[render-upload] fetched bundled asset", { assetId: ref.id, url: ref.url, size: blob.size });
-      } else {
-        console.error("[render-upload] fetch bundled asset failed", { assetId: ref.id, url: ref.url, status: res.status });
-      }
-    } catch (e) {
-      console.error("[render-upload] fetch bundled asset error", { assetId: ref.id, url: ref.url, error: e });
-    }
+  let blob: Blob | null = null;
+
+  // Prefer the live object URL from the current editor session when available.
+  // This avoids stale IndexedDB handles after a user replaces the file and
+  // immediately renders again.
+  if (ref.url?.startsWith("blob:")) {
+    blob = await getBlobFromUrl(ref.url, ref);
   }
+
+  if (!blob) {
+    blob = await getBlob(ref);
+  }
+
+  if (!blob && ref.url) {
+    blob = await getBlobFromUrl(ref.url, ref);
+  }
+
   if (!blob) {
     console.error("[render-upload] missing IndexedDB blob", { assetId: ref.id, name: ref.name, type: ref.type });
     return null;
