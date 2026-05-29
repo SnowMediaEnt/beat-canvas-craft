@@ -1,21 +1,41 @@
 import { useEffect, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
 import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
-import { startLambdaRender, getLambdaProgress, cancelLambdaRender } from "@/lib/render/lambda.functions";
-import { assertRenderableAssetUrl, uploadAssetForRender, uploadBlobForRender } from "@/lib/render/upload";
-import { triggerDownload } from "@/lib/render/download";
+import {
+  startLambdaRender,
+  getLambdaProgress,
+  cancelLambdaRender,
+} from "@/lib/render/lambda.functions";
+import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
+import {
+  assertRenderableAssetUrl,
+  uploadAssetForRender,
+  uploadBlobForRender,
+} from "@/lib/render/upload";
+import { openPendingDownloadWindow, triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
-
 
 interface Props {
   project: Project;
@@ -27,9 +47,9 @@ interface Props {
 
 const RES_DIMS = {
   "16:9": { "4k": [3840, 2160], "1080p": [1920, 1080], "720p": [1280, 720] },
-  "1:1":  { "4k": [2160, 2160], "1080p": [1080, 1080], "720p": [720, 720] },
+  "1:1": { "4k": [2160, 2160], "1080p": [1080, 1080], "720p": [720, 720] },
   "9:16": { "4k": [2160, 3840], "1080p": [1080, 1920], "720p": [720, 1280] },
-  "4:5":  { "4k": [2160, 2700], "1080p": [1080, 1350], "720p": [864, 1080] },
+  "4:5": { "4k": [2160, 2700], "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
 export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }: Props) {
@@ -53,22 +73,56 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
   const cancelRender = useServerFn(cancelLambdaRender);
+  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
 
+  const downloadFile = async (
+    url: string | null | undefined,
+    filename: string,
+    kind: "lambda" | "browser",
+  ) => {
+    if (!url) {
+      console.log("[render-download] missing url", { filename, kind });
+      toast.error("Download failed: file URL is missing.");
+      return;
+    }
 
-  const downloadFile = (url: string, filename: string) => {
-    console.log("[browser-record] download click", { url, filename });
-    const isRemote = /^https?:/i.test(url);
-    triggerDownload(url, filename, isRemote);
-    console.log("[browser-record] download triggered", { url, filename });
+    try {
+      console.log("[render-download] download click", { url, filename, kind });
+      const isRemote = /^https?:/i.test(url);
+      const pendingWindow = kind === "lambda" && isRemote ? openPendingDownloadWindow() : null;
+      let nextUrl = url;
+
+      if (kind === "lambda" && isRemote) {
+        nextUrl = await getFreshDownloadUrl({ data: { url, filename } });
+      }
+
+      console.log("[render-download] download trigger", {
+        originalUrl: url,
+        finalUrl: nextUrl,
+        filename,
+        kind,
+      });
+      triggerDownload(nextUrl, filename, isRemote, pendingWindow);
+    } catch (error) {
+      console.error("[render-download] failed", { url, filename, kind, error });
+      toast.error("Download failed. Please try again.");
+    }
   };
 
-  useEffect(() => () => {
-    if (pollRef.current) window.clearInterval(pollRef.current);
-    if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
-    if (recorderRef.current && recorderRef.current.state !== "inactive") {
-      try { recorderRef.current.stop(); } catch { /* ignore */ }
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+      if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try {
+          recorderRef.current.stop();
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+    [],
+  );
 
   const persistJob = (entry: RenderJob) => {
     saveJob(entry);
@@ -79,7 +133,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const stopBrowserRecording = () => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
       setRecording(false);
-      try { recorderRef.current.stop(); } catch { /* ignore */ }
+      try {
+        recorderRef.current.stop();
+      } catch {
+        /* ignore */
+      }
     }
     if (audioRef.current) {
       audioRef.current.pause();
@@ -87,13 +145,22 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   };
 
   const startBrowserRecording = async () => {
-    if (!project.audio) { toast.error("Upload an audio file first"); return; }
+    if (!project.audio) {
+      toast.error("Upload an audio file first");
+      return;
+    }
     const canvas = canvasRef.current;
     const audioEl = audioRef.current;
     const engine = engineRef.current;
-    if (!canvas || !audioEl || !engine) { toast.error("Editor not ready yet"); return; }
+    if (!canvas || !audioEl || !engine) {
+      toast.error("Editor not ready yet");
+      return;
+    }
     const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
-    if (!duration) { toast.error("Press play once so the audio duration loads"); return; }
+    if (!duration) {
+      toast.error("Press play once so the audio duration loads");
+      return;
+    }
     const browserJobBase: RenderJob = {
       id: crypto.randomUUID(),
       projectId: project.id,
@@ -108,13 +175,14 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     };
 
     // Pick a supported mime type
-    const candidates = [
-      "video/webm;codecs=vp9,opus",
-      "video/webm;codecs=vp8,opus",
-      "video/webm",
-    ];
-    const mimeType = candidates.find((m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m));
-    if (!mimeType) { toast.error("Browser recording is not supported in this browser"); return; }
+    const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+    const mimeType = candidates.find(
+      (m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m),
+    );
+    if (!mimeType) {
+      toast.error("Browser recording is not supported in this browser");
+      return;
+    }
 
     try {
       persistJob(browserJobBase);
@@ -132,9 +200,14 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       const chunks: BlobPart[] = [];
       const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 4_500_000 });
       recorderRef.current = rec;
-      rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
       rec.onstop = async () => {
-        if (recordRafRef.current) { cancelAnimationFrame(recordRafRef.current); recordRafRef.current = null; }
+        if (recordRafRef.current) {
+          cancelAnimationFrame(recordRafRef.current);
+          recordRafRef.current = null;
+        }
         recorderRef.current = null;
 
         const videoTracks = canvasStream.getVideoTracks();
@@ -145,7 +218,9 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
           const blob = new Blob(chunks, { type: mimeType });
           const baseName = (project.name || "render").trim() || "render";
           const fileName = `${baseName}.webm`;
-          const localAsset = await storeAsset(new File([blob], fileName, { type: blob.type || "video/webm" }));
+          const localAsset = await storeAsset(
+            new File([blob], fileName, { type: blob.type || "video/webm" }),
+          );
           let remoteUrl: string | undefined;
           const localUrl = await getAssetDownloadUrl(localAsset);
 
@@ -173,7 +248,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               blob,
               onProgress: (pct) => setRecordProgress(pct),
             });
-            persistJob({ ...completedEntry, downloadUrl: remoteUrl, status: "completed", progress: 100 });
+            persistJob({
+              ...completedEntry,
+              downloadUrl: remoteUrl,
+              status: "completed",
+              progress: 100,
+            });
           } catch (e: any) {
             console.error("[browser-record] remote backup upload failed", e);
             toast.error("Recording saved locally. Cloud backup upload failed.");
@@ -213,7 +293,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         if (audioEl.ended || audioEl.currentTime >= duration - 0.05) {
           if (recorderRef.current && recorderRef.current.state !== "inactive") {
             setRecording(false);
-            try { recorderRef.current.stop(); } catch { /* ignore */ }
+            try {
+              recorderRef.current.stop();
+            } catch {
+              /* ignore */
+            }
           }
           audioEl.pause();
           return;
@@ -230,30 +314,60 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     }
   };
 
-
   const onRender = async () => {
-    if (!project.audio) { toast.error("Upload an audio file first"); return; }
+    if (!project.audio) {
+      toast.error("Upload an audio file first");
+      return;
+    }
     const audioEl = audioRef.current;
     const duration = audioEl?.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
-    if (!duration) { toast.error("Press play once so the audio duration loads"); return; }
+    if (!duration) {
+      toast.error("Press play once so the audio duration loads");
+      return;
+    }
 
     const j: RenderJob = {
       id: crypto.randomUUID(),
-      projectId: project.id, projectName: project.name,
-      kind: "lambda", fileFormat: "mp4",
-      status: "queued", progress: 0, createdAt: Date.now(),
-      config: project.export, aspectRatio: project.aspectRatio,
+      projectId: project.id,
+      projectName: project.name,
+      kind: "lambda",
+      fileFormat: "mp4",
+      status: "queued",
+      progress: 0,
+      createdAt: Date.now(),
+      config: project.export,
+      aspectRatio: project.aspectRatio,
     };
-    setJob(j); persistJob(j); setProgress(0); setDownloadUrl(null);
+    setJob(j);
+    persistJob(j);
+    setProgress(0);
+    setDownloadUrl(null);
     cancelledRef.current = false;
-
 
     try {
       setStage("Uploading assets…");
       console.log("[lambda-render] asset upload request", {
-        audio: project.audio ? { id: project.audio.id, name: project.audio.name, indexedDbKey: `asset:${project.audio.id}` } : null,
-        background: project.background ? { id: project.background.id, name: project.background.name, indexedDbKey: `asset:${project.background.id}` } : null,
-        logo: project.logo ? { id: project.logo.id, name: project.logo.name, indexedDbKey: `asset:${project.logo.id}` } : null,
+        audio: project.audio
+          ? {
+              id: project.audio.id,
+              name: project.audio.name,
+              indexedDbKey: `asset:${project.audio.id}`,
+            }
+          : null,
+        background: project.background
+          ? {
+              id: project.background.id,
+              name: project.background.name,
+              indexedDbKey: `asset:${project.background.id}`,
+            }
+          : null,
+        logo: project.logo
+          ? {
+              id: project.logo.id,
+              name: project.logo.name,
+              indexedDbKey: `asset:${project.logo.id}`,
+            }
+          : null,
       });
 
       const [audioUrl, backgroundUrl, logoUrl] = await Promise.all([
@@ -272,9 +386,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       const resolvedBackgroundUrl = project.background
         ? assertRenderableAssetUrl("background", backgroundUrl)
         : null;
-      const resolvedLogoUrl = project.logo
-        ? assertRenderableAssetUrl("logo", logoUrl)
-        : null;
+      const resolvedLogoUrl = project.logo ? assertRenderableAssetUrl("logo", logoUrl) : null;
 
       const [w, h] = RES_DIMS[project.aspectRatio][project.export.resolution];
 
@@ -311,7 +423,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
       setStage("Rendering on AWS Lambda…");
       const running: RenderJob = { ...j, status: "rendering", renderId, bucketName };
-      setJob(running); persistJob(running);
+      setJob(running);
+      persistJob(running);
 
       await new Promise<void>((resolve, reject) => {
         let stopped = false;
@@ -338,8 +451,18 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             if (p.done && p.outputFile) {
               stop();
               setDownloadUrl(p.outputFile);
-              const done: RenderJob = { ...running, kind: "lambda", fileFormat: "mp4", status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
-              setJob(done); persistJob(done); setProgress(100);
+              const done: RenderJob = {
+                ...running,
+                kind: "lambda",
+                fileFormat: "mp4",
+                status: "completed",
+                progress: 100,
+                completedAt: Date.now(),
+                downloadUrl: p.outputFile,
+              };
+              setJob(done);
+              persistJob(done);
+              setProgress(100);
               setStage("Complete");
               toast.success("Render complete");
               resolve();
@@ -367,14 +490,28 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       });
     } catch (e: any) {
       if (cancelledRef.current) {
-        const cancelled: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: "Cancelled by user" };
-        setJob(cancelled); persistJob(cancelled);
+        const cancelled: RenderJob = {
+          ...j,
+          kind: "lambda",
+          fileFormat: "mp4",
+          status: "failed",
+          error: "Cancelled by user",
+        };
+        setJob(cancelled);
+        persistJob(cancelled);
         setStage("Cancelled");
         return;
       }
       console.error("[lambda-render]", e);
-      const failed: RenderJob = { ...j, kind: "lambda", fileFormat: "mp4", status: "failed", error: e?.message || "Unknown error" };
-      setJob(failed); persistJob(failed);
+      const failed: RenderJob = {
+        ...j,
+        kind: "lambda",
+        fileFormat: "mp4",
+        status: "failed",
+        error: e?.message || "Unknown error",
+      };
+      setJob(failed);
+      persistJob(failed);
       toast.error(`Render failed: ${e?.message || "unknown"}`);
       setStage("");
     }
@@ -382,7 +519,10 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
   const killRender = async () => {
     cancelledRef.current = true;
-    if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; }
+    if (pollRef.current) {
+      window.clearTimeout(pollRef.current);
+      pollRef.current = null;
+    }
     setCancelling(true);
     setStage("Cancelling render…");
     try {
@@ -393,7 +533,10 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       const cancelled: RenderJob | null = job
         ? { ...job, status: "failed", error: "Cancelled by user" }
         : null;
-      if (cancelled) { setJob(cancelled); persistJob(cancelled); }
+      if (cancelled) {
+        setJob(cancelled);
+        persistJob(cancelled);
+      }
       setStage("Cancelled");
     } catch (e: any) {
       console.error("[lambda-render] cancel failed", e);
@@ -403,7 +546,6 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     }
   };
 
-
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -412,29 +554,44 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         </Button>
       </DialogTrigger>
       <DialogContent className="panel max-w-md">
-        <DialogHeader><DialogTitle className="flex items-center gap-2"><Download className="size-4" /> Export Video</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Download className="size-4" /> Export Video
+          </DialogTitle>
+        </DialogHeader>
 
         <Tabs defaultValue="browser" className="w-full">
           <TabsList className="grid grid-cols-2 w-full">
-            <TabsTrigger value="browser" className="gap-1.5"><Circle className="size-3.5" /> Browser Recording</TabsTrigger>
-            <TabsTrigger value="lambda" className="gap-1.5"><Cloud className="size-3.5" /> Lambda Render</TabsTrigger>
+            <TabsTrigger value="browser" className="gap-1.5">
+              <Circle className="size-3.5" /> Browser Recording
+            </TabsTrigger>
+            <TabsTrigger value="lambda" className="gap-1.5">
+              <Cloud className="size-3.5" /> Lambda Render
+            </TabsTrigger>
           </TabsList>
 
           {/* Browser recording — works while AWS quota is low */}
           <TabsContent value="browser" className="space-y-4 mt-4">
             <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center gap-1.5 text-foreground/90"><Circle className="size-3.5" /> Record in your browser</div>
-              <p>Plays the song from the start and captures the canvas + audio in real time as a WebM file. Finished recordings are kept in the Completed menu beside Export.</p>
+              <div className="flex items-center gap-1.5 text-foreground/90">
+                <Circle className="size-3.5" /> Record in your browser
+              </div>
+              <p>
+                Plays the song from the start and captures the canvas + audio in real time as a WebM
+                file. Finished recordings are kept in the Completed menu beside Export.
+              </p>
             </div>
 
             {(recording || recordUrl) && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5">
-                    {recordUrl
-                      ? <CheckCircle2 className="size-3.5 text-primary" />
-                      : <Loader2 className="size-3.5 animate-spin" />}
-                    {recordUrl ? "Recording complete" : (recordStage || "Recording…")}
+                    {recordUrl ? (
+                      <CheckCircle2 className="size-3.5 text-primary" />
+                    ) : (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    )}
+                    {recordUrl ? "Recording complete" : recordStage || "Recording…"}
                   </span>
                   <span className="font-mono">{recordProgress}%</span>
                 </div>
@@ -443,7 +600,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.webm`)}
+                    onClick={() =>
+                      void downloadFile(
+                        recordUrl,
+                        `${(project.name || "render").trim() || "render"}.webm`,
+                        "browser",
+                      )
+                    }
                   >
                     <Download className="size-4" /> Download WebM
                   </Button>
@@ -456,11 +619,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 <Square className="size-4" /> Stop Recording
               </Button>
             ) : (
-              <Button onClick={startBrowserRecording} className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90">
+              <Button
+                onClick={startBrowserRecording}
+                className="w-full gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
                 <Circle className="size-4" /> Start Browser Recording
               </Button>
             )}
-
           </TabsContent>
 
           {/* Server-side Lambda render */}
@@ -468,24 +633,40 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             {(() => {
               const t = (project.audio?.type || "").toLowerCase();
               const n = (project.audio?.name || "").toLowerCase();
-              const isAac = t.includes("m4a") || t.includes("aac") || t.includes("mp4") || n.endsWith(".m4a") || n.endsWith(".aac");
+              const isAac =
+                t.includes("m4a") ||
+                t.includes("aac") ||
+                t.includes("mp4") ||
+                n.endsWith(".m4a") ||
+                n.endsWith(".aac");
               if (!isAac) return null;
               return (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200/90 space-y-1">
                   <div className="font-medium text-amber-100">M4A/AAC audio detected</div>
-                  <p>Lambda's audio decoder produces near-silent samples for AAC, which makes the visualizer bars render much smaller than in the live preview. For best results, re-export your track as <strong>MP3</strong> or <strong>WAV</strong> and re-upload before rendering.</p>
+                  <p>
+                    Lambda's audio decoder produces near-silent samples for AAC, which makes the
+                    visualizer bars render much smaller than in the live preview. For best results,
+                    re-export your track as <strong>MP3</strong> or <strong>WAV</strong> and
+                    re-upload before rendering.
+                  </p>
                 </div>
               );
             })()}
             <div className="grid grid-cols-2 gap-3">
-
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">FPS</label>
                 <Select
                   value={String(project.export.fps)}
-                  onValueChange={(v) => update((p) => ({ ...p, export: { ...p.export, fps: Number(v) as 30 | 45 | 60 | 120 } }))}
+                  onValueChange={(v) =>
+                    update((p) => ({
+                      ...p,
+                      export: { ...p.export, fps: Number(v) as 30 | 45 | 60 | 120 },
+                    }))
+                  }
                 >
-                  <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 bg-elevated/60">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="30">30 fps</SelectItem>
                     <SelectItem value="45">45 fps</SelectItem>
@@ -498,9 +679,16 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 <label className="text-xs text-muted-foreground">Resolution</label>
                 <Select
                   value={project.export.resolution}
-                  onValueChange={(v) => update((p) => ({ ...p, export: { ...p.export, resolution: v as "4k" | "1080p" | "720p" } }))}
+                  onValueChange={(v) =>
+                    update((p) => ({
+                      ...p,
+                      export: { ...p.export, resolution: v as "4k" | "1080p" | "720p" },
+                    }))
+                  }
                 >
-                  <SelectTrigger className="h-9 bg-elevated/60"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="h-9 bg-elevated/60">
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="720p">720p (HD)</SelectItem>
                     <SelectItem value="1080p">1080p (Full HD)</SelectItem>
@@ -511,12 +699,20 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             </div>
 
             {(() => {
-              const duration = audioRef.current?.duration && isFinite(audioRef.current.duration) ? audioRef.current.duration : 0;
+              const duration =
+                audioRef.current?.duration && isFinite(audioRef.current.duration)
+                  ? audioRef.current.duration
+                  : 0;
               if (!duration) {
                 return (
                   <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> AWS Lambda server-side render</div>
-                    <p>Press play once on the audio so we can read its duration and estimate render size/time.</p>
+                    <div className="flex items-center gap-1.5 text-foreground/90">
+                      <Cloud className="size-3.5" /> AWS Lambda server-side render
+                    </div>
+                    <p>
+                      Press play once on the audio so we can read its duration and estimate render
+                      size/time.
+                    </p>
                   </div>
                 );
               }
@@ -528,19 +724,43 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               });
               return (
                 <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
-                  <div className="flex items-center gap-1.5 text-foreground/90"><Cloud className="size-3.5" /> Render estimate</div>
-                  <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
-                    <span>Duration</span><span className="text-right font-mono text-foreground/90">{formatDuration(duration)}</span>
-                    <span>Total frames</span><span className="text-right font-mono text-foreground/90">{est.totalFrames.toLocaleString()}</span>
-                    <span>Workers</span><span className="text-right font-mono text-foreground/90">{est.estimatedWorkers} × {est.framesPerWorker}f</span>
-                    <span>Est. file size</span><span className="text-right font-mono text-foreground/90">{formatBytes(est.estimatedSizeMB)}</span>
-                    <span>Est. render time</span><span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
+                  <div className="flex items-center gap-1.5 text-foreground/90">
+                    <Cloud className="size-3.5" /> Render estimate
                   </div>
-                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">framesPerLambda = 60. Small chunks keep each worker well under the 900s Lambda timeout for heavy presets.</p>
+                  <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
+                    <span>Duration</span>
+                    <span className="text-right font-mono text-foreground/90">
+                      {formatDuration(duration)}
+                    </span>
+                    <span>Total frames</span>
+                    <span className="text-right font-mono text-foreground/90">
+                      {est.totalFrames.toLocaleString()}
+                    </span>
+                    <span>Workers</span>
+                    <span className="text-right font-mono text-foreground/90">
+                      {est.estimatedWorkers} × {est.framesPerWorker}f
+                    </span>
+                    <span>Est. file size</span>
+                    <span className="text-right font-mono text-foreground/90">
+                      {formatBytes(est.estimatedSizeMB)}
+                    </span>
+                    <span>Est. render time</span>
+                    <span className="text-right font-mono text-foreground/90">
+                      ~{formatDuration(est.estimatedRenderSeconds)}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                    framesPerLambda = 60. Small chunks keep each worker well under the 900s Lambda
+                    timeout for heavy presets.
+                  </p>
                   <div className="rounded bg-background/60 p-2 space-y-1">
-                    <p className="text-[10px] text-muted-foreground/80">If you changed presets, effects, or colors since the last deploy, Lambda is still using the old bundle. Redeploy from your local machine:</p>
+                    <p className="text-[10px] text-muted-foreground/80">
+                      If you changed presets, effects, or colors since the last deploy, Lambda is
+                      still using the old bundle. Redeploy from your local machine:
+                    </p>
                     <code className="block font-mono text-[10px] text-foreground/90 bg-black/30 rounded px-1.5 py-1 select-all">
-                      npx remotion lambda sites create src/remotion/index.ts --site-name=lyrics-viz --region=us-east-2
+                      npx remotion lambda sites create src/remotion/index.ts --site-name=lyrics-viz
+                      --region=us-east-2
                     </code>
                   </div>
                 </div>
@@ -551,7 +771,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-1.5">
-                    {job.status === "completed" ? <CheckCircle2 className="size-3.5 text-primary" /> : <Loader2 className="size-3.5 animate-spin" />}
+                    {job.status === "completed" ? (
+                      <CheckCircle2 className="size-3.5 text-primary" />
+                    ) : (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    )}
                     {stage || job.status}
                   </span>
                   <span className="font-mono">{Math.floor(progress)}%</span>
@@ -561,7 +785,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() => downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
+                    onClick={() =>
+                      void downloadFile(
+                        downloadUrl,
+                        `${(project.name || "render").trim() || "render"}.mp4`,
+                        "lambda",
+                      )
+                    }
                   >
                     <Download className="size-4" /> Download MP4
                   </Button>
@@ -572,18 +802,28 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               </div>
             )}
 
-            <Button onClick={onRender} disabled={job?.status === "queued" || job?.status === "rendering"} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2">
+            <Button
+              onClick={onRender}
+              disabled={job?.status === "queued" || job?.status === "rendering"}
+              className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+            >
               <Video className="size-4" />
-              {job?.status === "rendering" || job?.status === "queued" ? "Rendering on Lambda…" : "Start Server Render"}
+              {job?.status === "rendering" || job?.status === "queued"
+                ? "Rendering on Lambda…"
+                : "Start Server Render"}
             </Button>
 
             {(job?.status === "rendering" || job?.status === "queued") && (
-              <Button onClick={killRender} disabled={cancelling} variant="destructive" className="w-full gap-2">
+              <Button
+                onClick={killRender}
+                disabled={cancelling}
+                variant="destructive"
+                className="w-full gap-2"
+              >
                 <Square className="size-4" />
                 {cancelling ? "Cancelling…" : "Kill Render"}
               </Button>
             )}
-
 
             <div className="text-[10px] text-muted-foreground">
               {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history
@@ -594,4 +834,3 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     </Dialog>
   );
 }
-

@@ -1,17 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Download, Trash2, HardDrive, Clock3, Cloud, Circle, Loader2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Trash2,
+  HardDrive,
+  Clock3,
+  Cloud,
+  Circle,
+  Loader2,
+} from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { deleteJob, listJobsFromStorage, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
+import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
-import { triggerDownload } from "@/lib/render/download";
+import { openPendingDownloadWindow, triggerDownload } from "@/lib/render/download";
 
 interface Props {
   project: Project;
@@ -42,6 +58,7 @@ export function CompletedDialog({ project }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
+  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
   const pollingRef = useRef<Set<string>>(new Set());
 
   const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
@@ -94,7 +111,7 @@ export function CompletedDialog({ project }: Props) {
       saved.map(async (entry) => ({
         ...entry,
         localAsset: await hydrateAsset(entry.localAsset),
-      }))
+      })),
     );
     setEntries(hydrated);
     return { hydrated, allJobs };
@@ -148,20 +165,36 @@ export function CompletedDialog({ project }: Props) {
     if (!entry.renderId || !entry.bucketName) return;
     try {
       while (true) {
-        const p = await pollProgress({ data: { renderId: entry.renderId, bucketName: entry.bucketName } });
+        const p = await pollProgress({
+          data: { renderId: entry.renderId, bucketName: entry.bucketName },
+        });
         const pct = Math.round((p.overallProgress || 0) * 100);
         const next: RenderJob = { ...entry, progress: pct, status: "rendering" };
         saveJob(next);
-        setEntries((current) => current.map((it) => (it.id === entry.id ? { ...it, progress: pct, status: "rendering" } : it)));
+        setEntries((current) =>
+          current.map((it) =>
+            it.id === entry.id ? { ...it, progress: pct, status: "rendering" } : it,
+          ),
+        );
         if (p.done && p.outputFile) {
-          const done: RenderJob = { ...next, status: "completed", progress: 100, completedAt: Date.now(), downloadUrl: p.outputFile };
+          const done: RenderJob = {
+            ...next,
+            status: "completed",
+            progress: 100,
+            completedAt: Date.now(),
+            downloadUrl: p.outputFile,
+          };
           saveJob(done);
           setEntries((current) => current.map((it) => (it.id === entry.id ? done : it)));
           toast.success("Render complete");
           break;
         }
         if (p.fatalErrorEncountered && !p.outputFile) {
-          const failed: RenderJob = { ...next, status: "failed", error: p.errors[0]?.message || "Lambda render failed" };
+          const failed: RenderJob = {
+            ...next,
+            status: "failed",
+            error: p.errors[0]?.message || "Lambda render failed",
+          };
           saveJob(failed);
           setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
           toast.error(`Render failed: ${failed.error}`);
@@ -178,7 +211,7 @@ export function CompletedDialog({ project }: Props) {
 
   const completed = useMemo(
     () => entries.sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),
-    [entries]
+    [entries],
   );
 
   const handleDownload = async (entry: RenderJob) => {
@@ -187,18 +220,40 @@ export function CompletedDialog({ project }: Props) {
       const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
       const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
       const hydratedLocalUrl = entry.localAsset?.url || null;
-      // Lambda renders only have a remote downloadUrl; browser recordings prefer local.
-      const href = entry.kind === "lambda"
-        ? (entry.downloadUrl || hydratedLocalUrl)
-        : (hydratedLocalUrl || entry.downloadUrl || await getAssetDownloadUrl(entry.localAsset));
+      const storedHref =
+        entry.kind === "lambda"
+          ? entry.downloadUrl || hydratedLocalUrl
+          : hydratedLocalUrl || entry.downloadUrl || (await getAssetDownloadUrl(entry.localAsset));
 
-      if (!href) {
+      if (!storedHref) {
+        console.log("[render-download] missing url", {
+          entryId: entry.id,
+          filename,
+          kind: entry.kind,
+        });
         toast.error("File is not available yet");
         return;
       }
 
-      const isRemote = /^https?:/i.test(href);
-      triggerDownload(href, filename, isRemote);
+      let href = storedHref;
+      const isRemote = /^https?:/i.test(storedHref);
+      const pendingWindow = entry.kind === "lambda" && isRemote ? openPendingDownloadWindow() : null;
+
+      if (entry.kind === "lambda" && isRemote) {
+        href = await getFreshDownloadUrl({ data: { url: storedHref, filename } });
+      }
+
+      console.log("[render-download] trigger", {
+        entryId: entry.id,
+        filename,
+        storedUrl: storedHref,
+        finalUrl: href,
+        kind: entry.kind,
+      });
+      triggerDownload(href, filename, isRemote, pendingWindow);
+    } catch (error) {
+      console.error("[render-download] failed", { entryId: entry.id, error });
+      toast.error("Download failed. Please try again.");
     } finally {
       setBusyId(null);
     }
@@ -225,11 +280,14 @@ export function CompletedDialog({ project }: Props) {
       </DialogTrigger>
       <DialogContent className="panel max-w-xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="size-4" /> Completed renders</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <CheckCircle2 className="size-4" /> Completed renders
+          </DialogTitle>
         </DialogHeader>
 
         <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
-          Finished AWS Lambda renders and browser recordings stay here so you can re-download them anytime.
+          Finished AWS Lambda renders and browser recordings stay here so you can re-download them
+          anytime.
         </div>
 
         {completed.length === 0 && cloudOnly.length === 0 ? (
@@ -245,20 +303,40 @@ export function CompletedDialog({ project }: Props) {
                 const isLambda = entry.kind === "lambda";
                 const processing = entry.status === "queued" || entry.status === "rendering";
                 return (
-                  <div key={entry.id} className="rounded-lg border border-border bg-elevated/30 p-3 space-y-3">
+                  <div
+                    key={entry.id}
+                    className="rounded-lg border border-border bg-elevated/30 p-3 space-y-3"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="truncate text-sm font-medium text-foreground">{(entry.projectName || "Untitled").trim() || "Untitled"}.{ext}</span>
-                          {available ? <Badge variant="secondary">Ready</Badge> : <Badge variant="outline">{processing ? `${entry.progress || 0}%` : "Processing"}</Badge>}
+                          <span className="truncate text-sm font-medium text-foreground">
+                            {(entry.projectName || "Untitled").trim() || "Untitled"}.{ext}
+                          </span>
+                          {available ? (
+                            <Badge variant="secondary">Ready</Badge>
+                          ) : (
+                            <Badge variant="outline">
+                              {processing ? `${entry.progress || 0}%` : "Processing"}
+                            </Badge>
+                          )}
                           <Badge variant="outline" className="gap-1">
-                            {isLambda ? <Cloud className="size-3" /> : <Circle className="size-3" />}
+                            {isLambda ? (
+                              <Cloud className="size-3" />
+                            ) : (
+                              <Circle className="size-3" />
+                            )}
                             {isLambda ? "AWS Render" : "Browser Recording"}
                           </Badge>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" /> {formatDate(entry.completedAt || entry.createdAt)}</span>
-                          <span className="inline-flex items-center gap-1"><HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}</span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock3 className="size-3.5" />{" "}
+                            {formatDate(entry.completedAt || entry.createdAt)}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}
+                          </span>
                         </div>
                         {entry.error && <p className="text-xs text-destructive">{entry.error}</p>}
                       </div>
@@ -295,16 +373,27 @@ export function CompletedDialog({ project }: Props) {
                     {cloudOnly.map((entry) => {
                       const ext = entry.fileFormat || "mp4";
                       return (
-                        <div key={entry.id} className="rounded-lg border border-border bg-elevated/20 p-3 space-y-3">
+                        <div
+                          key={entry.id}
+                          className="rounded-lg border border-border bg-elevated/20 p-3 space-y-3"
+                        >
                           <div className="min-w-0 space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="truncate text-sm font-medium text-foreground">{entry.projectName}.{ext}</span>
+                              <span className="truncate text-sm font-medium text-foreground">
+                                {entry.projectName}.{ext}
+                              </span>
                               <Badge variant="secondary">Ready</Badge>
-                              <Badge variant="outline" className="gap-1"><Cloud className="size-3" /> S3</Badge>
+                              <Badge variant="outline" className="gap-1">
+                                <Cloud className="size-3" /> S3
+                              </Badge>
                             </div>
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-1"><Clock3 className="size-3.5" /> {formatDate(entry.completedAt)}</span>
-                              <span className="inline-flex items-center gap-1"><HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}</span>
+                              <span className="inline-flex items-center gap-1">
+                                <Clock3 className="size-3.5" /> {formatDate(entry.completedAt)}
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}
+                              </span>
                             </div>
                           </div>
                           <Button
