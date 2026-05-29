@@ -542,7 +542,7 @@ const snowField: Preset = {
   id: "snow-field", name: "Snow Field", category: "Particles",
   draw: (d) => {
     const { ctx, w, h, cfg, audio, t } = d;
-    const count = 120;
+    const count = Math.max(20, Math.min(400, (cfg.bandCount || 12) * 10));
     for (let i = 0; i < count; i++) {
       const seed = i * 37.3;
       const x = ((seed * 91 + t * 30) % w + w) % w;
