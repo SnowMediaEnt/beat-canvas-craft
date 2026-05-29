@@ -58,6 +58,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const [progress, setProgress] = useState(0);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
+  const [inlineError, setInlineError] = useState<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
@@ -80,8 +81,10 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     filename: string,
     kind: "lambda" | "browser",
   ) => {
+    setInlineError(null);
     if (!url) {
       console.log("[render-download] missing url", { filename, kind });
+      setInlineError("Download failed: file URL is missing.");
       toast.error("Download failed: file URL is missing.");
       return;
     }
@@ -104,6 +107,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       triggerDownload(nextUrl, filename, isRemote);
     } catch (error) {
       console.error("[render-download] failed", { url, filename, kind, error });
+      setInlineError("Download failed. Please try again.");
       toast.error("Download failed. Please try again.");
     }
   };
@@ -145,6 +149,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
   const startBrowserRecording = async () => {
     if (!project.audio) {
+      setInlineError("Upload an audio file first.");
       toast.error("Upload an audio file first");
       return;
     }
@@ -152,11 +157,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     const audioEl = audioRef.current;
     const engine = engineRef.current;
     if (!canvas || !audioEl || !engine) {
+      setInlineError("Editor not ready yet.");
       toast.error("Editor not ready yet");
       return;
     }
     const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
     if (!duration) {
+      setInlineError("Press play once so the audio duration loads.");
       toast.error("Press play once so the audio duration loads");
       return;
     }
@@ -558,6 +565,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             <Download className="size-4" /> Export Video
           </DialogTitle>
         </DialogHeader>
+
+        {inlineError && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {inlineError}
+          </div>
+        )}
 
         <Tabs defaultValue="browser" className="w-full">
           <TabsList className="grid grid-cols-2 w-full">
