@@ -285,28 +285,56 @@ const particleBurst: Preset = {
   },
 };
 
-// 10. Liquid blob
+// 10. Liquid blob — N-band perimeter, heavy bass swell, dual layer wobble.
 const liquidBlob: Preset = {
   id: "liquid-blob", name: "Liquid Blob", category: "Morph",
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const base = Math.min(d.w, d.h) * 0.2 * cfg.size;
-    const points = 80;
-    setGlow(ctx, cfg.glow, cfg.glowIntensity);
-    ctx.fillStyle = hexA(cfg.primary, 0.7);
+    const react = cfg.reactivity ?? 1;
+    const points = Math.max(24, cfg.bandCount || 80);
+    const levels = bandLevels(audio.freq, points, 0.8, cfg);
+    const beatKick = audio.beat ? 30 : 0;
+    const base = Math.min(d.w, d.h) * 0.2 * cfg.size * (1 + audio.bass * 0.45 * react);
+    const ox = Math.sin(t * 1.1) * audio.mid * 50 * react;
+    const oy = Math.cos(t * 0.9) * audio.mid * 40 * react;
+    setGlow(ctx, cfg.glow, cfg.glowIntensity * (1 + audio.bass * 0.8));
+
+    // Outer halo blob
+    ctx.fillStyle = hexA(cfg.accent, 0.35);
+    ctx.beginPath();
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2 + cfg.rotation * 0.5;
+      const v = levels[i % points];
+      const r = base * 1.25 + (v * 180 + beatKick) * react * cfg.size
+        + Math.sin(t * 1.7 + i * 0.4) * (14 + audio.treble * 40 * react);
+      const x = cx + ox + Math.cos(a) * r;
+      const y = cy + oy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+
+    // Core blob
+    const g = ctx.createRadialGradient(cx + ox, cy + oy, base * 0.2, cx + ox, cy + oy, base * 1.4);
+    g.addColorStop(0, hexA(cfg.primary, 0.9));
+    g.addColorStop(1, hexA(cfg.accent, 0.4));
+    ctx.fillStyle = g;
     ctx.beginPath();
     for (let i = 0; i <= points; i++) {
       const a = (i / points) * Math.PI * 2;
-      const v = freqAt(audio.freq, Math.floor((i / points) * audio.freq.length * 0.4), cfg);
-      const r = base + v * 60 + Math.sin(t * 2 + i * 0.3) * 12;
-      const x = cx + Math.cos(a) * r; const y = cy + Math.sin(a) * r;
+      const v = levels[i % points];
+      const r = base + (v * 220 + beatKick * 1.4) * react * cfg.size
+        + Math.sin(t * 3 + i * 0.7) * (10 + audio.mid * 30 * react)
+        + Math.sin(t * 5.5 + i * 1.3) * audio.treble * 18 * react;
+      const x = cx + ox + Math.cos(a) * r;
+      const y = cy + oy + Math.sin(a) * r;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
     ctx.closePath(); ctx.fill();
     ctx.shadowBlur = 0;
   },
 };
+
 
 // 11. Oscilloscope — uses primary→accent gradient, honors size + thickness.
 const oscilloscope: Preset = {
