@@ -8,6 +8,7 @@ function directDownload(href: string, filename: string) {
   a.href = href;
   a.download = filename;
   a.rel = "noopener";
+  a.target = "_blank";
   a.style.display = "none";
   document.body.appendChild(a);
   a.click();
@@ -27,22 +28,6 @@ function getProxyDownloadUrl(remoteUrl: string, filename: string) {
   return url.toString();
 }
 
-function downloadViaHiddenFrame(href: string) {
-  const frame = document.createElement("iframe");
-  frame.style.display = "none";
-  frame.setAttribute("aria-hidden", "true");
-  frame.src = href;
-  document.body.appendChild(frame);
-  window.setTimeout(() => {
-    frame.remove();
-  }, 60_000);
-}
-
 export function triggerDownload(href: string, filename: string, isRemote: boolean) {
-  if (!isRemote) {
-    directDownload(href, filename);
-    return;
-  }
-
-  downloadViaHiddenFrame(getProxyDownloadUrl(href, filename));
+  directDownload(isRemote ? getProxyDownloadUrl(href, filename) : href, filename);
 }
