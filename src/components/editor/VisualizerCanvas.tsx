@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "@/lib/project/types";
 import { AudioEngine, type AudioData } from "@/lib/visualizer/audioEngine";
 import { drawForegroundLayers } from "@/lib/visualizer/render-shared";
@@ -10,6 +10,49 @@ const ratioToWH = (r: string) => {
     case "4:5": return { w: 1080, h: 1350 };
     default: return { w: 1920, h: 1080 };
   }
+};
+
+const PREVIEW_DPR_CAP = 1.25;
+const PREVIEW_PARTICLE_CAP = 72;
+const PREVIEW_SNOW_PARTICLE_CAP = 48;
+const PREVIEW_BAND_CAPS: Record<string, number> = {
+  "circular-spectrum": 48,
+  "double-circular": 40,
+  "radial-bars": 48,
+  "liquid-blob": 40,
+  "tunnel": 24,
+  "bottom-wave": 36,
+  "rolling-wave": 36,
+  "spiral-bars": 24,
+  "leaf-border": 48,
+  "custom-equalizer": 48,
+};
+
+const getPreviewSafeProject = (project: Project): Project => {
+  const bandCap = PREVIEW_BAND_CAPS[project.visualizer.presetId] ?? 48;
+  const particleCap = project.effects.particles.type === "snow"
+    ? PREVIEW_SNOW_PARTICLE_CAP
+    : PREVIEW_PARTICLE_CAP;
+
+  return {
+    ...project,
+    visualizer: {
+      ...project.visualizer,
+      bandCount: Math.min(project.visualizer.bandCount, bandCap),
+      custom: {
+        ...project.visualizer.custom,
+        count: Math.min(project.visualizer.custom.count, bandCap),
+      },
+    },
+    effects: {
+      ...project.effects,
+      noise: false,
+      particles: {
+        ...project.effects.particles,
+        density: Math.min(project.effects.particles.density, particleCap),
+      },
+    },
+  };
 };
 
 interface Props {
@@ -30,6 +73,7 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
   const renderErrorRef = useRef<string | null>(null);
   const [size, setSize] = useState({ w: 800, h: 450 });
   const [renderError, setRenderError] = useState<string | null>(null);
+  const previewProject = useMemo(() => getPreviewSafeProject(project), [project]);
 
   const { w: rw, h: rh } = ratioToWH(project.aspectRatio);
 
@@ -75,8 +119,13 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
   // Render loop
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
+    if (!size.w || !size.h) return;
     const ctx = canvas.getContext("2d"); if (!ctx) return;
-    canvas.width = rw; canvas.height = rh;
+    const previewDpr = typeof window === "undefined" ? 1 : Math.min(PREVIEW_DPR_CAP, window.devicePixelRatio || 1);
+    const drawWidth = Math.max(1, Math.round(size.w * previewDpr));
+    const drawHeight = Math.max(1, Math.round(size.h * previewDpr));
+    canvas.width = drawWidth;
+    canvas.height = drawHeight;
     renderErrorRef.current = null;
     setRenderError(null);
     let raf = 0;
@@ -88,23 +137,23 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
 
     const loop = () => {
       raf = requestAnimationFrame(loop);
-      const cfg = project.visualizer;
+      const cfg = previewProject.visualizer;
       const t = (performance.now() - startRef.current) / 1000 * cfg.animationSpeed;
       const audio = engineRef.current
         ? engineRef.current.read({ master: cfg.sensitivity, bass: cfg.bassSensitivity, mid: cfg.midSensitivity, treble: cfg.trebleSensitivity })
         : empty;
 
       // Background
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, rw, rh);
+      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, drawWidth, drawHeight);
       const drawBg = (src: HTMLImageElement | HTMLVideoElement) => {
         const iw = "videoWidth" in src ? src.videoWidth : src.naturalWidth;
         const ih = "videoHeight" in src ? src.videoHeight : src.naturalHeight;
         if (!iw || !ih) return;
-        const scale = Math.max(rw / iw, rh / ih) * cfg.backgroundScale;
+        const scale = Math.max(drawWidth / iw, drawHeight / ih) * cfg.backgroundScale;
         const dw = iw * scale, dh = ih * scale;
         ctx.save();
         if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-        ctx.drawImage(src, (rw - dw) / 2, (rh - dh) / 2, dw, dh);
+        ctx.drawImage(src, (drawWidth - dw) / 2, (drawHeight - dh) / 2, dw, dh);
         ctx.restore();
       };
       if (bgVidRef.current) drawBg(bgVidRef.current);
@@ -114,21 +163,21 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
       if (cfg.backgroundTintOpacity > 0) {
         ctx.fillStyle = cfg.backgroundTint;
         ctx.globalAlpha = cfg.backgroundTintOpacity;
-        ctx.fillRect(0, 0, rw, rh);
+        ctx.fillRect(0, 0, drawWidth, drawHeight);
         ctx.globalAlpha = 1;
       }
 
       // Background pulse
       if (project.effects.backgroundPulse) {
         ctx.fillStyle = `rgba(255,255,255,${audio.bass * 0.08})`;
-        ctx.fillRect(0, 0, rw, rh);
+        ctx.fillRect(0, 0, drawWidth, drawHeight);
       }
 
       // Overlay
       if (cfg.overlayOpacity > 0) {
         ctx.fillStyle = cfg.overlay;
         ctx.globalAlpha = cfg.overlayOpacity;
-        ctx.fillRect(0, 0, rw, rh);
+        ctx.fillRect(0, 0, drawWidth, drawHeight);
         ctx.globalAlpha = 1;
       }
 
@@ -137,8 +186,8 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
       // produces identical proportions at any export resolution.
       try {
         drawForegroundLayers({
-          ctx, w: rw, h: rh, cfg, audio, t,
-          effects: project.effects, lyrics: project.lyrics,
+          ctx, w: drawWidth, h: drawHeight, cfg, audio, t,
+          effects: previewProject.effects, lyrics: previewProject.lyrics,
           logo: logoRef.current,
         });
       } catch (error) {
@@ -146,13 +195,13 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
           try {
             drawForegroundLayers({
               ctx,
-              w: rw,
-              h: rh,
+              w: drawWidth,
+              h: drawHeight,
               cfg: { ...cfg, presetId: "circular-spectrum" },
               audio,
               t,
-              effects: project.effects,
-              lyrics: project.lyrics,
+              effects: previewProject.effects,
+              lyrics: previewProject.lyrics,
               logo: logoRef.current,
             });
             return;
@@ -171,7 +220,7 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [project, rw, rh, engineRef]);
+  }, [previewProject, size.w, size.h, canvasRef, engineRef, project.effects.backgroundPulse]);
 
   // Hidden audio el wired to engine
   useEffect(() => {
