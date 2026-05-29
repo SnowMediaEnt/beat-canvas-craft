@@ -154,6 +154,10 @@ export const startLambdaRender = createServerFn({ method: "POST" })
             privacy: "public",
             concurrencyPerLambda: 1,
             framesPerLambda,
+            // Bump from the 30s default — cold Lambda workers often need
+            // longer to fetch + parse the audio metadata from Supabase
+            // storage, otherwise <Audio> throws a delayRender timeout.
+            delayRenderTimeoutInMilliseconds: 120000,
           });
           break;
         } catch (err) {
