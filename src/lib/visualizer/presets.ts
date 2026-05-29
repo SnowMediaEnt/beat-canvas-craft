@@ -884,7 +884,7 @@ const tidalBloom: Preset = {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
     const react = cfg.reactivity ?? 1;
-    const ringCount = 18;
+    const ringCount = Math.max(4, Math.min(64, cfg.bandCount || 18));
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.7);
     for (let i = 0; i < ringCount; i++) {
       const cycle = 2.2;
