@@ -72,8 +72,9 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
 export const defaultLyrics = (): LyricsConfig => ({
   enabled: false, lines: [], style: "subtitle", position: "bottom",
   fontFamily: "Arial", fontSize: 42, color: "#ffffff",
-  outline: true, shadow: true, glow: false, fade: true,
+  outline: true, shadow: true, glow: false, fade: true, timingOffset: 0,
 });
+
 
 export const defaultEffects = (): EffectsConfig => ({
   particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
