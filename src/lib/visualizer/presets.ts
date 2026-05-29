@@ -71,6 +71,29 @@ function freqAt(freq: Uint8Array, idx: number, cfg?: VisualizerConfig, sampleRat
 }
 
 /**
+ * Sample the spectrum at a normalized spatial position (0..1) log-spaced
+ * across the audible range. This is what every "flowing" preset (wave,
+ * fluid-flow, aurora, murmuration, tidal-bloom, …) should use so the
+ * visible motion from left → right (or around the ring) maps the FULL
+ * 20 Hz – 20 kHz range, not just the bass-heavy first 30 % of bins.
+ *
+ * `upper` clips the top of the range — pass 1.0 for the full 20 kHz,
+ * 0.7 for ~14 kHz where most musical energy lives.
+ */
+function freqAtPos(audio: AudioData, pos01: number, cfg?: VisualizerConfig, upper = 1): number {
+  const freq = audio.freq;
+  if (!freq.length) return 0;
+  const sampleRate = audio.sampleRate && audio.sampleRate > 0 ? audio.sampleRate : 48000;
+  const nyquist = sampleRate / 2;
+  const minHz = AUDIBLE_MIN_HZ;
+  const maxHz = Math.min(nyquist, AUDIBLE_MAX_HZ * Math.max(0.05, Math.min(1, upper)));
+  const p = Math.max(0, Math.min(1, pos01));
+  const hz = Math.exp(Math.log(minHz) + p * (Math.log(maxHz) - Math.log(minHz)));
+  const idx = Math.max(0, Math.min(freq.length - 1, Math.round(hzToBin(hz, freq.length, sampleRate))));
+  return (safeArrayValue(freq, idx) / 255) * bandMulForHz(hz, cfg);
+}
+
+/**
  * Compute log-spaced band levels across the audible range (20 Hz – 20 kHz).
  * Every band covers an equal slice of log-Hz, so a 12-band equalizer always
  * shows sub-bass → bass → low-mid → mid → high-mid → presence → brilliance
