@@ -674,7 +674,7 @@ const leafBorder: Preset = {
   draw: (d) => {
     const { ctx, cfg, audio, t } = d;
     const { cx, cy } = center(d);
-    const leaves = Math.max(12, (cfg.bandCount || 12) * 2);
+    const leaves = Math.min(256, Math.max(12, (cfg.bandCount || 12) * 2));
     const levels = bandLevels(audio.freq, leaves, 0.7, cfg);
     const baseR = Math.min(d.w, d.h) * (0.18 + cfg.logoSize * 0.3) * cfg.size;
     setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.6);
