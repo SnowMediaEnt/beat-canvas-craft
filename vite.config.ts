@@ -44,7 +44,12 @@ export default defineConfig({
   vite: {
     resolve: {
       alias: {
-        "node:process": processShimPath,
+        // `node:process` is provided natively by workerd when the
+        // `nodejs_compat` compatibility flag is set (see wrangler.jsonc),
+        // so we do NOT alias it — aliasing here previously caused
+        // "No such module node:process" at runtime in the SSR worker build.
+        // We still shim the bare `process` import for libs that expect the
+        // browserified package.
         process: processShimPath,
       },
     },
