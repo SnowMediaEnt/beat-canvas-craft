@@ -81,7 +81,7 @@ export function RightPanel({ project, update }: Props) {
   };
 
   return (
-    <aside className="w-80 shrink-0 min-h-0 panel rounded-xl overflow-hidden flex flex-col">
+    <aside className="w-full lg:w-80 shrink-0 min-h-0 max-h-[50vh] lg:max-h-none panel rounded-xl overflow-hidden flex flex-col">
       <Tabs defaultValue="style" className="flex-1 min-h-0 flex flex-col">
         <TabsList className="grid grid-cols-4 m-2 bg-elevated/60">
           <TabsTrigger value="style">Style</TabsTrigger>
