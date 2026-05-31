@@ -241,8 +241,11 @@ export function CompletedDialog({ project }: Props) {
       let href = storedHref;
       const isRemote = /^https?:/i.test(storedHref);
 
+      // Route lambda S3 renders through our same-origin proxy so the
+      // download works on mobile Safari (cross-origin `download` attr is
+      // ignored) and we get a real Content-Disposition: attachment response.
       if (entry.kind === "lambda" && isRemote) {
-        href = await getFreshDownloadUrl({ data: { url: storedHref, filename } });
+        href = buildProxyDownloadUrl(storedHref, filename);
       }
 
       console.log("[render-download] trigger", {
@@ -253,6 +256,7 @@ export function CompletedDialog({ project }: Props) {
         kind: entry.kind,
       });
       triggerDownload(href, filename, isRemote);
+
     } catch (error) {
       console.error("[render-download] failed", { entryId: entry.id, error });
       setInlineError("Download failed. Please try again.");
