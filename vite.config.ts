@@ -44,13 +44,14 @@ export default defineConfig({
   vite: {
     resolve: {
       alias: {
-        // `node:process` is provided natively by workerd when the
-        // `nodejs_compat` compatibility flag is set (see wrangler.jsonc),
-        // so we do NOT alias it — aliasing here previously caused
-        // "No such module node:process" at runtime in the SSR worker build.
-        // We still shim the bare `process` import for libs that expect the
-        // browserified package.
+        // Shim both `process` and `node:process`. The AWS SDK (pulled in by
+        // @remotion/lambda-client) imports `node:process` directly; the
+        // Cloudflare worker bundle emits that specifier literally and workerd
+        // then throws `No such module "node:process"` at runtime, even with
+        // `nodejs_compat` enabled. Aliasing to our shim resolves it at build
+        // time so the worker never tries to load the node: namespace module.
         process: processShimPath,
+        "node:process": processShimPath,
       },
     },
     plugins: [patchRemotionLambdaCreateRequire],
