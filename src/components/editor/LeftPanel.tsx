@@ -230,7 +230,7 @@ export function LeftPanel({ project, update }: Props) {
         }}
         onDoubleClick={() => setWidth(288)}
         title="Drag to resize · double-click to reset"
-        className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+        className="hidden lg:block absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
       />
     </aside>
   );
