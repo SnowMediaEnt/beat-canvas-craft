@@ -25,9 +25,9 @@ import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/as
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
-import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
-import { triggerDownload } from "@/lib/render/download";
+import { triggerDownload, buildProxyDownloadUrl } from "@/lib/render/download";
+
 
 interface Props {
   project: Project;
