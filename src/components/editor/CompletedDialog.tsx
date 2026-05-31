@@ -59,7 +59,7 @@ export function CompletedDialog({ project }: Props) {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
-  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
+
   const pollingRef = useRef<Set<string>>(new Set());
 
   const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
