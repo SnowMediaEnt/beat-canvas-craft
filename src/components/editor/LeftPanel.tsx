@@ -71,7 +71,11 @@ export function LeftPanel({ project, update }: Props) {
   }, [width]);
 
   return (
-    <aside className="shrink-0 panel rounded-xl overflow-hidden flex flex-col relative" style={{ width }}>
+    <aside
+      className="shrink-0 panel rounded-xl overflow-hidden flex flex-col relative w-full lg:w-[var(--lp-w)] max-h-[50vh] lg:max-h-none"
+      style={{ ["--lp-w" as any]: `${width}px` }}
+    >
+
       <ScrollArea className="flex-1">
         <div className="p-4 pr-5 space-y-5">
           <Section title="Assets" defaultOpen>
