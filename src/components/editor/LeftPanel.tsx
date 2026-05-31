@@ -79,7 +79,7 @@ export function LeftPanel({ project, update }: Props) {
       <ScrollArea className="flex-1">
         <div className="p-4 pr-5 space-y-5">
           <Section title="Assets" defaultOpen>
-            <UploadField label="Audio" accept="audio/*" value={project.audio}
+            <UploadField label="Audio" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.aiff,.aif" value={project.audio}
               onChange={(a) => update(p => ({ ...p, audio: a }))} />
             <TranscriptionStatus audio={project.audio} />
             <UploadField label="Logo" accept="image/png,image/svg+xml,image/jpeg" value={project.logo}
