@@ -71,11 +71,15 @@ export function LeftPanel({ project, update }: Props) {
   }, [width]);
 
   return (
-    <aside className="shrink-0 panel rounded-xl overflow-hidden flex flex-col relative" style={{ width }}>
+    <aside
+      className="shrink-0 panel rounded-xl overflow-hidden flex flex-col relative w-full lg:w-[var(--lp-w)] max-h-[50vh] lg:max-h-none"
+      style={{ ["--lp-w" as any]: `${width}px` }}
+    >
+
       <ScrollArea className="flex-1">
         <div className="p-4 pr-5 space-y-5">
           <Section title="Assets" defaultOpen>
-            <UploadField label="Audio" accept="audio/*" value={project.audio}
+            <UploadField label="Audio" accept="audio/*,.mp3,.m4a,.wav,.aac,.flac,.ogg,.oga,.opus,.aiff,.aif" value={project.audio}
               onChange={(a) => update(p => ({ ...p, audio: a }))} />
             <TranscriptionStatus audio={project.audio} />
             <UploadField label="Logo" accept="image/png,image/svg+xml,image/jpeg" value={project.logo}
@@ -226,7 +230,7 @@ export function LeftPanel({ project, update }: Props) {
         }}
         onDoubleClick={() => setWidth(288)}
         title="Drag to resize · double-click to reset"
-        className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
+        className="hidden lg:block absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors"
       />
     </aside>
   );

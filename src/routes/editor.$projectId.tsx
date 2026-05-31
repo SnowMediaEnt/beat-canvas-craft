@@ -100,35 +100,36 @@ function EditorPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col p-3 gap-3 overflow-hidden">
-      <header className="panel rounded-xl px-4 py-2.5 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
+    <div className="h-screen flex flex-col p-2 sm:p-3 gap-2 sm:gap-3 overflow-hidden">
+      <header className="panel rounded-xl px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <Button size="icon" variant="ghost" onClick={() => nav({ to: "/" })}><ArrowLeft className="size-4" /></Button>
-          <div className="flex items-center gap-2">
-            <div className="size-7 rounded-md bg-gradient-to-br from-primary to-accent grid place-items-center">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="size-7 rounded-md bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0">
               <Sparkles className="size-3.5 text-primary-foreground" />
             </div>
             <Input
               value={project.name}
               onChange={(e) => update(p => ({ ...p, name: e.target.value }))}
-              className="h-8 bg-transparent border-0 focus-visible:ring-1 focus-visible:ring-primary w-64 font-medium"
+              className="h-8 bg-transparent border-0 focus-visible:ring-1 focus-visible:ring-primary w-32 sm:w-64 font-medium"
             />
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-muted-foreground hidden md:inline">Auto-saved</span>
           <CompletedDialog project={project} />
           <ExportDialog project={project} update={update} canvasRef={canvasRef} audioRef={audioRef} engineRef={engineRef} />
         </div>
       </header>
 
-      <div className="flex-1 flex gap-3 min-h-0">
+      <div className="flex-1 flex flex-col lg:flex-row gap-2 sm:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden">
         <LeftPanel project={project} update={update} />
-        <main className="flex-1 panel rounded-xl overflow-hidden min-w-0">
+        <main className="flex-1 panel rounded-xl overflow-hidden min-w-0 min-h-[40vh] lg:min-h-0">
           <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} canvasRef={canvasRef} />
         </main>
         <RightPanel project={project} update={update} />
       </div>
+
 
       <Transport project={project} update={update} audioRef={audioRef} onPlayToggle={togglePlay} />
 

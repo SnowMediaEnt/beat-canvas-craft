@@ -25,9 +25,9 @@ import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/as
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
-import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
-import { triggerDownload } from "@/lib/render/download";
+import { triggerDownload, buildProxyDownloadUrl } from "@/lib/render/download";
+
 
 interface Props {
   project: Project;
@@ -59,7 +59,7 @@ export function CompletedDialog({ project }: Props) {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
-  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
+
   const pollingRef = useRef<Set<string>>(new Set());
 
   const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
@@ -241,8 +241,11 @@ export function CompletedDialog({ project }: Props) {
       let href = storedHref;
       const isRemote = /^https?:/i.test(storedHref);
 
+      // Route lambda S3 renders through our same-origin proxy so the
+      // download works on mobile Safari (cross-origin `download` attr is
+      // ignored) and we get a real Content-Disposition: attachment response.
       if (entry.kind === "lambda" && isRemote) {
-        href = await getFreshDownloadUrl({ data: { url: storedHref, filename } });
+        href = buildProxyDownloadUrl(storedHref, filename);
       }
 
       console.log("[render-download] trigger", {
@@ -253,6 +256,7 @@ export function CompletedDialog({ project }: Props) {
         kind: entry.kind,
       });
       triggerDownload(href, filename, isRemote);
+
     } catch (error) {
       console.error("[render-download] failed", { entryId: entry.id, error });
       setInlineError("Download failed. Please try again.");
