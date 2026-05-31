@@ -1,13 +1,14 @@
-// Triggers a file download. For cross-origin signed S3 URLs we rely on the
-// server-set `Content-Disposition: attachment` header to force a download,
-// and navigate via a hidden anchor click in the SAME tab — opening these in
-// a new tab via window.open leaves a blank white tab behind in most browsers
-// (Chrome/Edge can't close cross-origin tabs it didn't fully load).
+// Triggers a file download. Cross-origin signed S3 URLs are unreliable on
+// mobile: the `download` attribute is ignored for cross-origin URLs, and
+// mobile Safari navigates away to the file instead of downloading. For
+// lambda renders we therefore route through the same-origin proxy at
+// /api/public/render-download which streams the S3 object back with
+// Content-Disposition: attachment, which all browsers honor as a download.
 function clickAnchor(href: string, filename?: string) {
   const a = document.createElement("a");
   a.href = href;
   if (filename) a.download = filename;
-  a.rel = "noopener noreferrer";
+  a.rel = "noopener";
   a.style.position = "fixed";
   a.style.left = "-9999px";
   a.style.top = "0";
@@ -16,11 +17,13 @@ function clickAnchor(href: string, filename?: string) {
   document.body.removeChild(a);
 }
 
+export function buildProxyDownloadUrl(s3Url: string, filename?: string) {
+  const params = new URLSearchParams({ url: s3Url });
+  if (filename) params.set("filename", filename);
+  return `/api/public/render-download?${params.toString()}`;
+}
+
 export function triggerDownload(href: string, filename?: string, _openInNewTab = false) {
-  // Always use an in-page anchor click. For signed S3 URLs the response has
-  // Content-Disposition: attachment, so the browser downloads the file
-  // without navigating away. For local blob: URLs the download attribute
-  // does the same. No new tab, no white page.
   try {
     clickAnchor(href, filename);
   } catch {
