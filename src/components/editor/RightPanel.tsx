@@ -98,7 +98,7 @@ export function RightPanel({ project, update }: Props) {
         <TabPanel value="style">
           <Section title="AI Generator">
             <p className="text-[11px] text-muted-foreground -mt-1">
-              Describe a vibe — colors, shape, motion are auto-tuned into the Custom Equalizer.
+              Describe a vibe — colors, shape, motion, and a matching background image are auto-tuned.
             </p>
             <div className="flex gap-1.5">
               <Input
