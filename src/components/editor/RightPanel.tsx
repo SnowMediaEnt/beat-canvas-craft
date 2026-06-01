@@ -49,12 +49,9 @@ export function RightPanel({ project, update }: Props) {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
-      const { patch } = await generate({ data: { prompt: prompt.trim() } });
+      const { patch, backgroundUrl } = await generate({ data: { prompt: prompt.trim() } });
       const customPatch = (patch.custom as { shape?: string } | undefined) || {};
       const shape = customPatch.shape;
-      // Anchor floor-based shapes at the bottom by default; centered shapes
-      // (radial/ring) keep the canvas center. Users can still override via
-      // Style → Visualizer → Position Y.
       const floorShapes = new Set(["bars", "wave", "triangles", "dots", "mirrored"]);
       const defaultPosition =
         shape && floorShapes.has(shape)
@@ -71,8 +68,16 @@ export function RightPanel({ project, update }: Props) {
           position: defaultPosition ?? p.visualizer.position,
           custom: { ...p.visualizer.custom, ...((patch.custom as object) || {}) },
         } as Project["visualizer"],
+        background: backgroundUrl
+          ? {
+              id: `ai-bg-${Date.now()}`,
+              name: "AI background",
+              type: "image/png",
+              url: backgroundUrl,
+            }
+          : p.background,
       }));
-      toast.success("Generated preset applied");
+      toast.success(backgroundUrl ? "Generated preset + background applied" : "Generated preset applied");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Generation failed");
     } finally {
@@ -93,7 +98,7 @@ export function RightPanel({ project, update }: Props) {
         <TabPanel value="style">
           <Section title="AI Generator">
             <p className="text-[11px] text-muted-foreground -mt-1">
-              Describe a vibe — colors, shape, motion are auto-tuned into the Custom Equalizer.
+              Describe a vibe — colors, shape, motion, and a matching background image are auto-tuned.
             </p>
             <div className="flex gap-1.5">
               <Input
