@@ -86,5 +86,51 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
     const json = await res.json();
     const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
     if (!args) throw new Error("AI returned no preset");
-    return { patch: JSON.parse(args) as Record<string, string | number | boolean | Record<string, string | number | boolean>> };
+    const patch = JSON.parse(args) as Record<string, string | number | boolean | Record<string, string | number | boolean>>;
+
+    // ---- Background image generation -------------------------------------
+    // Generate a matching cinematic background using the same prompt, upload
+    // it to the render-assets bucket, and return a public URL the client can
+    // wire into project.background. Image generation failures are non-fatal:
+    // the preset patch still applies.
+    let backgroundUrl: string | null = null;
+    try {
+      const palette = [patch.primary, patch.secondary, patch.accent, patch.glow]
+        .filter((v): v is string => typeof v === "string")
+        .join(", ");
+      const imgPrompt = `Cinematic abstract background for an audio visualizer. Vibe: ${data.prompt}. Color palette: ${palette || "neon, vivid"}. Atmospheric, soft depth, painterly lighting, subtle texture. No text, no logos, no characters, no UI elements. 16:9 widescreen composition.`;
+      const imgRes = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-3.1-flash-image-preview",
+          messages: [{ role: "user", content: imgPrompt }],
+          modalities: ["image", "text"],
+        }),
+      });
+      if (imgRes.ok) {
+        const imgJson = await imgRes.json();
+        const b64 = imgJson?.data?.[0]?.b64_json as string | undefined;
+        if (b64) {
+          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const id = `ai-bg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const path = `${id}.png`;
+          const { error: upErr } = await supabaseAdmin.storage
+            .from("render-assets")
+            .upload(path, bytes, { contentType: "image/png", upsert: true });
+          if (!upErr) {
+            backgroundUrl = supabaseAdmin.storage.from("render-assets").getPublicUrl(path).data.publicUrl;
+          } else {
+            console.warn("[ai-generate] bg upload failed", upErr.message);
+          }
+        }
+      } else {
+        console.warn("[ai-generate] bg image request failed", imgRes.status);
+      }
+    } catch (e) {
+      console.warn("[ai-generate] bg generation error", e instanceof Error ? e.message : e);
+    }
+
+    return { patch, backgroundUrl };
   });
