@@ -171,8 +171,16 @@ function buildAudioData(
   const wave = new Uint8Array(new ArrayBuffer(waveLen)) as Uint8Array<ArrayBuffer>;
 
   if (bins) {
+    // Temporal smoothing — exponential moving average over the linear bins
+    // before dB conversion, matching AnalyserNode's behaviour.
+    if (!state.smoothed || state.smoothed.length !== freqLen) {
+      state.smoothed = new Float32Array(freqLen);
+    }
+    const sm = state.smoothed;
     for (let i = 0; i < freqLen; i++) {
-      freq[i] = linearToByte(bins[i]);
+      const raw = Math.max(0, bins[i]);
+      sm[i] = sm[i] * SMOOTHING + raw * (1 - SMOOTHING);
+      freq[i] = linearToByte(sm[i]);
     }
   }
 
