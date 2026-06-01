@@ -25,7 +25,6 @@ import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/as
 import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
-import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import { toast } from "sonner";
 import { triggerDownload, buildProxyDownloadUrl } from "@/lib/render/download";
 
@@ -60,7 +59,6 @@ export function CompletedDialog({ project }: Props) {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
-  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
 
   const pollingRef = useRef<Set<string>>(new Set());
 
@@ -243,15 +241,12 @@ export function CompletedDialog({ project }: Props) {
       let href = storedHref;
       const isRemote = /^https?:/i.test(storedHref);
 
-      // Cloud render entries store the plain S3 object URL, which is not
-      // directly downloadable. First sign it, then route the signed URL
-      // through our same-origin proxy so mobile browsers honor it as a file
-      // download instead of navigating to a blank/error page.
+      // Keep the tap path synchronous: route the plain S3 object URL through
+      // our same-origin proxy and let the server sign/fetch it there. Mobile
+      // browsers are much stricter when the actual download starts after an
+      // async hop in the click handler.
       if (entry.kind === "lambda" && isRemote) {
-        const signedUrl = await getFreshDownloadUrl({
-          data: { url: storedHref, filename },
-        });
-        href = buildProxyDownloadUrl(signedUrl, filename);
+        href = buildProxyDownloadUrl(storedHref, filename);
       }
 
       console.log("[render-download] trigger", {

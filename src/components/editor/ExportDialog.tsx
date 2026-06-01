@@ -27,13 +27,12 @@ import {
   getLambdaProgress,
   cancelLambdaRender,
 } from "@/lib/render/lambda.functions";
-import { getFreshRenderDownloadUrl } from "@/lib/render/download.functions";
 import {
   assertRenderableAssetUrl,
   uploadAssetForRender,
   uploadBlobForRender,
 } from "@/lib/render/upload";
-import { triggerDownload } from "@/lib/render/download";
+import { buildProxyDownloadUrl, triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
@@ -74,7 +73,6 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
   const cancelRender = useServerFn(cancelLambdaRender);
-  const getFreshDownloadUrl = useServerFn(getFreshRenderDownloadUrl);
 
   const downloadFile = async (
     url: string | null | undefined,
@@ -95,7 +93,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       let nextUrl = url;
 
       if (kind === "lambda" && isRemote) {
-        nextUrl = await getFreshDownloadUrl({ data: { url, filename } });
+        nextUrl = buildProxyDownloadUrl(url, filename);
       }
 
       console.log("[render-download] download trigger", {

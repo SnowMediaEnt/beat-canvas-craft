@@ -24,6 +24,11 @@ export function buildProxyDownloadUrl(s3Url: string, filename?: string) {
 }
 
 export function triggerDownload(href: string, filename?: string, _openInNewTab = false) {
+  if (href.startsWith("/api/public/render-download?")) {
+    window.location.assign(href);
+    return;
+  }
+
   try {
     clickAnchor(href, filename);
   } catch {
