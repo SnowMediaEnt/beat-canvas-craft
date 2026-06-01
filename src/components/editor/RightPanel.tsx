@@ -49,12 +49,9 @@ export function RightPanel({ project, update }: Props) {
     if (!prompt.trim()) return;
     setBusy(true);
     try {
-      const { patch } = await generate({ data: { prompt: prompt.trim() } });
+      const { patch, backgroundUrl } = await generate({ data: { prompt: prompt.trim() } });
       const customPatch = (patch.custom as { shape?: string } | undefined) || {};
       const shape = customPatch.shape;
-      // Anchor floor-based shapes at the bottom by default; centered shapes
-      // (radial/ring) keep the canvas center. Users can still override via
-      // Style → Visualizer → Position Y.
       const floorShapes = new Set(["bars", "wave", "triangles", "dots", "mirrored"]);
       const defaultPosition =
         shape && floorShapes.has(shape)
@@ -71,8 +68,16 @@ export function RightPanel({ project, update }: Props) {
           position: defaultPosition ?? p.visualizer.position,
           custom: { ...p.visualizer.custom, ...((patch.custom as object) || {}) },
         } as Project["visualizer"],
+        background: backgroundUrl
+          ? {
+              id: `ai-bg-${Date.now()}`,
+              name: "AI background",
+              type: "image/png",
+              url: backgroundUrl,
+            }
+          : p.background,
       }));
-      toast.success("Generated preset applied");
+      toast.success(backgroundUrl ? "Generated preset + background applied" : "Generated preset applied");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Generation failed");
     } finally {
