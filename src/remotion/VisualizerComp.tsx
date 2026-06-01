@@ -110,18 +110,21 @@ export const defaultVisualizerProps: VisualizerProps = {
   },
 };
 
-const FFT_SAMPLES = 256 as const;
+// Match the live preview's AnalyserNode: fftSize=1024 → frequencyBinCount=512.
+// Using a different bin count changes per-bin Hz width and therefore how
+// much energy each bin sums — which directly changes the byte value after
+// dB conversion. Keep in sync with AudioEngine.fftSize in audioEngine.ts.
+const FFT_SAMPLES = 512 as const;
 
 /**
  * Convert Remotion's linear-amplitude FFT bins to the same 0–255 byte range
- * that the browser's AnalyserNode.getByteFrequencyData() produces in the live
- * preview. AnalyserNode applies a dB conversion (default minDb=-100, maxDb=-30)
- * — that's why bass (which is loud in linear terms) looks fine in render but
- * mids/highs (which are linearly tiny) come out far too small. Doing the same
- * dB mapping here makes every band scale the same way preview does.
+ * the browser's AnalyserNode.getByteFrequencyData() produces in the live
+ * preview. Match AnalyserNode's defaults exactly (minDecibels=-100,
+ * maxDecibels=-30) so the same audio maps to the same byte value in both
+ * places — otherwise the render comes out louder (or quieter) than preview.
  */
-const MIN_DB = -85;
-const MAX_DB = -20;
+const MIN_DB = -100;
+const MAX_DB = -30;
 const DB_RANGE = MAX_DB - MIN_DB;
 
 function linearToByte(linear: number): number {
@@ -138,7 +141,15 @@ type AudioState = {
   lastBass: number;
   /** Frames remaining until another beat can fire. Matches AudioEngine's 8-frame cooldown. */
   beatCooldown: number;
+  /**
+   * Per-bin EMA buffer. AnalyserNode applies temporal smoothing with
+   * smoothingTimeConstant (preview = 0.5 in AudioEngine). Without it, the
+   * render shows raw per-frame peaks and bars look pinned to the top.
+   */
+  smoothed: Float32Array | null;
 };
+
+const SMOOTHING = 0.5;
 
 /**
  * Build an AudioData snapshot from a single Remotion frame, matching the
