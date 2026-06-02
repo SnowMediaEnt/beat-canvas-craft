@@ -96,7 +96,7 @@ export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
               renderId: match[1],
               bucketName,
               key,
-              url: `https://s3.${region}.amazonaws.com/${bucketName}/${key}`,
+              url: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
               sizeBytes: size,
               lastModified: lastModified ? new Date(lastModified).getTime() : 0,
               fileFormat: match[2] as "mp4" | "webm",
