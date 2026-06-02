@@ -6,6 +6,10 @@ const REMOTION_OUTPUT_PREFIX = "renders/";
 const PROGRESS_CACHE_TTL_MS = 8000;
 const PROGRESS_STALE_FALLBACK_MS = 30000;
 
+function buildPublicRenderUrl(region: string, bucketName: string, renderId: string) {
+  return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
+}
+
 type LambdaProgressResponse = {
   done: boolean;
   overallProgress: number;
@@ -77,7 +81,11 @@ function toLambdaProgressResponse(
   let outputFile = p.outputFile ?? undefined;
 
   if (!outputFile && p.done && !p.fatalErrorEncountered) {
-    outputFile = `https://s3.${region}.amazonaws.com/${bucketName}/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
+    outputFile = buildPublicRenderUrl(region, bucketName, renderId);
+  }
+
+  if (p.done && !p.fatalErrorEncountered) {
+    outputFile = buildPublicRenderUrl(region, bucketName, renderId);
   }
 
   return {
