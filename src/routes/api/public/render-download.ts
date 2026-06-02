@@ -35,6 +35,25 @@ function encodeObjectKey(key: string) {
 }
 
 function parseS3Target(rawUrl: string) {
+  const defaultRegion = process.env.REMOTION_AWS_REGION || "us-east-1";
+
+  if (rawUrl.startsWith("s3://")) {
+    const parsed = new URL(rawUrl);
+    const bucketName = parsed.hostname;
+    const objectKey = parsed.pathname.replace(/^\/+/, "").split("/").map(decodePathSegment).join("/");
+
+    if (!ALLOWED_KEY_BUCKET.test(bucketName) || !objectKey) {
+      throw new Error("bucket not allowed");
+    }
+
+    return {
+      bucketName,
+      objectKey,
+      region: defaultRegion,
+      hasExplicitRegion: false,
+    };
+  }
+
   const parsed = new URL(rawUrl);
   if (parsed.protocol !== "https:" || !ALLOWED_HOST.test(parsed.hostname)) {
     throw new Error("host not allowed");
@@ -42,7 +61,6 @@ function parseS3Target(rawUrl: string) {
 
   const pathParts = parsed.pathname.split("/").filter(Boolean).map(decodePathSegment);
   const regionMatch = parsed.hostname.match(/(?:^|\.)(?:s3[.-]([a-z0-9-]+))\.amazonaws\.com$/i);
-  const defaultRegion = process.env.REMOTION_AWS_REGION || "us-east-1";
 
   let bucketName = "";
   let objectKey = "";
@@ -63,15 +81,43 @@ function parseS3Target(rawUrl: string) {
     bucketName,
     objectKey,
     region: regionMatch?.[1] || defaultRegion,
+    hasExplicitRegion: Boolean(regionMatch?.[1]),
   };
 }
 
-async function ensureSignedDownloadUrl(rawUrl: string, filename: string) {
-  const parsed = new URL(rawUrl);
-  if (parsed.searchParams.has("X-Amz-Signature")) {
-    return parsed.toString();
+async function resolveBucketRegion(
+  bucketName: string,
+  fallbackRegion: string,
+  accessKeyId: string,
+  secretAccessKey: string,
+  sessionToken?: string,
+) {
+  const awsGlobal = new AwsClient({
+    accessKeyId,
+    secretAccessKey,
+    sessionToken,
+    service: "s3",
+    region: "us-east-1",
+  });
+
+  try {
+    const locRes = await awsGlobal.fetch(`https://s3.amazonaws.com/${bucketName}?location`, {
+      method: "GET",
+    });
+    if (!locRes.ok) return fallbackRegion;
+
+    const locXml = await locRes.text();
+    const loc = locXml.match(/<LocationConstraint[^>]*>([^<]*)<\/LocationConstraint>/)?.[1]?.trim();
+    if (loc) return loc;
+    if (locXml.includes("LocationConstraint")) return "us-east-1";
+  } catch (error) {
+    console.error("[render-download] bucket region lookup failed", { bucketName, error });
   }
 
+  return fallbackRegion;
+}
+
+async function fetchSignedObject(rawUrl: string, filename: string) {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
   const sessionToken = process.env.AWS_SESSION_TOKEN;
@@ -79,9 +125,21 @@ async function ensureSignedDownloadUrl(rawUrl: string, filename: string) {
     throw new Error("missing aws credentials");
   }
 
-  const { bucketName, objectKey, region } = parseS3Target(rawUrl);
-  const signTarget = new URL(`https://s3.${region}.amazonaws.com/${bucketName}/${encodeObjectKey(objectKey)}`);
-  signTarget.searchParams.set(
+  const target = parseS3Target(rawUrl);
+  const region = target.hasExplicitRegion
+    ? target.region
+    : await resolveBucketRegion(
+        target.bucketName,
+        target.region,
+        accessKeyId,
+        secretAccessKey,
+        sessionToken,
+      );
+
+  const objectUrl = new URL(
+    `https://${target.bucketName}.s3.${region}.amazonaws.com/${encodeObjectKey(target.objectKey)}`,
+  );
+  objectUrl.searchParams.set(
     "response-content-disposition",
     `attachment; filename=\"${sanitizeFilename(filename)}\"`,
   );
@@ -94,12 +152,9 @@ async function ensureSignedDownloadUrl(rawUrl: string, filename: string) {
     region,
   });
 
-  const signed = await client.sign(signTarget.toString(), {
+  return client.fetch(objectUrl.toString(), {
     method: "GET",
-    aws: { signQuery: true },
   });
-
-  return signed.url.toString();
 }
 
 export const Route = createFileRoute("/api/public/render-download")({
@@ -112,19 +167,20 @@ export const Route = createFileRoute("/api/public/render-download")({
         const filename = sanitizeFilename(u.searchParams.get("filename") || "render.mp4");
         if (!target) return new Response("missing url", { status: 400, headers: CORS });
 
-        let parsed: URL;
         try {
-          parsed = new URL(await ensureSignedDownloadUrl(target, filename));
-          parseS3Target(parsed.toString());
+          parseS3Target(target);
         } catch (error) {
           const message = error instanceof Error ? error.message : "bad url";
           const status = message === "bad url" ? 400 : message.includes("allowed") ? 403 : 500;
           return new Response(message, { status, headers: CORS });
         }
 
-        const upstream = await fetch(parsed.toString());
+        const upstream = await fetchSignedObject(target, filename);
         if (!upstream.ok || !upstream.body) {
-          return new Response(`upstream ${upstream.status}`, { status: 502, headers: CORS });
+          return new Response(`upstream ${upstream.status}`, {
+            status: upstream.status === 404 ? 404 : 502,
+            headers: CORS,
+          });
         }
 
         const headers = new Headers(CORS);
