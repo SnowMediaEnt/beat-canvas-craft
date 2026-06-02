@@ -21,15 +21,26 @@ const patchRemotionLambdaCreateRequire = {
   name: "patch-remotion-lambda-createrequire",
   enforce: "pre" as const,
   transform(code: string, id: string) {
-    if (!/@remotion[\\/]+lambda(-client)?[\\/]+dist[\\/]+esm[\\/]+index\.mjs$/.test(id)) {
-      return null;
-    }
-    if (!code.includes("createRequire(import.meta.url)")) return null;
-    return {
-      code: code.replace(
-        "createRequire(import.meta.url)",
+    let nextCode = code;
+
+    if (/@remotion[\\/]+lambda(-client)?[\\/]+dist[\\/]+esm[\\/]+index\.mjs$/.test(id)) {
+      nextCode = nextCode.replace(
+        /createRequire\(import\.meta\.url\)/g,
         'createRequire("file:///worker/remotion-lambda.mjs")',
-      ),
+      );
+    }
+
+    if (/@remotion[\\/]+compositor-linux-x64-(?:gnu|musl)[\\/]+index\.mjs$/.test(id)) {
+      nextCode = nextCode.replace(
+        /fileURLToPath\(new URL\('\.'\s*,\s*import\.meta\.url\)\)/g,
+        'fileURLToPath(new URL("./", "file:///worker/remotion-compositor.mjs"))',
+      );
+    }
+
+    if (nextCode === code) return null;
+
+    return {
+      code: nextCode,
       map: null,
     };
   },

@@ -26,7 +26,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { getLambdaProgress } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
 import { toast } from "sonner";
-import { triggerDownload, buildProxyDownloadUrl } from "@/lib/render/download";
+import { triggerDownload } from "@/lib/render/download";
 
 
 interface Props {
@@ -238,16 +238,11 @@ export function CompletedDialog({ project }: Props) {
         return;
       }
 
-      let href = storedHref;
-      const isRemote = /^https?:/i.test(storedHref);
-
-      // Keep the tap path synchronous: route the plain S3 object URL through
-      // our same-origin proxy and let the server sign/fetch it there. Mobile
-      // browsers are much stricter when the actual download starts after an
-      // async hop in the click handler.
-      if (entry.kind === "lambda" && isRemote) {
-        href = buildProxyDownloadUrl(storedHref, filename);
-      }
+      const href =
+        entry.kind === "lambda" && entry.renderId && entry.bucketName
+          ? `https://${entry.bucketName}.s3.us-east-2.amazonaws.com/renders/${entry.renderId}/out.mp4`
+          : storedHref;
+      const isRemote = /^https?:/i.test(href);
 
       console.log("[render-download] trigger", {
         entryId: entry.id,

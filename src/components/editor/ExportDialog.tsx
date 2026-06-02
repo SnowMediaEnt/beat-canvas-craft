@@ -32,7 +32,7 @@ import {
   uploadAssetForRender,
   uploadBlobForRender,
 } from "@/lib/render/upload";
-import { buildProxyDownloadUrl, triggerDownload } from "@/lib/render/download";
+import { triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
 import { toast } from "sonner";
 
@@ -89,12 +89,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
     try {
       console.log("[render-download] download click", { url, filename, kind });
-      const isRemote = /^https?:/i.test(url);
-      let nextUrl = url;
-
-      if (kind === "lambda" && isRemote) {
-        nextUrl = buildProxyDownloadUrl(url, filename);
-      }
+      const nextUrl =
+        kind === "lambda" && job?.renderId && job?.bucketName
+          ? `https://${job.bucketName}.s3.us-east-2.amazonaws.com/renders/${job.renderId}/out.mp4`
+          : url;
+      const isRemote = /^https?:/i.test(nextUrl);
 
       console.log("[render-download] download trigger", {
         originalUrl: url,
