@@ -176,7 +176,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
     return {
       done: true,
       overallProgress: 1,
-      outputFile: progress.postRenderData.outputFile || buildPublicRenderUrl(region, bucketName, renderId),
+      outputFile: buildPublicRenderUrl(region, bucketName, renderId),
       errors: postErrors,
       fatalErrorEncountered: false,
     };
