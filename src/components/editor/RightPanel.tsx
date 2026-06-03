@@ -418,6 +418,11 @@ export function RightPanel({ project, update }: Props) {
             />
           </Section>
           <Section title="Animation">
+            <Toggle
+              label="Keep stationary"
+              value={V.stationary}
+              onChange={(v) => update((p) => ({ ...p, visualizer: { ...p.visualizer, stationary: v } }))}
+            />
             <SliderField
               label="Speed"
               value={V.animationSpeed}
@@ -436,7 +441,7 @@ export function RightPanel({ project, update }: Props) {
               label="Movement"
               value={V.movement}
               onChange={(v) => setV(update, "movement")(v)}
-              hint="Adds a subtle sway to the visualizer over time. Set to 0 for a fully static equalizer."
+              hint="Adds time-based floating. Turn on Keep stationary to lock the equalizer in place while it still reacts to audio."
             />
             <SliderField
               label="Shadow"

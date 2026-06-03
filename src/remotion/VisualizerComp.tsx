@@ -94,6 +94,7 @@ export const defaultVisualizerProps: VisualizerProps = {
     blendMode: "source-over",
     reactivity: 1,
     bandCount: 12,
+    stationary: false,
     custom: {
       shape: "bars", count: 48, spacing: 0.25, amplitude: 1, thickness: 0,
       rounded: true, symmetric: false, reactivity: 1, innerRadius: 0.35,

@@ -44,7 +44,7 @@ export function drawVisualizerLayer(args: BaseDrawArgs) {
 
   // Motion → Movement: gentle sway driven by the animation clock so the
   // visualizer "floats" inside the frame. 0 = locked, 1 = strong drift.
-  const move = cfg.movement ?? 0;
+  const move = cfg.stationary ? 0 : (cfg.movement ?? 0);
   if (move > 0) {
     const ox = Math.sin(t * 0.6) * move * w * 0.04;
     const oy = Math.cos(t * 0.85) * move * h * 0.04;

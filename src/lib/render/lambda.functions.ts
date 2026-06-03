@@ -1,14 +1,26 @@
 import { createServerFn } from "@tanstack/react-start";
+import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { loadRemotionLambdaClient } from "./remotion-lambda-client.server";
 
 const REMOTION_OUTPUT_PREFIX = "renders/";
 const PROGRESS_CACHE_TTL_MS = 8000;
 const PROGRESS_STALE_FALLBACK_MS = 30000;
+const PROGRESS_WEIGHTS = {
+  evaluating: 0.1,
+  encoding: 0.1,
+  frames: 0.6,
+  invoking: 0.1,
+  combining: 0.1,
+} as const;
 
-function buildPublicRenderUrl(region: string, bucketName: string, renderId: string) {
-  return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
-}
+type AwsEnv = {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  functionName: string;
+  serveUrl: string;
+};
 
 type LambdaProgressResponse = {
   done: boolean;
@@ -18,15 +30,34 @@ type LambdaProgressResponse = {
   fatalErrorEncountered: boolean;
 };
 
+type ProgressJson = {
+  chunks?: number[];
+  framesRendered?: number;
+  framesEncoded?: number;
+  combinedFrames?: number;
+  lambdasInvoked?: number;
+  retries?: unknown[];
+  postRenderData?: {
+    outputFile?: string | null;
+    errors?: { message: string; stack?: string }[];
+  } | null;
+  renderMetadata?: {
+    totalChunks?: number;
+    estimatedRenderLambdaInvokations?: number;
+    frameRange?: [number, number] | number[];
+    everyNthFrame?: number;
+  } | null;
+  errors?: { message: string; stack?: string }[];
+  timeoutTimestamp?: number | null;
+  functionLaunched?: number;
+  serveUrlOpened?: number | null;
+  compositionValidated?: number | null;
+};
+
 const progressCache = new Map<string, { expiresAt: number; value: LambdaProgressResponse }>();
 const inFlightProgress = new Map<string, Promise<LambdaProgressResponse>>();
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
-
-// Visualizer / Effects / Lyrics configs are passed through to the Remotion
-// composition unchanged. We use loose schemas here (passthrough) so the schema
-// doesn't have to be kept in lock-step with VisualizerConfig — the renderer
-// is the single source of truth.
 const visualizerConfigSchema = z.record(z.string(), z.any());
 const effectsConfigSchema = z.record(z.string(), z.any());
 const lyricsConfigSchema = z.object({
@@ -57,103 +88,155 @@ const inputPropsSchema = z.object({
   lyrics: lyricsConfigSchema,
 });
 
-function awsConfig() {
+function buildPublicRenderUrl(region: string, bucketName: string, renderId: string) {
+  return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
+}
+
+function getAwsEnv(): AwsEnv {
+  const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
   const region = process.env.REMOTION_AWS_REGION;
   const functionName = process.env.REMOTION_AWS_FUNCTION_NAME;
   const serveUrl = process.env.REMOTION_AWS_SERVE_URL;
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error("Missing AWS credentials");
+  }
+
   if (!region || !functionName || !serveUrl) {
     throw new Error(
       "Missing Remotion Lambda env vars (REMOTION_AWS_REGION, REMOTION_AWS_FUNCTION_NAME, REMOTION_AWS_SERVE_URL)",
     );
   }
-  if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-    throw new Error("Missing AWS credentials");
-  }
-  return { region: region as any, functionName, serveUrl };
+
+  return { accessKeyId, secretAccessKey, region, functionName, serveUrl };
 }
 
-function toLambdaProgressResponse(
-  p: Awaited<ReturnType<ReturnType<typeof loadRemotionLambdaClient>["getRenderProgress"]>>,
-  region: string,
-  renderId: string,
-  bucketName: string,
-): LambdaProgressResponse {
-  let outputFile = p.outputFile ?? undefined;
+function createAwsClient(env: AwsEnv) {
+  return new AwsClient({
+    accessKeyId: env.accessKeyId,
+    secretAccessKey: env.secretAccessKey,
+    service: "s3",
+    region: env.region,
+  });
+}
 
-  if (!outputFile && p.done && !p.fatalErrorEncountered) {
-    outputFile = buildPublicRenderUrl(region, bucketName, renderId);
+function getTotalFrames(renderMetadata: ProgressJson["renderMetadata"]) {
+  if (!renderMetadata?.frameRange) return 0;
+  const everyNthFrame = Math.max(1, renderMetadata.everyNthFrame ?? 1);
+  const range = renderMetadata.frameRange;
+  if (Array.isArray(range) && range.length === 2 && typeof range[0] === "number" && typeof range[1] === "number") {
+    return Math.max(0, Math.floor((range[1] - range[0]) / everyNthFrame) + 1);
+  }
+  if (Array.isArray(range)) {
+    return Math.max(0, Math.ceil(range.length / everyNthFrame));
+  }
+  return 0;
+}
+
+function clamp01(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(1, value));
+}
+
+function computeOverallProgress(progress: ProgressJson) {
+  const totalFrames = getTotalFrames(progress.renderMetadata);
+  const totalInvocations = Math.max(1, progress.renderMetadata?.estimatedRenderLambdaInvokations ?? 1);
+  const evaluationProgress = [
+    Boolean(progress.functionLaunched),
+    Boolean(progress.serveUrlOpened),
+    Boolean(progress.compositionValidated),
+  ].reduce((sum, flag) => sum + Number(flag), 0) / 3;
+
+  const encoding = totalFrames > 0 ? (progress.framesEncoded ?? 0) / totalFrames : 0;
+  const frames = totalFrames > 0 ? (progress.framesRendered ?? 0) / totalFrames : 0;
+  const combining = totalFrames > 0 ? (progress.combinedFrames ?? 0) / totalFrames : 0;
+  const invoking = (progress.lambdasInvoked ?? 0) / totalInvocations;
+
+  return clamp01(
+    evaluationProgress * PROGRESS_WEIGHTS.evaluating +
+      clamp01(encoding) * PROGRESS_WEIGHTS.encoding +
+      clamp01(frames) * PROGRESS_WEIGHTS.frames +
+      clamp01(invoking) * PROGRESS_WEIGHTS.invoking +
+      clamp01(combining) * PROGRESS_WEIGHTS.combining,
+  );
+}
+
+function normalizeErrors(errors: { message: string; stack?: string }[] | undefined | null) {
+  if (!errors?.length) return [];
+  return errors.map((error) => ({
+    message: error?.message || "Render failed",
+    stack: error?.stack,
+  }));
+}
+
+function toLambdaProgressResponse(progress: ProgressJson, region: string, renderId: string, bucketName: string): LambdaProgressResponse {
+  if (progress.postRenderData) {
+    const postErrors = normalizeErrors(progress.postRenderData.errors);
+    return {
+      done: true,
+      overallProgress: 1,
+      outputFile: buildPublicRenderUrl(region, bucketName, renderId),
+      errors: postErrors,
+      fatalErrorEncountered: false,
+    };
   }
 
-  if (p.done && !p.fatalErrorEncountered) {
-    outputFile = buildPublicRenderUrl(region, bucketName, renderId);
-  }
+  const errors = normalizeErrors(progress.errors);
+  const fatalErrorEncountered = false;
 
   return {
-    done: p.done,
-    overallProgress: p.overallProgress,
-    outputFile,
-    errors: p.errors.map((e) => ({ message: e.message, stack: e.stack })),
-    fatalErrorEncountered: p.fatalErrorEncountered,
+    done: false,
+    overallProgress: computeOverallProgress(progress),
+    outputFile: undefined,
+    errors,
+    fatalErrorEncountered,
   };
+}
+
+async function readProgressJson(env: AwsEnv, bucketName: string, renderId: string): Promise<ProgressJson | null> {
+  const aws = createAwsClient(env);
+  const key = `${REMOTION_OUTPUT_PREFIX}${renderId}/progress.json`;
+  const url = `https://${bucketName}.s3.${env.region}.amazonaws.com/${key}`;
+  const response = await aws.fetch(url, { method: "GET" });
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Failed to read render progress (${response.status})`);
+  }
+
+  return (await response.json()) as ProgressJson;
 }
 
 export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.parse(input))
   .handler(async ({ data }) => {
     console.log("[lambda-render-server] validated inputProps", data);
-    let region: any;
-    let functionName = "";
-    let serveUrl = "";
+    let env: AwsEnv | null = null;
     try {
-      ({ region, functionName, serveUrl } = awsConfig());
-      console.log("[lambda-render-server] awsConfig ok", {
-        region,
-        functionName,
-        serveUrl,
-        hasAccessKey: !!process.env.AWS_ACCESS_KEY_ID,
-        hasSecret: !!process.env.AWS_SECRET_ACCESS_KEY,
-      });
+      env = getAwsEnv();
       const { renderMediaOnLambda } = loadRemotionLambdaClient();
-      console.log("[lambda-render-server] module loaded; invoking renderMediaOnLambda");
-      // AWS account concurrency limit is 1000, so we let framesPerLambda alone
-      // control chunk size with no worker ceiling.
-      // Each Lambda has a hard 900s timeout. At ~160ms/frame for 1080p that's
-      // ~5600 frames theoretical max, but heavy presets + cold starts push
-      // per-frame cost much higher. Keep chunks small so workers finish well
-      // under the cap; AWS concurrency (1000) easily covers the extra workers.
-      // Smaller chunks = each worker finishes well under the 900s Lambda cap.
-      // Heavy presets (SVG noodles, effects) can take >5s/frame; 60 frames
-      // keeps worst-case worker time around ~5min with comfortable headroom.
       const FRAMES_PER_LAMBDA = 60;
       const MAX_WORKERS = 200;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
+
       while (true) {
         try {
           const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          // Remotion caps workers at 200. Scale chunk size up for long renders
-          // so we never exceed that ceiling. framesPerLambda must be a multiple
-          // of the keyframe interval (defaults to ~fps/2) — use that as the
-          // step so we can pick the smallest legal chunk and give each worker
-          // maximum headroom against the 900s Lambda timeout.
           const step = Math.max(1, Math.round(data.fps / 2));
           const minForCap = Math.ceil(totalFrames / MAX_WORKERS);
           const rawFramesPerLambda = Math.max(FRAMES_PER_LAMBDA, minForCap);
           const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
-          const actualWorkers = Math.ceil(totalFrames / framesPerLambda);
 
-          console.log("[lambda-render-server] renderMediaOnLambda params", {
-            framesPerLambda,
-            totalFrames,
-            actualWorkers,
-            fps: data.fps,
-            durationInFrames: totalFrames,
-          });
           result = await renderMediaOnLambda({
-            region,
-            functionName,
-            serveUrl,
+            region: env.region as any,
+            functionName: env.functionName,
+            serveUrl: env.serveUrl,
             composition: "Visualizer",
             codec: "h264",
             inputProps: data,
@@ -162,10 +245,6 @@ export const startLambdaRender = createServerFn({ method: "POST" })
             privacy: "public",
             concurrencyPerLambda: 1,
             framesPerLambda,
-            // Bump from the 30s default — cold Lambda workers often need
-            // Bump from the 30s default — cold Lambda workers often need
-            // longer to fetch + parse audio metadata from Supabase storage,
-            // otherwise <Audio> throws a delayRender timeout.
             timeoutInMilliseconds: 120000,
           });
           break;
@@ -174,35 +253,29 @@ export const startLambdaRender = createServerFn({ method: "POST" })
           const throttled = /rate exceeded|concurrency limit|throttl/i.test(msg);
           attempt += 1;
           if (!throttled || attempt >= maxAttempts) throw err;
-          const backoffMs = 1000 * Math.pow(2, attempt); // 2s, 4s, 8s, 16s
-          console.warn(`[lambda-render-server] AWS throttled, retry ${attempt}/${maxAttempts - 1} in ${backoffMs}ms`);
+          const backoffMs = 1000 * Math.pow(2, attempt);
           await new Promise((r) => setTimeout(r, backoffMs));
         }
       }
 
-      console.log("[lambda-render-server] renderMediaOnLambda result", result);
       return { renderId: result.renderId, bucketName: result.bucketName };
-
     } catch (error) {
       console.error("[lambda-render-server] renderMediaOnLambda failed", {
         message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : undefined,
         stack: error instanceof Error ? error.stack : undefined,
-        region,
-        functionName,
-        serveUrl,
+        region: env?.region,
+        functionName: env?.functionName,
+        serveUrl: env?.serveUrl,
       });
       throw error;
     }
   });
 
 export const getLambdaProgress = createServerFn({ method: "POST" })
-  .inputValidator((input) =>
-    z.object({ renderId: z.string(), bucketName: z.string() }).parse(input),
-  )
+  .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    const { getRenderProgress } = loadRemotionLambdaClient();
-    const { region, functionName } = awsConfig();
+    const env = getAwsEnv();
     const cacheKey = `${data.bucketName}:${data.renderId}`;
     const now = Date.now();
     const cached = progressCache.get(cacheKey);
@@ -222,14 +295,17 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          const p = await getRenderProgress({
-            renderId: data.renderId,
-            bucketName: data.bucketName,
-            functionName,
-            region,
-          });
+          const progress = await readProgressJson(env, data.bucketName, data.renderId);
+          const response = progress
+            ? toLambdaProgressResponse(progress, env.region, data.renderId, data.bucketName)
+            : {
+                done: false,
+                overallProgress: 0,
+                outputFile: undefined,
+                errors: [],
+                fatalErrorEncountered: false,
+              };
 
-          const response = toLambdaProgressResponse(p, region, data.renderId, data.bucketName);
           progressCache.set(cacheKey, {
             expiresAt: Date.now() + PROGRESS_CACHE_TTL_MS,
             value: response,
@@ -244,19 +320,10 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
 
           const stale = progressCache.get(cacheKey);
           if (stale && stale.expiresAt + PROGRESS_STALE_FALLBACK_MS > Date.now()) {
-            console.warn("[lambda-render-server] getRenderProgress throttled; returning cached progress", {
-              renderId: data.renderId,
-              attempt,
-              overallProgress: stale.value.overallProgress,
-            });
             return stale.value;
           }
 
           if (attempt === maxAttempts) {
-            console.warn("[lambda-render-server] getRenderProgress throttled; returning pending fallback", {
-              renderId: data.renderId,
-              attempt,
-            });
             return {
               done: false,
               overallProgress: 0,
@@ -284,15 +351,13 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
   });
 
 export const cancelLambdaRender = createServerFn({ method: "POST" })
-  .inputValidator((input) =>
-    z.object({ renderId: z.string(), bucketName: z.string() }).parse(input),
-  )
+  .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
     const { deleteRender } = loadRemotionLambdaClient();
-    const { region } = awsConfig();
+    const env = getAwsEnv();
     try {
       await deleteRender({
-        region: region as any,
+        region: env.region as any,
         bucketName: data.bucketName,
         renderId: data.renderId,
       });
@@ -303,4 +368,3 @@ export const cancelLambdaRender = createServerFn({ method: "POST" })
       throw error;
     }
   });
-

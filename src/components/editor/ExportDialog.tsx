@@ -73,6 +73,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const startRender = useServerFn(startLambdaRender);
   const pollProgress = useServerFn(getLambdaProgress);
   const cancelRender = useServerFn(cancelLambdaRender);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const downloadFile = async (
     url: string | null | undefined,
@@ -448,28 +455,41 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             }
             const p = await pollProgress({ data: { renderId, bucketName } });
             const pct = Math.round((p.overallProgress || 0) * 100);
+            if (!mountedRef.current) {
+              stop();
+              resolve();
+              return;
+            }
             setProgress(pct);
 
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
-              stop();
-              setDownloadUrl(p.outputFile);
-              const done: RenderJob = {
-                ...running,
-                kind: "lambda",
-                fileFormat: "mp4",
-                status: "completed",
-                progress: 100,
-                completedAt: Date.now(),
-                downloadUrl: p.outputFile,
-              };
-              setJob(done);
-              persistJob(done);
-              setProgress(100);
-              setStage("Complete");
-              toast.success("Render complete");
-              resolve();
-              return;
+              try {
+                stop();
+                const done: RenderJob = {
+                  ...running,
+                  kind: "lambda",
+                  fileFormat: "mp4",
+                  status: "completed",
+                  progress: 100,
+                  completedAt: Date.now(),
+                  downloadUrl: p.outputFile,
+                };
+                if (mountedRef.current) {
+                  setDownloadUrl(p.outputFile);
+                  setJob(done);
+                  setProgress(100);
+                  setStage("Complete");
+                }
+                persistJob(done);
+                toast.success("Render complete");
+                resolve();
+                return;
+              } catch (error) {
+                console.error("[lambda-render] completion handler failed", error);
+                reject(error);
+                return;
+              }
             }
             if (p.fatalErrorEncountered && !p.outputFile) {
               stop();
