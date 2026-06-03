@@ -30,6 +30,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
             backgroundTintOpacity: { type: "number", minimum: 0, maximum: 1 },
             glowIntensity: { type: "number", minimum: 0, maximum: 2 },
             movement: { type: "number", minimum: 0, maximum: 1.5 },
+            stationary: { type: "boolean", description: "Whether the equalizer should stay locked in place instead of drifting around the frame." },
             shadow: { type: "number", minimum: 0, maximum: 1.5 },
             size: { type: "number", minimum: 0.4, maximum: 1.8 },
             thickness: { type: "number", minimum: 1, maximum: 24 },
@@ -56,7 +57,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
               additionalProperties: false,
             },
           },
-          required: ["primary", "secondary", "accent", "glow", "bassSensitivity", "midSensitivity", "trebleSensitivity", "custom"],
+            required: ["primary", "secondary", "accent", "glow", "bassSensitivity", "midSensitivity", "trebleSensitivity", "stationary", "custom"],
           additionalProperties: false,
         },
       },
@@ -68,7 +69,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts. CRITICAL: keep the frequency spectrum balanced. Default bassSensitivity, midSensitivity, and trebleSensitivity all to ~1.0 (range 0.9–1.3) so the mid range — where vocals, snare, and most melody live — stays audible in the visualizer. Only push one band above 1.5 or below 0.9 when the prompt explicitly calls for it (e.g. 'bass-heavy', 'airy', 'crispy highs')." },
+          { role: "system", content: "You design audio visualizer presets. Choose shape + colors + motion that match the user's vibe. Be bold — pick complementary hex colors and exaggerate motion for energetic prompts. CRITICAL: keep the frequency spectrum balanced. Default bassSensitivity, midSensitivity, and trebleSensitivity all to ~1.0 (range 0.9–1.3) so the mid range — where vocals, snare, and most melody live — stays audible in the visualizer. Only push one band above 1.5 or below 0.9 when the prompt explicitly calls for it (e.g. 'bass-heavy', 'airy', 'crispy highs'). Set stationary=true for most prompts unless the user explicitly asks for floating, drifting, or orbital movement." },
           { role: "user", content: data.prompt },
         ],
         tools: [tool],
