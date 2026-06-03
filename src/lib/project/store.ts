@@ -66,6 +66,7 @@ export const defaultVisualizer = (presetId = "circular-spectrum"): VisualizerCon
   blendMode: "source-over",
   reactivity: 1,
   bandCount: 12,
+  stationary: false,
   custom: defaultCustomEqualizer(),
 });
 
@@ -346,6 +347,7 @@ function migrateProject(p: Project): Project {
       border: clamp(visualizer.border, 0, 2, dv.border),
       reactivity: clamp(visualizer.reactivity, 0, 3, dv.reactivity),
       bandCount: VALID_BAND_COUNTS.has(visualizer.bandCount) ? visualizer.bandCount : dv.bandCount,
+      stationary: typeof visualizer.stationary === "boolean" ? visualizer.stationary : dv.stationary,
       custom: (() => {
         const dc = defaultCustomEqualizer();
         const c = (visualizer as Partial<VisualizerConfig>).custom ?? dc;
