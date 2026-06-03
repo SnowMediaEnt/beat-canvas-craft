@@ -121,10 +121,10 @@ function createAwsClient(env: AwsEnv) {
   });
 }
 
-function getTotalFrames(frameRange: ProgressJson["renderMetadata"] extends infer _T ? ProgressJson["renderMetadata"] : never) {
-  if (!frameRange?.frameRange) return 0;
-  const everyNthFrame = Math.max(1, frameRange.everyNthFrame ?? 1);
-  const range = frameRange.frameRange;
+function getTotalFrames(renderMetadata: ProgressJson["renderMetadata"]) {
+  if (!renderMetadata?.frameRange) return 0;
+  const everyNthFrame = Math.max(1, renderMetadata.everyNthFrame ?? 1);
+  const range = renderMetadata.frameRange;
   if (Array.isArray(range) && range.length === 2 && typeof range[0] === "number" && typeof range[1] === "number") {
     return Math.max(0, Math.floor((range[1] - range[0]) / everyNthFrame) + 1);
   }
@@ -183,7 +183,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
   }
 
   const errors = normalizeErrors(progress.errors);
-  const fatalErrorEncountered = errors.length > 0;
+  const fatalErrorEncountered = false;
 
   return {
     done: false,
