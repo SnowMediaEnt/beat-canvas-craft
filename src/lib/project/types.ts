@@ -61,6 +61,7 @@ export interface VisualizerConfig {
   blendMode: GlobalCompositeOperation;
   reactivity: number;
   bandCount: number;
+  stationary: boolean;
   /** Settings used by the "custom-equalizer" preset only. Always present
    *  so the renderer and the preview share defaults. */
   custom: CustomEqualizerConfig;
