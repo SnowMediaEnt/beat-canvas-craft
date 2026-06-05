@@ -32,6 +32,8 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [duration, setDuration] = useState(0);
   const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
   const [syncing, setSyncing] = useState(false);
+  const aiAlign = useServerFn(aiAlignLyrics);
+
   
 
   useEffect(() => {
