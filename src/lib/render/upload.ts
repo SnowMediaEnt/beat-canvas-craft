@@ -1,10 +1,8 @@
 import { get } from "idb-keyval";
-import { Upload as TusUpload } from "tus-js-client";
 import type { AssetRef } from "@/lib/project/types";
-import { supabase } from "@/integrations/supabase/client";
 
 const UPLOAD_ENDPOINT = "/api/public/render-upload";
-const RENDER_BUCKET = "render-assets";
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
 
 const uploadedCache = new Map<string, string>();
 
