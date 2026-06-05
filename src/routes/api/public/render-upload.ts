@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { AwsClient } from "aws4fetch";
 
-const BUCKET = "render-assets";
-const MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2GB cap for browser-recorded WebM uploads
+const MAX_BYTES = 200 * 1024 * 1024; // 200MB cap
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
@@ -13,64 +12,110 @@ const CORS = {
   "access-control-max-age": "86400",
 };
 
+const JSON_HEADERS = { "content-type": "application/json", ...CORS };
+
+function jsonError(status: number, message: string, detail?: string) {
+  return new Response(JSON.stringify({ error: message, ...(detail ? { detail } : {}) }), {
+    status,
+    headers: JSON_HEADERS,
+  });
+}
+
+function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucket: string; region: string } | null {
+  try {
+    const u = new URL(serveUrl);
+    // Virtual-hosted style: <bucket>.s3.<region>.amazonaws.com
+    const vhost = u.hostname.match(/^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (vhost) return { bucket: vhost[1], region: vhost[2] };
+
+    // Path style: s3.<region>.amazonaws.com/<bucket>/...
+    const pathHost = u.hostname.match(/^s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (pathHost) {
+      const seg = u.pathname.split("/").filter(Boolean)[0];
+      if (seg) return { bucket: seg, region: pathHost[1] };
+    }
+
+    // Fallback: first path segment as bucket
+    const seg = u.pathname.split("/").filter(Boolean)[0];
+    if (seg) return { bucket: seg, region: fallbackRegion };
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export const Route = createFileRoute("/api/public/render-upload")({
   server: {
     handlers: {
       OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
       POST: async ({ request }) => {
-        const assetId = request.headers.get("x-asset-id") || "";
-        const ext = (request.headers.get("x-asset-ext") || "bin").toLowerCase();
-        const contentType = request.headers.get("x-content-type") || "application/octet-stream";
+        try {
+          const assetId = request.headers.get("x-asset-id") || "";
+          const ext = (request.headers.get("x-asset-ext") || "bin").toLowerCase();
+          const contentType = request.headers.get("x-content-type") || "application/octet-stream";
 
-        if (!SAFE_ID.test(assetId) || !SAFE_EXT.test(ext)) {
-          return new Response(JSON.stringify({ error: "Invalid asset identifier" }), {
-            status: 400,
-            headers: { "content-type": "application/json", ...CORS },
+          if (!SAFE_ID.test(assetId) || !SAFE_EXT.test(ext)) {
+            return jsonError(400, "Invalid asset identifier");
+          }
+
+          const lenHeader = request.headers.get("content-length");
+          if (lenHeader && Number(lenHeader) > MAX_BYTES) {
+            return jsonError(413, "File too large");
+          }
+
+          const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
+          const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+          const sessionToken = process.env.AWS_SESSION_TOKEN;
+          const region = process.env.REMOTION_AWS_REGION || "us-east-1";
+          const serveUrl = process.env.REMOTION_AWS_SERVE_URL || "";
+
+          if (!accessKeyId || !secretAccessKey) {
+            return jsonError(500, "AWS credentials not configured");
+          }
+
+          const parsed = parseBucketAndRegion(serveUrl, region);
+          if (!parsed) {
+            return jsonError(500, "Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
+          }
+          const { bucket, region: bucketRegion } = parsed;
+
+          const buf = await request.arrayBuffer();
+          if (buf.byteLength === 0 || buf.byteLength > MAX_BYTES) {
+            return jsonError(400, "Invalid file size");
+          }
+
+          const key = `render-assets/${assetId.replace(/[:.]/g, "_")}.${ext}`;
+          const objectUrl = `https://${bucket}.s3.${bucketRegion}.amazonaws.com/${key}`;
+
+          const client = new AwsClient({
+            accessKeyId,
+            secretAccessKey,
+            sessionToken,
+            service: "s3",
+            region: bucketRegion,
           });
+
+          const res = await client.fetch(objectUrl, {
+            method: "PUT",
+            body: buf,
+            headers: { "content-type": contentType },
+          });
+
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            console.error("[render-upload] S3 PUT failed", { status: res.status, body: text.slice(0, 400) });
+            return jsonError(500, "Upload failed", `S3 ${res.status}`);
+          }
+
+          return new Response(JSON.stringify({ url: objectUrl }), {
+            status: 200,
+            headers: { ...JSON_HEADERS, "cache-control": "no-store" },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Unknown error";
+          console.error("[render-upload] handler error", err);
+          return jsonError(500, "Upload failed", message);
         }
-
-        const lenHeader = request.headers.get("content-length");
-        if (lenHeader && Number(lenHeader) > MAX_BYTES) {
-          return new Response(JSON.stringify({ error: "File too large" }), {
-            status: 413,
-            headers: { "content-type": "application/json", ...CORS },
-          });
-        }
-
-        const buf = await request.arrayBuffer();
-        if (buf.byteLength === 0 || buf.byteLength > MAX_BYTES) {
-          return new Response(JSON.stringify({ error: "Invalid file size" }), {
-            status: 400,
-            headers: { "content-type": "application/json", ...CORS },
-          });
-        }
-
-        const path = `${assetId.replace(/[:.]/g, "_")}.${ext}`;
-        const body = new Blob([buf], { type: contentType });
-        const { error } = await supabaseAdmin.storage
-          .from(BUCKET)
-          .upload(path, body, { contentType, upsert: true });
-        if (error && !`${error.message}`.toLowerCase().includes("exists")) {
-          console.error("[render-upload] upload error", {
-            message: error.message,
-            name: (error as any).name,
-            statusCode: (error as any).statusCode,
-            assetId,
-            ext,
-            contentType,
-            size: buf.byteLength,
-          });
-          return new Response(JSON.stringify({ error: "Upload failed", detail: error.message }), {
-            status: 500,
-            headers: { "content-type": "application/json", ...CORS },
-          });
-        }
-
-        const { data } = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
-        return new Response(JSON.stringify({ url: data.publicUrl }), {
-          status: 200,
-          headers: { "content-type": "application/json", "cache-control": "no-store", ...CORS },
-        });
       },
     },
   },
