@@ -240,7 +240,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         <PopoverContent className="w-[28rem] p-3 panel" align="end">
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">
-              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped, and lines without timestamps are auto-spread across the song. Optional format: <span className="font-mono">[0:12] line text</span>
+              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped. Wrap the whole block in <span className="font-mono">"…"</span> to AI-align your exact lyrics to the audio (best for fixing missing or wrong lines). Otherwise lines are spread across the song. Optional: <span className="font-mono">[0:12] line text</span>
             </div>
             <Textarea
               value={lyricsText}
