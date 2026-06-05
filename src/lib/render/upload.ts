@@ -28,8 +28,10 @@ export async function uploadBlobForRender({
   blob: Blob;
   onProgress?: (progress: number) => void;
 }): Promise<string> {
-  if (blob.size > 500 * 1024 * 1024) {
-    return uploadLargeBlobForRender({ assetId, fileName, contentType, blob, onProgress });
+  if (blob.size > MAX_UPLOAD_BYTES) {
+    throw new Error(
+      `"${fileName}" is too large to render (${(blob.size / 1024 / 1024).toFixed(1)} MB). The maximum is 200 MB.`,
+    );
   }
 
   const ext = getSafeExt(fileName);
