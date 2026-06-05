@@ -138,9 +138,19 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const autoSync = async (text: string) => {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
+
+    // Detect "quoted mode": the user wrapped the whole pasted block in
+    // straight or curly double-quotes. Signals "these are MY lyrics —
+    // align them, don't replace them with transcribed text".
+    const trimmed = text.trim();
+    const quoteOpen = /^["“”]/;
+    const quoteClose = /["“”]$/;
+    const aiMode = quoteOpen.test(trimmed) && quoteClose.test(trimmed) && trimmed.length > 2;
+    const stripped = aiMode ? trimmed.replace(quoteOpen, "").replace(quoteClose, "").trim() : text;
+
     const tsPrefix = /^\[\d+:\d{2}(?:\.\d+)?\]\s*/;
     const sectionOnly = /^\[[^\]]+\]\s*$/;
-    const rawLines = text
+    const rawLines = stripped
       .split(/\r?\n/)
       .map(l => l.trim())
       .filter(Boolean)
@@ -155,7 +165,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     setSyncing(true);
     const entry = getEntry(assetId);
     const initialMsg =
-      entry?.status === "ready" ? (hasUserLyrics ? "Aligning lyrics…" : "Building lyrics from audio…") :
+      entry?.status === "ready" ? (aiMode ? "AI-aligning your lyrics…" : hasUserLyrics ? "Aligning lyrics…" : "Building lyrics from audio…") :
       entry?.status === "transcribing" ? "Finishing audio analysis…" :
       entry?.status === "error" ? "Retrying audio analysis…" :
       "Preparing audio…";
@@ -171,16 +181,25 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       }
       if (!words || !words.length) throw new Error("No words detected in audio.");
 
-      const aligned = hasUserLyrics
-        ? alignLyrics(rawLines, words)
-        : groupWordsIntoLines(words);
+      let aligned: { time: number; text: string }[];
+      if (aiMode && hasUserLyrics) {
+        toast.loading("AI-aligning your lyrics…", { id: toastId });
+        const { times } = await aiAlign({ data: { lines: rawLines, words } });
+        aligned = rawLines.map((textLine, i) => ({ time: times[i] ?? 0, text: textLine }));
+      } else if (hasUserLyrics) {
+        aligned = alignLyrics(rawLines, words);
+      } else {
+        aligned = groupWordsIntoLines(words);
+      }
 
 
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
       const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
       setLyricsText(formatted);
       toast.success(
-        hasUserLyrics
+        aiMode
+          ? `AI-synced ${aligned.length} lines to your audio.`
+          : hasUserLyrics
           ? `Synced ${aligned.length} lines to ${words.length} detected words.`
           : `Generated ${aligned.length} lines from audio transcript.`,
         { id: toastId },
