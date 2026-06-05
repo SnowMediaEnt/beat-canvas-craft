@@ -6,7 +6,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { get } from "idb-keyval";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
 import { alignLyrics } from "@/lib/lyrics/align";
+import { aiAlignLyrics } from "@/lib/lyrics/ai-align.functions";
 import type { Project } from "@/lib/project/types";
 import { ensureTranscription, getEntry } from "@/lib/transcribe/elevenlabs";
 import { TranscriptionStatus } from "./TranscriptionStatus";
@@ -30,6 +32,8 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [duration, setDuration] = useState(0);
   const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
   const [syncing, setSyncing] = useState(false);
+  const aiAlign = useServerFn(aiAlignLyrics);
+
   
 
   useEffect(() => {
@@ -134,9 +138,19 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const autoSync = async (text: string) => {
     if (!project.audio?.id) { toast.error("Upload an audio track first."); return; }
+
+    // Detect "quoted mode": the user wrapped the whole pasted block in
+    // straight or curly double-quotes. Signals "these are MY lyrics —
+    // align them, don't replace them with transcribed text".
+    const trimmed = text.trim();
+    const quoteOpen = /^["“”]/;
+    const quoteClose = /["“”]$/;
+    const aiMode = quoteOpen.test(trimmed) && quoteClose.test(trimmed) && trimmed.length > 2;
+    const stripped = aiMode ? trimmed.replace(quoteOpen, "").replace(quoteClose, "").trim() : text;
+
     const tsPrefix = /^\[\d+:\d{2}(?:\.\d+)?\]\s*/;
     const sectionOnly = /^\[[^\]]+\]\s*$/;
-    const rawLines = text
+    const rawLines = stripped
       .split(/\r?\n/)
       .map(l => l.trim())
       .filter(Boolean)
@@ -151,7 +165,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     setSyncing(true);
     const entry = getEntry(assetId);
     const initialMsg =
-      entry?.status === "ready" ? (hasUserLyrics ? "Aligning lyrics…" : "Building lyrics from audio…") :
+      entry?.status === "ready" ? (aiMode ? "AI-aligning your lyrics…" : hasUserLyrics ? "Aligning lyrics…" : "Building lyrics from audio…") :
       entry?.status === "transcribing" ? "Finishing audio analysis…" :
       entry?.status === "error" ? "Retrying audio analysis…" :
       "Preparing audio…";
@@ -167,16 +181,25 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       }
       if (!words || !words.length) throw new Error("No words detected in audio.");
 
-      const aligned = hasUserLyrics
-        ? alignLyrics(rawLines, words)
-        : groupWordsIntoLines(words);
+      let aligned: { time: number; text: string }[];
+      if (aiMode && hasUserLyrics) {
+        toast.loading("AI-aligning your lyrics…", { id: toastId });
+        const { times } = await aiAlign({ data: { lines: rawLines, words } });
+        aligned = rawLines.map((textLine, i) => ({ time: times[i] ?? 0, text: textLine }));
+      } else if (hasUserLyrics) {
+        aligned = alignLyrics(rawLines, words);
+      } else {
+        aligned = groupWordsIntoLines(words);
+      }
 
 
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
       const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
       setLyricsText(formatted);
       toast.success(
-        hasUserLyrics
+        aiMode
+          ? `AI-synced ${aligned.length} lines to your audio.`
+          : hasUserLyrics
           ? `Synced ${aligned.length} lines to ${words.length} detected words.`
           : `Generated ${aligned.length} lines from audio transcript.`,
         { id: toastId },
@@ -217,7 +240,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         <PopoverContent className="w-[28rem] p-3 panel" align="end">
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">
-              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped, and lines without timestamps are auto-spread across the song. Optional format: <span className="font-mono">[0:12] line text</span>
+              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped. Wrap the whole block in <span className="font-mono">"…"</span> to AI-align your exact lyrics to the audio (best for fixing missing or wrong lines). Otherwise lines are spread across the song. Optional: <span className="font-mono">[0:12] line text</span>
             </div>
             <Textarea
               value={lyricsText}
