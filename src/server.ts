@@ -66,6 +66,15 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
   return brandedErrorResponse();
 }
 
+function isServerFunctionRequest(request: Request) {
+  const accept = request.headers.get("accept") ?? "";
+  return (
+    request.headers.has("x-tsr-serverfn") ||
+    accept.includes("application/x-tss-framed") ||
+    accept.includes("application/x-ndjson")
+  );
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -74,6 +83,13 @@ export default {
       return await normalizeCatastrophicSsrResponse(response);
     } catch (error) {
       console.error(error);
+      if (isServerFunctionRequest(request)) {
+        const message = error instanceof Error ? error.message : "Server error";
+        return new Response(JSON.stringify({ error: message }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
       return brandedErrorResponse();
     }
   },

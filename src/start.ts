@@ -21,7 +21,11 @@ const errorMiddleware = createMiddleware().server(async ({ next, request }) => {
     }
     console.error(error);
     if (isServerFunctionRequest(request)) {
-      throw error;
+      const message = error instanceof Error ? error.message : "Server error";
+      return new Response(JSON.stringify({ error: message }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
     }
     return new Response(renderErrorPage(), {
       status: 500,
