@@ -86,7 +86,7 @@ export const aiAlignLyrics = createServerFn({ method: "POST" })
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: sys },
           {
@@ -104,13 +104,26 @@ export const aiAlignLyrics = createServerFn({ method: "POST" })
       throw new Error("AI credits exhausted. Add funds in Settings → Workspace → Usage.");
     if (!res.ok) {
       const text = await res.text().catch(() => "");
+      console.error("[ai-align] gateway error", res.status, text.slice(0, 500));
       throw new Error(`AI gateway error (${res.status}): ${text.slice(0, 200)}`);
     }
 
     const json = await res.json();
-    const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    if (!args) throw new Error("AI returned no alignment");
+    let args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments as string | undefined;
+    // Fallback: some models return the JSON in the content field instead of tool_calls
+    if (!args) {
+      const content = json?.choices?.[0]?.message?.content as string | undefined;
+      if (content) {
+        const m = content.match(/\{[\s\S]*\}/);
+        if (m) args = m[0];
+      }
+    }
+    if (!args) {
+      console.error("[ai-align] no alignment in response", JSON.stringify(json).slice(0, 800));
+      throw new Error("AI returned no alignment");
+    }
     const parsed = JSON.parse(args) as { times: number[] };
+
     if (!Array.isArray(parsed.times) || parsed.times.length !== data.lines.length) {
       throw new Error(
         `AI returned ${parsed.times?.length ?? 0} times for ${data.lines.length} lines`,
