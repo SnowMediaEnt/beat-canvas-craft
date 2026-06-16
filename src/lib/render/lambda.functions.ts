@@ -104,6 +104,9 @@ function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucke
       const bucketName = url.pathname.split("/").filter(Boolean)[0];
       if (bucketName) return { bucketName, region: pathStyle[1] };
     }
+
+    const bucketName = url.pathname.split("/").filter(Boolean)[0];
+    if (bucketName) return { bucketName, region: fallbackRegion };
   } catch {
     /* ignore */
   }
