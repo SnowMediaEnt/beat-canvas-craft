@@ -245,6 +245,31 @@ async function readProgressJson(env: AwsEnv, bucketName: string, renderId: strin
   return (await response.json()) as ProgressJson;
 }
 
+function decodeXmlText(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+async function deleteRenderPrefix(env: AwsEnv, bucketName: string, renderId: string) {
+  const aws = createAwsClient(env);
+  const prefix = `${REMOTION_OUTPUT_PREFIX}${renderId}/`;
+  const listUrl = `https://${bucketName}.s3.${env.region}.amazonaws.com/?list-type=2&prefix=${encodeURIComponent(prefix)}`;
+  const listResponse = await aws.fetch(listUrl, { method: "GET" });
+  if (!listResponse.ok) throw new Error(`Failed to list render files (${listResponse.status})`);
+
+  const xml = await listResponse.text();
+  const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXmlText(match[1]));
+  await Promise.all(
+    keys.map((key) =>
+      aws.fetch(`https://${bucketName}.s3.${env.region}.amazonaws.com/${key}`, { method: "DELETE" }),
+    ),
+  );
+}
+
 function serializeInputProps(inputProps: z.infer<typeof inputPropsSchema>) {
   return { type: "payload", payload: JSON.stringify(inputProps) };
 }
@@ -481,7 +506,7 @@ export const cancelLambdaRender = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const env = getAwsEnv();
     try {
-      await invokeLambdaJson(env, { type: "cancel", renderId: data.renderId, bucketName: data.bucketName }, "Event");
+      await deleteRenderPrefix(env, data.bucketName, data.renderId);
       progressCache.delete(`${data.bucketName}:${data.renderId}`);
       return { cancelled: true };
     } catch (error) {
