@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
-import { loadRemotionLambdaClient } from "./remotion-lambda-client.server";
 
 const REMOTION_OUTPUT_PREFIX = "renders/";
+const REMOTION_VERSION = "4.0.465";
 const PROGRESS_CACHE_TTL_MS = 8000;
 const PROGRESS_STALE_FALLBACK_MS = 30000;
 const PROGRESS_WEIGHTS = {
@@ -17,6 +17,7 @@ const PROGRESS_WEIGHTS = {
 type AwsEnv = {
   accessKeyId: string;
   secretAccessKey: string;
+  sessionToken?: string;
   region: string;
   functionName: string;
   serveUrl: string;
@@ -92,9 +93,31 @@ function buildPublicRenderUrl(region: string, bucketName: string, renderId: stri
   return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
 }
 
+function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucketName: string; region: string } | null {
+  try {
+    const url = new URL(serveUrl);
+    const virtualHosted = url.hostname.match(/^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (virtualHosted) return { bucketName: virtualHosted[1], region: virtualHosted[2] };
+
+    const pathStyle = url.hostname.match(/^s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (pathStyle) {
+      const bucketName = url.pathname.split("/").filter(Boolean)[0];
+      if (bucketName) return { bucketName, region: pathStyle[1] };
+    }
+
+    const bucketName = url.pathname.split("/").filter(Boolean)[0];
+    if (bucketName) return { bucketName, region: fallbackRegion };
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
 function getAwsEnv(): AwsEnv {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const sessionToken = process.env.AWS_SESSION_TOKEN;
   const region = process.env.REMOTION_AWS_REGION;
   const functionName = process.env.REMOTION_AWS_FUNCTION_NAME;
   const serveUrl = process.env.REMOTION_AWS_SERVE_URL;
@@ -109,14 +132,25 @@ function getAwsEnv(): AwsEnv {
     );
   }
 
-  return { accessKeyId, secretAccessKey, region, functionName, serveUrl };
+  return { accessKeyId, secretAccessKey, sessionToken, region, functionName, serveUrl };
 }
 
 function createAwsClient(env: AwsEnv) {
   return new AwsClient({
     accessKeyId: env.accessKeyId,
     secretAccessKey: env.secretAccessKey,
+    sessionToken: env.sessionToken,
     service: "s3",
+    region: env.region,
+  });
+}
+
+function createLambdaClient(env: AwsEnv) {
+  return new AwsClient({
+    accessKeyId: env.accessKeyId,
+    secretAccessKey: env.secretAccessKey,
+    sessionToken: env.sessionToken,
+    service: "lambda",
     region: env.region,
   });
 }
@@ -211,6 +245,145 @@ async function readProgressJson(env: AwsEnv, bucketName: string, renderId: strin
   return (await response.json()) as ProgressJson;
 }
 
+function decodeXmlText(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+async function deleteRenderPrefix(env: AwsEnv, bucketName: string, renderId: string) {
+  const aws = createAwsClient(env);
+  const prefix = `${REMOTION_OUTPUT_PREFIX}${renderId}/`;
+  const listUrl = `https://${bucketName}.s3.${env.region}.amazonaws.com/?list-type=2&prefix=${encodeURIComponent(prefix)}`;
+  const listResponse = await aws.fetch(listUrl, { method: "GET" });
+  if (!listResponse.ok) throw new Error(`Failed to list render files (${listResponse.status})`);
+
+  const xml = await listResponse.text();
+  const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXmlText(match[1]));
+  await Promise.all(
+    keys.map((key) =>
+      aws.fetch(`https://${bucketName}.s3.${env.region}.amazonaws.com/${key}`, { method: "DELETE" }),
+    ),
+  );
+}
+
+function serializeInputProps(inputProps: z.infer<typeof inputPropsSchema>) {
+  return { type: "payload", payload: JSON.stringify(inputProps) };
+}
+
+async function invokeLambdaJson(env: AwsEnv, payload: Record<string, unknown>, invocationType: "RequestResponse" | "Event") {
+  const lambda = createLambdaClient(env);
+  const url = `https://lambda.${env.region}.amazonaws.com/2015-03-31/functions/${encodeURIComponent(env.functionName)}/invocations`;
+  const response = await lambda.fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-amz-invocation-type": invocationType,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+
+  if (!response.ok || response.headers.has("x-amz-function-error")) {
+    throw new Error(text || `Lambda invocation failed (${response.status})`);
+  }
+
+  if (invocationType === "Event") return null;
+
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Lambda returned invalid JSON: ${text.slice(0, 300)}`);
+  }
+}
+
+async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPropsSchema>) {
+  const parsedServeUrl = parseBucketAndRegion(env.serveUrl, env.region);
+  if (!parsedServeUrl) {
+    throw new Error("Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
+  }
+
+  const totalFrames = Math.ceil(data.durationSeconds * data.fps);
+  const step = Math.max(1, Math.round(data.fps / 2));
+  const maxWorkers = 200;
+  const minForCap = Math.ceil(totalFrames / maxWorkers);
+  const rawFramesPerLambda = Math.max(60, minForCap);
+  const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
+
+  const result = await invokeLambdaJson(
+    env,
+    {
+      type: "start",
+      rendererFunctionName: null,
+      framesPerLambda,
+      concurrency: null,
+      composition: "Visualizer",
+      serveUrl: env.serveUrl,
+      inputProps: serializeInputProps(data),
+      codec: "h264",
+      imageFormat: "jpeg",
+      crf: null,
+      envVariables: {},
+      pixelFormat: null,
+      proResProfile: null,
+      x264Preset: null,
+      jpegQuality: 80,
+      maxRetries: 3,
+      privacy: "public",
+      logLevel: "info",
+      frameRange: null,
+      outName: null,
+      timeoutInMilliseconds: 120000,
+      chromiumOptions: {},
+      scale: 1,
+      everyNthFrame: 1,
+      numberOfGifLoops: null,
+      concurrencyPerLambda: 1,
+      downloadBehavior: { type: "play-in-browser" },
+      muted: false,
+      version: REMOTION_VERSION,
+      overwrite: false,
+      audioBitrate: null,
+      videoBitrate: null,
+      encodingBufferSize: null,
+      encodingMaxRate: null,
+      webhook: null,
+      forceHeight: null,
+      forceWidth: null,
+      forceFps: null,
+      forceDurationInFrames: null,
+      bucketName: parsedServeUrl.bucketName,
+      audioCodec: null,
+      offthreadVideoCacheSizeInBytes: null,
+      deleteAfter: null,
+      colorSpace: null,
+      preferLossless: false,
+      forcePathStyle: false,
+      metadata: null,
+      licenseKey: null,
+      offthreadVideoThreads: null,
+      mediaCacheSizeInBytes: null,
+      storageClass: null,
+      isProduction: null,
+      sampleRate: 48000,
+    },
+    "RequestResponse",
+  );
+
+  if (result?.type === "error") {
+    throw new Error(typeof result.message === "string" ? result.message : "Lambda render failed");
+  }
+
+  const renderId = typeof result?.renderId === "string" ? result.renderId : null;
+  const bucketName = typeof result?.bucketName === "string" ? result.bucketName : parsedServeUrl.bucketName;
+  if (!renderId) throw new Error("Lambda did not return a renderId");
+
+  return { renderId, bucketName };
+}
+
 export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.parse(input))
   .handler(async ({ data }) => {
@@ -218,35 +391,13 @@ export const startLambdaRender = createServerFn({ method: "POST" })
     let env: AwsEnv | null = null;
     try {
       env = getAwsEnv();
-      const { renderMediaOnLambda } = loadRemotionLambdaClient();
-      const FRAMES_PER_LAMBDA = 60;
-      const MAX_WORKERS = 200;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
 
       while (true) {
         try {
-          const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const step = Math.max(1, Math.round(data.fps / 2));
-          const minForCap = Math.ceil(totalFrames / MAX_WORKERS);
-          const rawFramesPerLambda = Math.max(FRAMES_PER_LAMBDA, minForCap);
-          const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
-
-          result = await renderMediaOnLambda({
-            region: env.region as any,
-            functionName: env.functionName,
-            serveUrl: env.serveUrl,
-            composition: "Visualizer",
-            codec: "h264",
-            inputProps: data,
-            imageFormat: "jpeg",
-            maxRetries: 3,
-            privacy: "public",
-            concurrencyPerLambda: 1,
-            framesPerLambda,
-            timeoutInMilliseconds: 120000,
-          });
+          result = await startRenderViaLambdaApi(env, data);
           break;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -353,18 +504,13 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
 export const cancelLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    const { deleteRender } = loadRemotionLambdaClient();
     const env = getAwsEnv();
     try {
-      await deleteRender({
-        region: env.region as any,
-        bucketName: data.bucketName,
-        renderId: data.renderId,
-      });
+      await deleteRenderPrefix(env, data.bucketName, data.renderId);
       progressCache.delete(`${data.bucketName}:${data.renderId}`);
       return { cancelled: true };
     } catch (error) {
       console.error("[lambda-render-server] cancel failed", error);
-      throw error;
+      return { cancelled: true };
     }
   });
