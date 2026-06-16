@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
-import { loadRemotionLambdaClient } from "./remotion-lambda-client.server";
 
 const REMOTION_OUTPUT_PREFIX = "renders/";
+const REMOTION_VERSION = "4.0.465";
 const PROGRESS_CACHE_TTL_MS = 8000;
 const PROGRESS_STALE_FALLBACK_MS = 30000;
 const PROGRESS_WEIGHTS = {
@@ -17,6 +17,7 @@ const PROGRESS_WEIGHTS = {
 type AwsEnv = {
   accessKeyId: string;
   secretAccessKey: string;
+  sessionToken?: string;
   region: string;
   functionName: string;
   serveUrl: string;
@@ -92,9 +93,28 @@ function buildPublicRenderUrl(region: string, bucketName: string, renderId: stri
   return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
 }
 
+function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucketName: string; region: string } | null {
+  try {
+    const url = new URL(serveUrl);
+    const virtualHosted = url.hostname.match(/^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (virtualHosted) return { bucketName: virtualHosted[1], region: virtualHosted[2] };
+
+    const pathStyle = url.hostname.match(/^s3[.-]([^.]+)\.amazonaws\.com$/);
+    if (pathStyle) {
+      const bucketName = url.pathname.split("/").filter(Boolean)[0];
+      if (bucketName) return { bucketName, region: pathStyle[1] };
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
+}
+
 function getAwsEnv(): AwsEnv {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
+  const sessionToken = process.env.AWS_SESSION_TOKEN;
   const region = process.env.REMOTION_AWS_REGION;
   const functionName = process.env.REMOTION_AWS_FUNCTION_NAME;
   const serveUrl = process.env.REMOTION_AWS_SERVE_URL;
@@ -109,14 +129,25 @@ function getAwsEnv(): AwsEnv {
     );
   }
 
-  return { accessKeyId, secretAccessKey, region, functionName, serveUrl };
+  return { accessKeyId, secretAccessKey, sessionToken, region, functionName, serveUrl };
 }
 
 function createAwsClient(env: AwsEnv) {
   return new AwsClient({
     accessKeyId: env.accessKeyId,
     secretAccessKey: env.secretAccessKey,
+    sessionToken: env.sessionToken,
     service: "s3",
+    region: env.region,
+  });
+}
+
+function createLambdaClient(env: AwsEnv) {
+  return new AwsClient({
+    accessKeyId: env.accessKeyId,
+    secretAccessKey: env.secretAccessKey,
+    sessionToken: env.sessionToken,
+    service: "lambda",
     region: env.region,
   });
 }
