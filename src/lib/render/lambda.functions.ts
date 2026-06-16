@@ -363,35 +363,13 @@ export const startLambdaRender = createServerFn({ method: "POST" })
     let env: AwsEnv | null = null;
     try {
       env = getAwsEnv();
-      const { renderMediaOnLambda } = loadRemotionLambdaClient();
-      const FRAMES_PER_LAMBDA = 60;
-      const MAX_WORKERS = 200;
       let result;
       let attempt = 0;
       const maxAttempts = 5;
 
       while (true) {
         try {
-          const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-          const step = Math.max(1, Math.round(data.fps / 2));
-          const minForCap = Math.ceil(totalFrames / MAX_WORKERS);
-          const rawFramesPerLambda = Math.max(FRAMES_PER_LAMBDA, minForCap);
-          const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
-
-          result = await renderMediaOnLambda({
-            region: env.region as any,
-            functionName: env.functionName,
-            serveUrl: env.serveUrl,
-            composition: "Visualizer",
-            codec: "h264",
-            inputProps: data,
-            imageFormat: "jpeg",
-            maxRetries: 3,
-            privacy: "public",
-            concurrencyPerLambda: 1,
-            framesPerLambda,
-            timeoutInMilliseconds: 120000,
-          });
+          result = await startRenderViaLambdaApi(env, data);
           break;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -498,18 +476,13 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
 export const cancelLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    const { deleteRender } = loadRemotionLambdaClient();
     const env = getAwsEnv();
     try {
-      await deleteRender({
-        region: env.region as any,
-        bucketName: data.bucketName,
-        renderId: data.renderId,
-      });
+      await invokeLambdaJson(env, { type: "cancel", renderId: data.renderId, bucketName: data.bucketName }, "Event");
       progressCache.delete(`${data.bucketName}:${data.renderId}`);
       return { cancelled: true };
     } catch (error) {
       console.error("[lambda-render-server] cancel failed", error);
-      throw error;
+      return { cancelled: true };
     }
   });
