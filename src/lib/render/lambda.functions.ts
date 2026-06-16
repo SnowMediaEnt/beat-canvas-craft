@@ -242,6 +242,120 @@ async function readProgressJson(env: AwsEnv, bucketName: string, renderId: strin
   return (await response.json()) as ProgressJson;
 }
 
+function serializeInputProps(inputProps: z.infer<typeof inputPropsSchema>) {
+  return { type: "payload", payload: JSON.stringify(inputProps) };
+}
+
+async function invokeLambdaJson(env: AwsEnv, payload: Record<string, unknown>, invocationType: "RequestResponse" | "Event") {
+  const lambda = createLambdaClient(env);
+  const url = `https://lambda.${env.region}.amazonaws.com/2015-03-31/functions/${encodeURIComponent(env.functionName)}/invocations`;
+  const response = await lambda.fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-amz-invocation-type": invocationType,
+    },
+    body: JSON.stringify(payload),
+  });
+  const text = await response.text();
+
+  if (!response.ok || response.headers.has("x-amz-function-error")) {
+    throw new Error(text || `Lambda invocation failed (${response.status})`);
+  }
+
+  if (invocationType === "Event") return null;
+
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Lambda returned invalid JSON: ${text.slice(0, 300)}`);
+  }
+}
+
+async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPropsSchema>) {
+  const parsedServeUrl = parseBucketAndRegion(env.serveUrl, env.region);
+  if (!parsedServeUrl) {
+    throw new Error("Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
+  }
+
+  const totalFrames = Math.ceil(data.durationSeconds * data.fps);
+  const step = Math.max(1, Math.round(data.fps / 2));
+  const maxWorkers = 200;
+  const minForCap = Math.ceil(totalFrames / maxWorkers);
+  const rawFramesPerLambda = Math.max(60, minForCap);
+  const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
+
+  const result = await invokeLambdaJson(
+    env,
+    {
+      type: "start",
+      rendererFunctionName: null,
+      framesPerLambda,
+      concurrency: null,
+      composition: "Visualizer",
+      serveUrl: env.serveUrl,
+      inputProps: serializeInputProps(data),
+      codec: "h264",
+      imageFormat: "jpeg",
+      crf: null,
+      envVariables: {},
+      pixelFormat: null,
+      proResProfile: null,
+      x264Preset: null,
+      jpegQuality: 80,
+      maxRetries: 3,
+      privacy: "public",
+      logLevel: "info",
+      frameRange: null,
+      outName: null,
+      timeoutInMilliseconds: 120000,
+      chromiumOptions: {},
+      scale: 1,
+      everyNthFrame: 1,
+      numberOfGifLoops: null,
+      concurrencyPerLambda: 1,
+      downloadBehavior: { type: "play-in-browser" },
+      muted: false,
+      version: REMOTION_VERSION,
+      overwrite: false,
+      audioBitrate: null,
+      videoBitrate: null,
+      encodingBufferSize: null,
+      encodingMaxRate: null,
+      webhook: null,
+      forceHeight: null,
+      forceWidth: null,
+      forceFps: null,
+      forceDurationInFrames: null,
+      bucketName: parsedServeUrl.bucketName,
+      audioCodec: null,
+      offthreadVideoCacheSizeInBytes: null,
+      deleteAfter: null,
+      colorSpace: null,
+      preferLossless: false,
+      forcePathStyle: false,
+      metadata: null,
+      licenseKey: null,
+      offthreadVideoThreads: null,
+      mediaCacheSizeInBytes: null,
+      storageClass: null,
+      isProduction: null,
+      sampleRate: 48000,
+    },
+    "RequestResponse",
+  );
+
+  if (result?.type === "error") {
+    throw new Error(typeof result.message === "string" ? result.message : "Lambda render failed");
+  }
+
+  const renderId = typeof result?.renderId === "string" ? result.renderId : null;
+  const bucketName = typeof result?.bucketName === "string" ? result.bucketName : parsedServeUrl.bucketName;
+  if (!renderId) throw new Error("Lambda did not return a renderId");
+
+  return { renderId, bucketName };
+}
+
 export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.parse(input))
   .handler(async ({ data }) => {
