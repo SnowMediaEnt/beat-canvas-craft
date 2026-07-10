@@ -27,7 +27,7 @@ type LambdaProgressResponse = {
   done: boolean;
   overallProgress: number;
   outputFile?: string;
-  errors: { message: string; stack?: string }[];
+  errors: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   fatalErrorEncountered: boolean;
 };
 
