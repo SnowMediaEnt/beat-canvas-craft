@@ -164,12 +164,21 @@ export function CompletedDialog({ project }: Props) {
 
   const resumePolling = async (entry: RenderJob) => {
     if (!entry.renderId || !entry.bucketName) return;
+    // Stall watchdog: if progress does not advance for 6 minutes, treat
+    // the render as stuck instead of polling forever.
+    const STALL_MS = 6 * 60 * 1000;
+    let lastPct = -1;
+    let lastPctAt = Date.now();
     try {
       while (true) {
         const p = await pollProgress({
           data: { renderId: entry.renderId, bucketName: entry.bucketName },
         });
         const pct = Math.round((p.overallProgress || 0) * 100);
+        if (pct !== lastPct) {
+          lastPct = pct;
+          lastPctAt = Date.now();
+        }
         const next: RenderJob = { ...entry, progress: pct, status: "rendering" };
         saveJob(next);
         setEntries((current) =>
@@ -195,6 +204,18 @@ export function CompletedDialog({ project }: Props) {
             ...next,
             status: "failed",
             error: p.errors[0]?.message || "Lambda render failed",
+          };
+          saveJob(failed);
+          setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
+          toast.error(`Render failed: ${failed.error}`);
+          break;
+        }
+        if (Date.now() - lastPctAt > STALL_MS) {
+          const failed: RenderJob = {
+            ...next,
+            status: "failed",
+            error:
+              "Render appears stuck: no progress for 6 minutes. AWS Lambda likely stalled — try a lower resolution/fps or a lighter preset.",
           };
           saveJob(failed);
           setEntries((current) => current.map((it) => (it.id === entry.id ? failed : it)));
