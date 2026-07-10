@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "@/lib/project/types";
 import { AudioEngine, type AudioData } from "@/lib/visualizer/audioEngine";
-import { drawForegroundLayers } from "@/lib/visualizer/render-shared";
+import { drawForegroundLayers, getBlurredBackground } from "@/lib/visualizer/render-shared";
 
 const ratioToWH = (r: string) => {
   switch (r) {
