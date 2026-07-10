@@ -40,7 +40,7 @@ type ProgressJson = {
   retries?: unknown[];
   postRenderData?: {
     outputFile?: string | null;
-    errors?: { message: string; stack?: string }[];
+    errors?: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   } | null;
   renderMetadata?: {
     totalChunks?: number;
@@ -48,7 +48,7 @@ type ProgressJson = {
     frameRange?: [number, number] | number[];
     everyNthFrame?: number;
   } | null;
-  errors?: { message: string; stack?: string }[];
+  errors?: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   timeoutTimestamp?: number | null;
   functionLaunched?: number;
   serveUrlOpened?: number | null;
