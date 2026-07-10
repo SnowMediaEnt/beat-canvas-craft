@@ -27,7 +27,7 @@ type LambdaProgressResponse = {
   done: boolean;
   overallProgress: number;
   outputFile?: string;
-  errors: { message: string; stack?: string }[];
+  errors: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   fatalErrorEncountered: boolean;
 };
 
@@ -40,7 +40,7 @@ type ProgressJson = {
   retries?: unknown[];
   postRenderData?: {
     outputFile?: string | null;
-    errors?: { message: string; stack?: string }[];
+    errors?: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   } | null;
   renderMetadata?: {
     totalChunks?: number;
@@ -48,7 +48,7 @@ type ProgressJson = {
     frameRange?: [number, number] | number[];
     everyNthFrame?: number;
   } | null;
-  errors?: { message: string; stack?: string }[];
+  errors?: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   timeoutTimestamp?: number | null;
   functionLaunched?: number;
   serveUrlOpened?: number | null;
@@ -196,12 +196,23 @@ function computeOverallProgress(progress: ProgressJson) {
   );
 }
 
-function normalizeErrors(errors: { message: string; stack?: string }[] | undefined | null) {
+function normalizeErrors(
+  errors: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[] | undefined | null,
+) {
   if (!errors?.length) return [];
   return errors.map((error) => ({
     message: error?.message || "Render failed",
     stack: error?.stack,
+    isFatal: error?.isFatal,
+    willRetry: error?.willRetry,
   }));
+}
+
+// Remotion writes retryable chunk errors into progress.errors too. Only count
+// an entry as fatal when it isn't explicitly marked non-fatal or willRetry.
+// Missing flags → treat as fatal (matches prior behavior).
+function isFatalErrorEntry(error: { isFatal?: boolean; willRetry?: boolean }) {
+  return error.isFatal !== false && error.willRetry !== true;
 }
 
 function toLambdaProgressResponse(progress: ProgressJson, region: string, renderId: string, bucketName: string): LambdaProgressResponse {
@@ -217,11 +228,10 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
   }
 
   const errors = normalizeErrors(progress.errors);
+  const fatalErrors = errors.filter(isFatalErrorEntry);
 
   // Chunks that exceed the 900s Lambda kill leave progress.json with a
-  // populated timeoutTimestamp in the past and no postRenderData. Also
-  // treat any populated errors[] as fatal — the coordinator only writes
-  // there for real chunk failures.
+  // populated timeoutTimestamp in the past and no postRenderData.
   const now = Date.now();
   const timedOut =
     typeof progress.timeoutTimestamp === "number" &&
@@ -243,7 +253,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
     };
   }
 
-  if (errors.length > 0) {
+  if (fatalErrors.length > 0) {
     return {
       done: false,
       overallProgress: computeOverallProgress(progress),
