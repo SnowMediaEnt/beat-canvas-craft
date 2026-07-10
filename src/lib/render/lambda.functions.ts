@@ -344,7 +344,7 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
   const step = Math.max(1, Math.round(data.fps / 2));
   const maxWorkers = 200;
   const minForCap = Math.ceil(totalFrames / maxWorkers);
-  const rawFramesPerLambda = Math.max(60, minForCap);
+  const rawFramesPerLambda = Math.max(15, minForCap);
   const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
 
   const result = await invokeLambdaJson(
