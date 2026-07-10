@@ -4,7 +4,7 @@ import { AbsoluteFill, Audio, Loop, OffthreadVideo, continueRender, delayRender,
 import { useAudioData, visualizeAudio } from "@remotion/media-utils";
 import { type AudioData, AUDIBLE_MIN_HZ, AUDIBLE_MAX_HZ, BASS_MAX_HZ, MID_MAX_HZ } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
-import { drawForegroundLayers } from "../lib/visualizer/render-shared";
+import { drawForegroundLayers, getBlurredBackground } from "../lib/visualizer/render-shared";
 
 
 const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
@@ -378,10 +378,24 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
         const ih = bgImg.naturalHeight || height;
         const scale = Math.max(width / iw, height / ih) * cfg.backgroundScale;
         const dw = iw * scale, dh = ih * scale;
-        ctx.save();
-        if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-        ctx.drawImage(bgImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
-        ctx.restore();
+        const dx = (width - dw) / 2;
+        const dy = (height - dh) / 2;
+        if (cfg.backgroundBlur > 0) {
+          // Rasterise the blurred bitmap once and reuse the canvas every
+          // frame — the background never changes so per-frame CPU blur
+          // (SwiftShader in Lambda) is wasted work.
+          const blurred = getBlurredBackground(bgImg, cfg.backgroundBlur, dw, dh);
+          if (blurred) {
+            ctx.drawImage(blurred, dx, dy, dw, dh);
+          } else {
+            ctx.save();
+            ctx.filter = `blur(${cfg.backgroundBlur}px)`;
+            ctx.drawImage(bgImg, dx, dy, dw, dh);
+            ctx.restore();
+          }
+        } else {
+          ctx.drawImage(bgImg, dx, dy, dw, dh);
+        }
       }
     }
 

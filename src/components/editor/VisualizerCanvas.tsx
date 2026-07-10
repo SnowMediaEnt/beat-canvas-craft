@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project } from "@/lib/project/types";
 import { AudioEngine, type AudioData } from "@/lib/visualizer/audioEngine";
-import { drawForegroundLayers } from "@/lib/visualizer/render-shared";
+import { drawForegroundLayers, getBlurredBackground } from "@/lib/visualizer/render-shared";
 
 const ratioToWH = (r: string) => {
   switch (r) {
@@ -132,9 +132,20 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
         if (!iw || !ih) return;
         const scale = Math.max(drawWidth / iw, drawHeight / ih) * cfg.backgroundScale;
         const dw = iw * scale, dh = ih * scale;
+        const dx = (drawWidth - dw) / 2;
+        const dy = (drawHeight - dh) / 2;
+        // Video frames change every tick — cache only for static images.
+        const isImg = !("videoWidth" in src);
+        if (cfg.backgroundBlur > 0 && isImg) {
+          const blurred = getBlurredBackground(src, cfg.backgroundBlur, dw, dh);
+          if (blurred) {
+            ctx.drawImage(blurred, dx, dy, dw, dh);
+            return;
+          }
+        }
         ctx.save();
         if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-        ctx.drawImage(src, (drawWidth - dw) / 2, (drawHeight - dh) / 2, dw, dh);
+        ctx.drawImage(src, dx, dy, dw, dh);
         ctx.restore();
       };
       if (bgVidRef.current) drawBg(bgVidRef.current);

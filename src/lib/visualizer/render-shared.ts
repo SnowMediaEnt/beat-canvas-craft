@@ -18,6 +18,52 @@ import { getPreset } from "./presets";
  */
 export const RENDER_BASELINE_HEIGHT = 1080;
 
+/**
+ * Per-image pre-blur cache. Applying `ctx.filter = "blur(Npx)"` on a large
+ * background image every frame re-rasterises the blur on the CPU (Lambda
+ * uses SwiftShader — no GPU), which is one of the biggest per-frame costs
+ * and pushed heavy presets past the 900s Lambda timeout. The background
+ * doesn't change between frames, so we rasterise it once into an offscreen
+ * canvas keyed by (image identity + blur + target size) and reuse the
+ * bitmap for every subsequent frame.
+ */
+type BlurCacheEntry = { key: string; canvas: HTMLCanvasElement };
+const blurredBgCache = new WeakMap<CanvasImageSource, BlurCacheEntry>();
+
+export function getBlurredBackground(
+  src: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number; videoWidth?: number; videoHeight?: number },
+  blurPx: number,
+  targetW: number,
+  targetH: number,
+): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+  const iw =
+    (src as HTMLImageElement).naturalWidth ||
+    (src as HTMLVideoElement).videoWidth ||
+    0;
+  const ih =
+    (src as HTMLImageElement).naturalHeight ||
+    (src as HTMLVideoElement).videoHeight ||
+    0;
+  if (!iw || !ih || targetW <= 0 || targetH <= 0) return null;
+  const w = Math.max(1, Math.round(targetW));
+  const h = Math.max(1, Math.round(targetH));
+  const key = `${w}x${h}|${Math.round(blurPx * 10)}`;
+  const existing = blurredBgCache.get(src);
+  if (existing && existing.key === key) return existing.canvas;
+  const off = existing?.canvas ?? document.createElement("canvas");
+  off.width = w;
+  off.height = h;
+  const octx = off.getContext("2d");
+  if (!octx) return null;
+  octx.clearRect(0, 0, w, h);
+  if (blurPx > 0) octx.filter = `blur(${blurPx}px)`;
+  octx.drawImage(src, 0, 0, w, h);
+  octx.filter = "none";
+  blurredBgCache.set(src, { key, canvas: off });
+  return off;
+}
+
 interface BaseDrawArgs {
   ctx: CanvasRenderingContext2D;
   w: number;
