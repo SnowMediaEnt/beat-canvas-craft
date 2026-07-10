@@ -378,10 +378,24 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
         const ih = bgImg.naturalHeight || height;
         const scale = Math.max(width / iw, height / ih) * cfg.backgroundScale;
         const dw = iw * scale, dh = ih * scale;
-        ctx.save();
-        if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-        ctx.drawImage(bgImg, (width - dw) / 2, (height - dh) / 2, dw, dh);
-        ctx.restore();
+        const dx = (width - dw) / 2;
+        const dy = (height - dh) / 2;
+        if (cfg.backgroundBlur > 0) {
+          // Rasterise the blurred bitmap once and reuse the canvas every
+          // frame — the background never changes so per-frame CPU blur
+          // (SwiftShader in Lambda) is wasted work.
+          const blurred = getBlurredBackground(bgImg, cfg.backgroundBlur, dw, dh);
+          if (blurred) {
+            ctx.drawImage(blurred, dx, dy, dw, dh);
+          } else {
+            ctx.save();
+            ctx.filter = `blur(${cfg.backgroundBlur}px)`;
+            ctx.drawImage(bgImg, dx, dy, dw, dh);
+            ctx.restore();
+          }
+        } else {
+          ctx.drawImage(bgImg, dx, dy, dw, dh);
+        }
       }
     }
 
