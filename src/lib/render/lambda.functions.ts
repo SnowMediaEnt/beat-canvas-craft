@@ -217,14 +217,48 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
   }
 
   const errors = normalizeErrors(progress.errors);
-  const fatalErrorEncountered = false;
+
+  // Chunks that exceed the 900s Lambda kill leave progress.json with a
+  // populated timeoutTimestamp in the past and no postRenderData. Also
+  // treat any populated errors[] as fatal — the coordinator only writes
+  // there for real chunk failures.
+  const now = Date.now();
+  const timedOut =
+    typeof progress.timeoutTimestamp === "number" &&
+    progress.timeoutTimestamp > 0 &&
+    now > progress.timeoutTimestamp + 60_000;
+
+  if (timedOut) {
+    return {
+      done: false,
+      overallProgress: computeOverallProgress(progress),
+      outputFile: undefined,
+      errors: errors.length
+        ? errors
+        : [{
+            message:
+              "Render timed out on AWS: chunks exceeded the 900s Lambda limit. Try a lower resolution/fps or a lighter preset.",
+          }],
+      fatalErrorEncountered: true,
+    };
+  }
+
+  if (errors.length > 0) {
+    return {
+      done: false,
+      overallProgress: computeOverallProgress(progress),
+      outputFile: undefined,
+      errors,
+      fatalErrorEncountered: true,
+    };
+  }
 
   return {
     done: false,
     overallProgress: computeOverallProgress(progress),
     outputFile: undefined,
-    errors,
-    fatalErrorEncountered,
+    errors: [],
+    fatalErrorEncountered: false,
   };
 }
 
