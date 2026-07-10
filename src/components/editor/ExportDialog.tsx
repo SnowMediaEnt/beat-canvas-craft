@@ -438,6 +438,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
       await new Promise<void>((resolve, reject) => {
         let stopped = false;
+        // Client-side stall watchdog: if overallProgress does not advance
+        // for 6 minutes we assume Lambda is wedged (chunks stuck / silently
+        // timed out before writing errors) and fail the job instead of
+        // polling forever.
+        const STALL_MS = 6 * 60 * 1000;
+        let lastPct = -1;
+        let lastPctAt = Date.now();
         const stop = () => {
           stopped = true;
           if (pollRef.current) {
@@ -461,6 +468,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               return;
             }
             setProgress(pct);
+
+            if (pct !== lastPct) {
+              lastPct = pct;
+              lastPctAt = Date.now();
+            }
 
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
@@ -495,6 +507,16 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               stop();
               const msg = p.errors[0]?.message || "Lambda render failed";
               reject(new Error(msg));
+              return;
+            }
+
+            if (Date.now() - lastPctAt > STALL_MS) {
+              stop();
+              reject(
+                new Error(
+                  "Render appears stuck: no progress for 6 minutes. AWS Lambda likely stalled — try a lower resolution/fps or a lighter preset.",
+                ),
+              );
               return;
             }
 
