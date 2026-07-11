@@ -972,6 +972,28 @@ const tidalBloom: Preset = {
 };
 
 // 30. Silk Strands — many thin strands at different frequencies and phases.
+// PERF: SwiftShader (Lambda) has no GPU, so ctx.shadowBlur is a full CPU
+// rasterization per stroke. Previously this preset ran setGlow() once and
+// then called stroke() up to 64 times — meaning up to 64 blur rasterizations
+// per frame, which pushed silk-strands to ~24 s/frame on Lambda.
+// Fix: draw every strand into a single offscreen canvas with NO shadow,
+// then blit that composite to the main canvas ONCE with shadow enabled.
+// One blur per frame instead of one per strand. Visual output matches
+// within normal tolerance (glow hugs the same alpha silhouette).
+const silkOffscreen: { canvas: HTMLCanvasElement | null; w: number; h: number } = {
+  canvas: null, w: 0, h: 0,
+};
+const getSilkOffscreen = (w: number, h: number): HTMLCanvasElement | null => {
+  if (typeof document === "undefined") return null;
+  if (!silkOffscreen.canvas || silkOffscreen.w !== w || silkOffscreen.h !== h) {
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    silkOffscreen.canvas = c;
+    silkOffscreen.w = w; silkOffscreen.h = h;
+  }
+  return silkOffscreen.canvas;
+};
+
 const silkStrands: Preset = {
   id: "silk-strands", name: "Silk Strands", category: "Organic",
   draw: (d) => {
@@ -979,7 +1001,14 @@ const silkStrands: Preset = {
     const strands = Math.max(4, Math.min(64, cfg.bandCount || 22));
     const react = cfg.reactivity ?? 1;
     const levels = bandLevels(audio.freq, strands, 0.8, cfg, audio);
-    setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
+
+    const off = getSilkOffscreen(w, h);
+    const target = off ? off.getContext("2d") : null;
+    const drawCtx: CanvasRenderingContext2D = target ?? ctx;
+    if (target) {
+      target.clearRect(0, 0, w, h);
+      target.shadowBlur = 0;
+    }
     for (let s = 0; s < strands; s++) {
       const p = s / (strands - 1);
       const v = levels[s];
@@ -988,19 +1017,31 @@ const silkStrands: Preset = {
       const amp = (18 + v * 140 + audio.volume * 30) * cfg.size * react;
       const cyBase = h * (0.5 + Math.sin(p * 3.1 + t * 0.3) * 0.06);
       const col = s % 3 === 0 ? cfg.primary : s % 3 === 1 ? cfg.accent : cfg.secondary;
-      ctx.strokeStyle = hexA(col, 0.3 + v * 0.6);
-      ctx.lineWidth = (cfg.thickness * 0.4) + v * cfg.thickness;
-      ctx.beginPath();
+      drawCtx.strokeStyle = hexA(col, 0.3 + v * 0.6);
+      drawCtx.lineWidth = (cfg.thickness * 0.4) + v * cfg.thickness;
+      drawCtx.beginPath();
       for (let x = 0; x <= w; x += 8) {
         const y = cyBase
           + Math.sin(x * 0.008 + phase) * amp
           + Math.sin(x * 0.025 + phase * 1.7) * amp * 0.3
           + (p - 0.5) * 220 * cfg.size;
-        x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        x === 0 ? drawCtx.moveTo(x, y) : drawCtx.lineTo(x, y);
       }
-      ctx.stroke();
+      drawCtx.stroke();
     }
-    ctx.shadowBlur = 0;
+
+    if (off && target) {
+      // ONE blur rasterization for the entire composite.
+      ctx.save();
+      setGlow(ctx, cfg.glow, cfg.glowIntensity * 0.5);
+      ctx.drawImage(off, 0, 0);
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    } else {
+      // Fallback: no document (shouldn't happen in browser/Remotion). Apply
+      // glow once to the main canvas's already-drawn strokes by re-blitting.
+      ctx.shadowBlur = 0;
+    }
   },
 };
 
