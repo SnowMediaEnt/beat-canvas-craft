@@ -450,10 +450,6 @@ export const startLambdaRender = createServerFn({ method: "POST" })
       while (true) {
         try {
           result = await startRenderViaLambdaApi(env, renderProps);
-
-      while (true) {
-        try {
-          result = await startRenderViaLambdaApi(env, data);
           break;
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
