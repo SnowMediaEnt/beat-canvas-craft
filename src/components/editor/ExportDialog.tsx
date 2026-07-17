@@ -58,9 +58,17 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [accessCode, setAccessCode] = useState<string>("");
   const pollRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    if (open && typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("ac_lambda_access_code");
+      if (stored) setAccessCode(stored);
+    }
+  }, [open]);
 
   // Browser recording state
   const [recording, setRecording] = useState(false);
