@@ -559,6 +559,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         return;
       }
       console.error("[lambda-render]", e);
+      const msg: string = e?.message || "Unknown error";
+      if (/invalid access code/i.test(msg) && typeof window !== "undefined") {
+        window.localStorage.removeItem("ac_lambda_access_code");
+      }
+      setInlineError(msg);
       const failed: RenderJob = {
         ...j,
         kind: "lambda",
