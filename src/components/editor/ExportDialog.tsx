@@ -58,9 +58,17 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [accessCode, setAccessCode] = useState<string>("");
   const pollRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
+
+  useEffect(() => {
+    if (open && typeof window !== "undefined") {
+      const stored = window.localStorage.getItem("ac_lambda_access_code");
+      if (stored) setAccessCode(stored);
+    }
+  }, [open]);
 
   // Browser recording state
   const [recording, setRecording] = useState(false);
@@ -428,8 +436,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       }
 
       const { renderId, bucketName } = await startRender({
-        data: inputProps,
+        data: { ...inputProps, accessCode },
       });
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("ac_lambda_access_code", accessCode);
+      }
 
       setStage("Rendering on AWS Lambda…");
       const running: RenderJob = { ...j, status: "rendering", renderId, bucketName };
@@ -548,6 +559,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         return;
       }
       console.error("[lambda-render]", e);
+      const msg: string = e?.message || "Unknown error";
+      if (/invalid access code/i.test(msg) && typeof window !== "undefined") {
+        window.localStorage.removeItem("ac_lambda_access_code");
+      }
+      setInlineError(msg);
       const failed: RenderJob = {
         ...j,
         kind: "lambda",
@@ -853,9 +869,27 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               </div>
             )}
 
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Access code</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="Enter access code"
+                className="w-full h-9 rounded-md border border-border bg-elevated/60 px-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Lambda rendering requires an access code. Don't have one? Use the free Browser
+                Recording tab — it records in real time while you wait.
+              </p>
+            </div>
+
             <Button
               onClick={onRender}
-              disabled={job?.status === "queued" || job?.status === "rendering"}
+              disabled={
+                !accessCode.trim() || job?.status === "queued" || job?.status === "rendering"
+              }
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
               <Video className="size-4" />
