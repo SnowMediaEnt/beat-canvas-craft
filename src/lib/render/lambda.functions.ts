@@ -431,15 +431,25 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
 }
 
 export const startLambdaRender = createServerFn({ method: "POST" })
-  .inputValidator((input) => inputPropsSchema.parse(input))
+  .inputValidator((input) => inputPropsSchema.extend({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    console.log("[lambda-render-server] validated inputProps", data);
+    if (data.accessCode !== RENDER_ACCESS_CODE) {
+      throw new Error(
+        "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
+      );
+    }
+    const { accessCode: _accessCode, ...renderProps } = data;
+    console.log("[lambda-render-server] validated inputProps", renderProps);
     let env: AwsEnv | null = null;
     try {
       env = getAwsEnv();
       let result;
       let attempt = 0;
       const maxAttempts = 5;
+
+      while (true) {
+        try {
+          result = await startRenderViaLambdaApi(env, renderProps);
 
       while (true) {
         try {
