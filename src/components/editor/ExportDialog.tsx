@@ -436,8 +436,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       }
 
       const { renderId, bucketName } = await startRender({
-        data: inputProps,
+        data: { ...inputProps, accessCode },
       });
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("ac_lambda_access_code", accessCode);
+      }
 
       setStage("Rendering on AWS Lambda…");
       const running: RenderJob = { ...j, status: "rendering", renderId, bucketName };
