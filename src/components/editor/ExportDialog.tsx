@@ -869,9 +869,27 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               </div>
             )}
 
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">Access code</label>
+              <input
+                type="password"
+                inputMode="numeric"
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="Enter access code"
+                className="w-full h-9 rounded-md border border-border bg-elevated/60 px-3 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Lambda rendering requires an access code. Don't have one? Use the free Browser
+                Recording tab — it records in real time while you wait.
+              </p>
+            </div>
+
             <Button
               onClick={onRender}
-              disabled={job?.status === "queued" || job?.status === "rendering"}
+              disabled={
+                !accessCode.trim() || job?.status === "queued" || job?.status === "rendering"
+              }
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
               <Video className="size-4" />
