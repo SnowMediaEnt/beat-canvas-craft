@@ -75,6 +75,8 @@ const lyricsConfigSchema = z.object({
   fade: z.boolean(),
 });
 
+const RENDER_ACCESS_CODE = "2650562";
+
 const inputPropsSchema = z.object({
   audioUrl: z.string().url(),
   durationSeconds: z.number().positive(),
