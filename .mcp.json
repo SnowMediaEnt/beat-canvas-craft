@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "secondhand": {
+      "command": "npx",
+      "args": ["-y", "secondhand-mcp"],
+      "env": {
+        "MARKETPLACES": "facebook,ebay",
+        "SMARTPROXY_URL": "${HTTPS_PROXY:-}",
+        "NODE_EXTRA_CA_CERTS": "${NODE_EXTRA_CA_CERTS:-}",
+        "EBAY_CLIENT_ID": "${EBAY_CLIENT_ID:-}",
+        "EBAY_CLIENT_SECRET": "${EBAY_CLIENT_SECRET:-}"
+      }
+    }
+  }
+}

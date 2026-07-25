@@ -1,0 +1,27 @@
+{
+  "locations": ["SET_ME — your city, plus 2-3 nearby suburbs, e.g. atlanta / marietta / decatur"],
+  "searches": [
+    {
+      "name": "reliable-daily-drivers",
+      "keywords": ["honda civic", "honda accord", "toyota camry", "toyota corolla"],
+      "maxPrice": 8000,
+      "minYear": 2008,
+      "maxMiles": 170000
+    },
+    {
+      "name": "flip-radar",
+      "keywords": ["honda odyssey", "toyota sienna", "lexus", "4runner"],
+      "maxPrice": 10000,
+      "minYear": 2006,
+      "maxMiles": 190000
+    }
+  ],
+  "thresholds": {
+    "minSpreadUsd": 1000,
+    "hotSpreadUsd": 2000,
+    "maxDetailFetchesPerRun": 10
+  },
+  "allowSalvage": false,
+  "marketplaces": ["facebook", "ebay"],
+  "notify": { "push": true }
+}
