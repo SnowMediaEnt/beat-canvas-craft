@@ -1,5 +1,5 @@
 {
-  "locations": ["SET_ME — your city, plus 2-3 nearby suburbs, e.g. atlanta / marietta / decatur"],
+  "locations": ["bakersfield", "wasco", "lamont", "arvin"],
   "searches": [
     {
       "name": "reliable-daily-drivers",
