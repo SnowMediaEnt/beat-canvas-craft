@@ -24,26 +24,46 @@ Rules for drafts: never open with a lowball before seeing the car (kills the
 thread), never claim defects you haven't verified, and the "cash today"
 close only goes in a draft when the user actually intends to buy today.
 
-## The "$1k finder" play — read this before using that draft
+## The "get a piece for connecting them" play — California rules
 
-Connecting a buyer and seller for a fee ("bird-dogging" / brokering) is a
-**licensed activity in most US states** — doing it unlicensed can be
-illegal even for one car, and taking title briefly then reselling without
-transferring it to your name ("title jumping") is illegal everywhere.
-The clean structures, roughly safest first:
+The user operates in Kern County, CA. California is explicit here:
+**CVC §232.5** defines "brokering" as — for a fee, in any form, paid at any
+time — "arranging, negotiating, assisting, or effectuating the purchase of
+a new or used motor vehicle, not owned by the [person], for another."
+**CVC §11735** requires a dealer license with an **autobroker endorsement**
+to do that. It covers the arranging itself, regardless of whether the
+seller or the buyer pays the fee. Unlicensed dealing/brokering is a
+misdemeanor (up to $1,000 and/or 6 months per violation), DMV investigators
+actively run stings on it, and — the practical kicker — a fee agreement for
+an unlicensed brokered deal is unenforceable, so a seller can simply not
+pay after closing.
 
-1. **Buy it yourself, title it, then sell it.** Legal everywhere up to your
-   state's unlicensed-sale cap (commonly ~3–6 titled sales/year — check
-   your DMV). You pay sales tax + title fee, so the spread must clear that.
-2. **Charge the buyer, not the seller** — a "car finding service" for a
-   flat fee, where the buyer transacts directly with the seller. Lower
-   risk, still varies by state.
-3. **Fee from the seller for producing a buyer** — this is classic
-   unlicensed brokering; in many states it's exactly what the statute
-   prohibits. Avoid, or talk to your DMV/a lawyer first.
+Legal structures for the same economic outcome, fastest first:
 
-This is practical orientation, not legal advice. When the user asks for the
-finder-fee draft, include a one-line reminder of which structure it assumes.
+1. **Partner with a licensed dealer.** Get a CA **vehicle salesperson
+   license** (~$51 total, fingerprint/background check, valid 3 years,
+   must be employed by/attached to a licensed dealer) and bring your deal
+   flow to a local used-car dealer or wholesaler for a per-car commission.
+   The dealer transacts; you legally take a piece. This is the closest
+   legal version of "I connect them and get paid."
+2. **Sell the information, not the transaction.** A paid deal list /
+   alert subscription ("Kern County car deals under market") is
+   publishing, not brokering — no license, and the scout's daily report is
+   literally the product. You never touch any specific sale.
+3. **Own it outright:** CA dealer license + autobroker endorsement
+   (6-hour dealer education course, DMV exam, an established business
+   location DMV inspects, $50k surety bond — you pay an annual premium of
+   roughly $300–1,500, not the face amount). The endgame if this becomes
+   a real business.
+4. **Buying for yourself** (or reselling occasionally in your own name,
+   titled, taxes paid) needs no license.
+
+Never draft a seller-side or buyer-side per-deal fee pitch for the user as
+an unlicensed individual in California. If asked, restate options 1–3 in
+one line and draft for whichever legal structure they've chosen.
+
+This is practical orientation, not legal advice — confirm specifics with
+DMV Occupational Licensing before money moves.
 
 ## Meetup safety boilerplate (append to every 🔥 deal in the report)
 
