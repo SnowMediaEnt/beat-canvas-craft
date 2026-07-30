@@ -4,6 +4,27 @@ This document is the **verbatim build prompt** sent to Lovable to create the bar
 loyalty demo in a single pass. It is kept here so the build is reproducible and so
 the layout can be reviewed/edited before re-running.
 
+## Live project
+
+- **Lovable project:** "Sharp Rewards" — `a71b9a1b-6b51-481c-9f50-45af36874336`
+- **Editor:** https://lovable.dev/projects/a71b9a1b-6b51-481c-9f50-45af36874336
+- **Preview:** https://id-preview--a71b9a1b-6b51-481c-9f50-45af36874336.lovable.app
+- **Demo logins** (seeded by `ensureDemoData()`, no signup needed):
+  - Customer — `demo.client@example.com` / `demo1234`
+  - Barber/owner — `demo.barber@example.com` / `demo1234`
+
+`shop_name` is a deliberately generic placeholder (`The Barber Shop`) editable from
+`/admin/settings`, so it can be changed to a real shop name live during a demo.
+
+### Build notes
+
+Lovable's build queue was backed up roughly 20 minutes before this job started; a
+`create_project` call that hits the MCP client's 60s timeout reports
+`agentFinished: true` while having built nothing, so **verify by listing project
+files, not by trusting that flag.** The first pass stopped after the customer
+screens, the migration, the seeder, and `/admin/checkout`; the eight remaining
+admin routes were completed in a second message.
+
 - **Source of inspiration:** `cigarette-mart-rewards` / "Smoke Shop Perks"
   (Lovable project `3cf3dbf8-d852-464b-aab2-f0369065331e`)
 - **Relationship:** brand-new, fully separate Lovable project. No shared database,
