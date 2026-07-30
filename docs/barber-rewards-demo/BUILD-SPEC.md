@@ -16,6 +16,35 @@ the layout can be reviewed/edited before re-running.
 `shop_name` is a deliberately generic placeholder (`The Barber Shop`) editable from
 `/admin/settings`, so it can be changed to a real shop name live during a demo.
 
+See `DEMO-SCRIPT.md` for the walkthrough to use when showing a barber.
+
+### Verified after the build
+
+Checked directly against the project's Postgres, not taken on trust:
+
+- **Seed data is real:** 3 barbers, 8 services, 8 rewards, 2 promotions, 9 profiles,
+  36 visits, 53 visit line items, 38 ledger rows, 10 appointments, 3 cut notes,
+  1 referral, 1 broadcast, 3 gallery rows.
+- **Demo accounts exist with the right shape:** `demo.client@example.com` is Marcus
+  Reed (740 pts, 6 visits, member code `620392`, one pending `HDWAXR` → Free
+  Line-Up, 2 upcoming appointments). `demo.barber@example.com` is Vince Carrera and
+  holds the **owner** role, so `/admin/staff` is reachable in the demo.
+- **Every client filter has a hit:** Ray Okonkwo 1,240 pts / 9 visits (one cut from
+  the milestone), Dev Patel last seen ~7 weeks ago (Lapsed), Jonah Brooks 0 pts /
+  0 visits (New), plus four mid-range clients.
+- **No double-crediting:** 36 visits ↔ 36 `earn` ledger rows, and zero visits with
+  anything other than exactly one earn row.
+- **Codes can't be double-spent:** unique constraint on `redemptions.code`.
+- **RLS holds where it matters:** `points_ledger` has *only* a SELECT policy
+  (`user_id = auth.uid() OR is_staff(auth.uid())`) — no INSERT/UPDATE/DELETE for
+  `authenticated`, so a customer cannot mint points. `client_notes` is
+  `is_staff(auth.uid())` for all commands, so the barber's private notes about a
+  client are invisible to that client. RLS enabled on both.
+
+**Not verified:** the rendered frontend. This sandbox's proxy returns 403 on the
+CONNECT tunnel to `lovable.app`, so the preview could not be loaded to confirm the
+pages paint and the QR camera works. Open the preview URL to confirm.
+
 ### Build notes
 
 Lovable's build queue was backed up roughly 20 minutes before this job started; a
