@@ -64,6 +64,7 @@ export type Database = {
           notes: string | null
           plex_user_id: string | null
           plex_username: string | null
+          reseller_id: string | null
           shared_server_id: string | null
           starts_at: string
           status: string
@@ -86,6 +87,7 @@ export type Database = {
           notes?: string | null
           plex_user_id?: string | null
           plex_username?: string | null
+          reseller_id?: string | null
           shared_server_id?: string | null
           starts_at?: string
           status?: string
@@ -108,8 +110,59 @@ export type Database = {
           notes?: string | null
           plex_user_id?: string | null
           plex_username?: string | null
+          reseller_id?: string | null
           shared_server_id?: string | null
           starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plex_members_reseller_id_fkey"
+            columns: ["reseller_id"]
+            isOneToOne: false
+            referencedRelation: "plex_resellers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plex_resellers: {
+        Row: {
+          auth_token: string | null
+          created_at: string
+          credits: number
+          id: string
+          name: string
+          notes: string | null
+          plex_email: string | null
+          plex_username: string | null
+          portal_code: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auth_token?: string | null
+          created_at?: string
+          credits?: number
+          id?: string
+          name: string
+          notes?: string | null
+          plex_email?: string | null
+          plex_username?: string | null
+          portal_code: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auth_token?: string | null
+          created_at?: string
+          credits?: number
+          id?: string
+          name?: string
+          notes?: string | null
+          plex_email?: string | null
+          plex_username?: string | null
+          portal_code?: string
           status?: string
           updated_at?: string
         }
@@ -183,7 +236,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      plex_spend_credits: {
+        Args: { p_reseller_id: string; p_amount: number }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

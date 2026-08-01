@@ -457,6 +457,32 @@ export async function deleteDevice(
   }
 }
 
+// Links a plex.tv/link code to `token`'s account and returns the device(s) that
+// newly appeared, by diffing the device list before and after. Shared by the
+// owner and reseller link-code flows.
+export async function linkAndDetectDevices(
+  token: string,
+  clientId: string,
+  code: string,
+): Promise<PlexDevice[]> {
+  const before = await getDevices(token, clientId).catch(() => []);
+  const beforeIds = new Set(before.map((d) => d.id));
+
+  await linkDeviceWithCode(token, clientId, code);
+
+  let newDevices: PlexDevice[] = [];
+  for (let attempt = 0; attempt < 3 && newDevices.length === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    const after = await getDevices(token, clientId).catch(() => []);
+    newDevices = after.filter((d) => !beforeIds.has(d.id) && !d.provides.includes("server"));
+  }
+  return newDevices;
+}
+
+export function describeDevice(d: PlexDevice): string {
+  return `${d.name || d.product}${d.platform ? ` (${d.platform})` : ""}`;
+}
+
 // ---------------------------------------------------------------------------
 // Plex Media Server (direct) — live sessions and stream termination
 // ---------------------------------------------------------------------------

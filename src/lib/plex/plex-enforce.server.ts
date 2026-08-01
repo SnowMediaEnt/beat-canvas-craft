@@ -26,7 +26,9 @@ import {
 import {
   getSettings,
   listMemberRows,
+  listResellerRows,
   logEvent,
+  memberDeviceToken,
   toMember,
   updateMemberRow,
   updateSettings,
@@ -36,11 +38,6 @@ import {
 import type { EnforceResult } from "./plex-types";
 
 const DEFAULT_KICK_REASON = "Your access period has ended. Contact Snow Media to renew.";
-
-function tokenForMember(settings: SettingsRow, member: MemberRow): string {
-  if (member.link_account === "link" && settings.link_auth_token) return settings.link_auth_token;
-  return settings.auth_token as string;
-}
 
 function matchShare(member: MemberRow, shares: SharedServer[]): SharedServer | undefined {
   return shares.find(
@@ -100,7 +97,7 @@ export async function removeMemberAccess(
       }
     }
   } else {
-    const deviceToken = tokenForMember(settings, member);
+    const deviceToken = await memberDeviceToken(settings, member);
     for (let i = 0; i < member.device_ids.length; i++) {
       await deleteDevice(deviceToken, clientId, member.device_ids[i]);
       actions.push(`signed out device ${member.device_names[i] ?? member.device_ids[i]}`);
@@ -235,7 +232,8 @@ export async function runEnforcement(trigger: string): Promise<EnforceResult> {
   }
 
   // Link-code members have no plex.tv user of their own, so their "last seen"
-  // comes from device activity instead.
+  // comes from device activity on whichever account holds their devices
+  // (owner, the dedicated link account, or a reseller's account).
   try {
     const linkMembers = active.filter(
       (m) =>
@@ -244,24 +242,30 @@ export async function runEnforcement(trigger: string): Promise<EnforceResult> {
         !result.removed.some((r) => r.memberId === m.id),
     );
     if (linkMembers.length > 0) {
+      const resellers = await listResellerRows().catch(() => []);
+      const accountKey = (m: MemberRow) =>
+        m.link_account === "reseller" ? `reseller:${m.reseller_id}` : m.link_account;
+      const tokenByKey = new Map<string, string>();
+      tokenByKey.set("owner", settings.auth_token as string);
+      if (settings.link_auth_token) tokenByKey.set("link", settings.link_auth_token);
+      for (const r of resellers) {
+        if (r.auth_token) tokenByKey.set(`reseller:${r.id}`, r.auth_token);
+      }
+
       const deviceSeen = new Map<string, string>();
-      const accounts = [
-        ...new Set(linkMembers.map((m) => (m.link_account === "link" ? "link" : "owner"))),
-      ];
-      for (const account of accounts) {
-        const token =
-          account === "link" && settings.link_auth_token
-            ? settings.link_auth_token
-            : settings.auth_token;
+      const keysNeeded = [...new Set(linkMembers.map(accountKey))];
+      for (const key of keysNeeded) {
+        const token = tokenByKey.get(key);
+        if (!token) continue;
         const devices = await getDevices(token, clientId).catch(() => []);
         for (const d of devices) {
-          if (d.lastSeenAt) deviceSeen.set(`${account}:${d.id}`, d.lastSeenAt);
+          if (d.lastSeenAt) deviceSeen.set(`${key}:${d.id}`, d.lastSeenAt);
         }
       }
       for (const member of linkMembers) {
-        const account = member.link_account === "link" ? "link" : "owner";
+        const key = accountKey(member);
         const seen = member.device_ids
-          .map((id) => deviceSeen.get(`${account}:${id}`))
+          .map((id) => deviceSeen.get(`${key}:${id}`))
           .filter((v): v is string => Boolean(v))
           .sort()
           .pop();

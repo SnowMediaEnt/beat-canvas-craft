@@ -8,6 +8,7 @@ import {
   createPin,
   deleteDevice,
   deleteSharedServer,
+  describeDevice,
   findWorkingServerUrl,
   getAccount,
   getDevices,
@@ -18,7 +19,7 @@ import {
   getSharedServers,
   getSharedUsers,
   inviteToServer,
-  linkDeviceWithCode,
+  linkAndDetectDevices,
   rankConnectionUris,
   terminateSession,
   PlexApiError,
@@ -26,15 +27,22 @@ import {
 import { removeMemberAccess, runEnforcement } from "./plex-enforce.server";
 import {
   deleteMemberRow,
+  deleteResellerRow,
   getMemberRow,
+  getResellerRow,
   getSettings,
   insertMember,
+  insertReseller,
   listEvents,
   listMemberRows,
+  listResellerRows,
   logEvent,
+  memberDeviceToken,
   toMember,
   toOverview,
+  toResellerSummary,
   updateMemberRow,
+  updateResellerRow,
   updateSettings,
   type SettingsRow,
 } from "./plex-store.server";
@@ -78,7 +86,8 @@ export const plexGetOverview = createServerFn({ method: "POST" })
     assertAccess(data.accessCode);
     const settings = await getSettings();
     const members = await listMemberRows();
-    return toOverview(settings, members);
+    const resellers = await listResellerRows();
+    return toOverview(settings, members, resellers);
   });
 
 export const plexStartSignIn = createServerFn({ method: "POST" })
@@ -408,19 +417,7 @@ export const plexLinkCode = createServerFn({ method: "POST" })
       : (settings.auth_token as string);
     const clientId = settings.client_identifier;
 
-    // Snapshot devices before linking so we can identify the new one.
-    const before = await getDevices(token, clientId).catch(() => []);
-    const beforeIds = new Set(before.map((d) => d.id));
-
-    await linkDeviceWithCode(token, clientId, data.code);
-
-    // The freshly linked device usually registers within seconds.
-    let newDevices: Awaited<ReturnType<typeof getDevices>> = [];
-    for (let attempt = 0; attempt < 3 && newDevices.length === 0; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 3500));
-      const after = await getDevices(token, clientId).catch(() => []);
-      newDevices = after.filter((d) => !beforeIds.has(d.id));
-    }
+    const newDevices = await linkAndDetectDevices(token, clientId, data.code);
 
     const expiresAt = resolveExpiry(data.duration as DurationInput);
     const row = await insertMember({
@@ -429,9 +426,7 @@ export const plexLinkCode = createServerFn({ method: "POST" })
       link_account: useLinkAccount ? "link" : "owner",
       device_ids: newDevices.map((d) => d.id),
       device_client_ids: newDevices.map((d) => d.clientIdentifier),
-      device_names: newDevices.map(
-        (d) => `${d.name || d.product}${d.platform ? ` (${d.platform})` : ""}`,
-      ),
+      device_names: newDevices.map(describeDevice),
       notes: data.notes?.trim() || null,
       expires_at: expiresAt,
     });
@@ -460,7 +455,7 @@ export const plexScanForNewDevices = createServerFn({ method: "POST" })
     const settings = await getSettings();
     requireToken(settings);
     const member = await getMemberRow(data.memberId);
-    const token = tokenFor(settings, member.link_account);
+    const token = await memberDeviceToken(settings, member);
     const members = await listMemberRows();
     const claimed = new Set(members.flatMap((m) => m.device_ids));
     const devices = await getDevices(token, settings.client_identifier);
@@ -477,10 +472,7 @@ export const plexScanForNewDevices = createServerFn({ method: "POST" })
       const row = await updateMemberRow(member.id, {
         device_ids: [...member.device_ids, d.id],
         device_client_ids: [...member.device_client_ids, d.clientIdentifier],
-        device_names: [
-          ...member.device_names,
-          `${d.name || d.product}${d.platform ? ` (${d.platform})` : ""}`,
-        ],
+        device_names: [...member.device_names, describeDevice(d)],
       });
       return { attached: true, member: toMember(row), candidates: [] };
     }
@@ -496,11 +488,6 @@ export const plexScanForNewDevices = createServerFn({ method: "POST" })
       })),
     };
   });
-
-function tokenFor(settings: SettingsRow, linkAccount: string): string {
-  if (linkAccount === "link" && settings.link_auth_token) return settings.link_auth_token;
-  return settings.auth_token as string;
-}
 
 export const plexRenewMember = createServerFn({ method: "POST" })
   .inputValidator((input) =>
@@ -797,4 +784,108 @@ export const plexGetEvents = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     assertAccess(data.accessCode);
     return listEvents(data.limit ?? 100);
+  });
+
+// ---------------------------------------------------------------------------
+// Resellers (owner-only management)
+// ---------------------------------------------------------------------------
+
+async function resellerSummary(resellerId: string) {
+  const reseller = await getResellerRow(resellerId);
+  const members = await listMemberRows();
+  return toResellerSummary(reseller, members);
+}
+
+export const plexCreateReseller = createServerFn({ method: "POST" })
+  .inputValidator((input) =>
+    baseSchema
+      .extend({
+        name: z.string().min(1),
+        plexEmail: z.string().optional(),
+        credits: z.number().int().min(0).optional(),
+        notes: z.string().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const reseller = await insertReseller({
+      name: data.name.trim(),
+      plex_email: data.plexEmail?.trim() || null,
+      credits: data.credits ?? 0,
+      notes: data.notes?.trim() || null,
+    });
+    await logEvent("reseller_created", { name: reseller.name, credits: reseller.credits });
+    return resellerSummary(reseller.id);
+  });
+
+export const plexUpdateReseller = createServerFn({ method: "POST" })
+  .inputValidator((input) =>
+    baseSchema
+      .extend({
+        resellerId: z.string(),
+        name: z.string().min(1).optional(),
+        notes: z.string().nullable().optional(),
+        status: z.enum(["active", "disabled"]).optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const patch: Record<string, unknown> = {};
+    if (data.name !== undefined) patch.name = data.name.trim();
+    if (data.notes !== undefined) patch.notes = data.notes?.trim() || null;
+    if (data.status !== undefined) patch.status = data.status;
+    await updateResellerRow(data.resellerId, patch as never);
+    return resellerSummary(data.resellerId);
+  });
+
+// Add (or, with a negative amount, deduct) credits from the owner side.
+export const plexAdjustCredits = createServerFn({ method: "POST" })
+  .inputValidator((input) =>
+    baseSchema.extend({ resellerId: z.string(), delta: z.number().int() }).parse(input),
+  )
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const reseller = await getResellerRow(data.resellerId);
+    const next = Math.max(0, reseller.credits + data.delta);
+    await updateResellerRow(data.resellerId, { credits: next });
+    await logEvent("credits_adjusted", { name: reseller.name, delta: data.delta, balance: next });
+    return resellerSummary(data.resellerId);
+  });
+
+export const plexRegenResellerCode = createServerFn({ method: "POST" })
+  .inputValidator((input) => baseSchema.extend({ resellerId: z.string() }).parse(input))
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const { generatePortalCode } = await import("./plex-store.server");
+    await updateResellerRow(data.resellerId, { portal_code: generatePortalCode() });
+    await logEvent("reseller_code_reset", {}, null);
+    return resellerSummary(data.resellerId);
+  });
+
+export const plexDeleteReseller = createServerFn({ method: "POST" })
+  .inputValidator((input) => baseSchema.extend({ resellerId: z.string() }).parse(input))
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const members = await listMemberRows();
+    const theirs = members.filter((m) => m.reseller_id === data.resellerId);
+    if (theirs.length > 0) {
+      throw new Error(
+        `This reseller still has ${theirs.length} customer(s). Remove or reassign them before deleting the reseller.`,
+      );
+    }
+    const reseller = await getResellerRow(data.resellerId);
+    await deleteResellerRow(data.resellerId);
+    await logEvent("reseller_deleted", { name: reseller.name });
+    return { ok: true };
+  });
+
+// Owner listing of a reseller's customers (read-only convenience).
+export const plexGetResellerMembers = createServerFn({ method: "POST" })
+  .inputValidator((input) => baseSchema.extend({ resellerId: z.string() }).parse(input))
+  .handler(async ({ data }) => {
+    assertAccess(data.accessCode);
+    const members = await listMemberRows();
+    return members.filter((m) => m.reseller_id === data.resellerId).map(toMember);
   });

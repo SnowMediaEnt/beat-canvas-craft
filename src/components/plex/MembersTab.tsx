@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -283,7 +284,14 @@ function MemberRow({
     <>
       <TableRow>
         <TableCell>
-          <div className="font-medium">{member.displayName}</div>
+          <div className="flex items-center gap-2">
+            <span className="font-medium">{member.displayName}</span>
+            {member.resellerName && (
+              <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary">
+                {member.resellerName}
+              </Badge>
+            )}
+          </div>
           <div className="text-xs text-muted-foreground">
             {member.accessType === "invite"
               ? member.plexUsername || member.email

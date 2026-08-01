@@ -48,7 +48,9 @@ export type PlexMember = {
   sharedServerId: string | null;
   accessType: MemberAccessType;
   inviteStatus: string | null;
-  linkAccount: "owner" | "link";
+  linkAccount: "owner" | "link" | "reseller";
+  resellerId: string | null;
+  resellerName?: string | null;
   deviceIds: string[];
   deviceClientIds: string[];
   deviceNames: string[];
@@ -59,6 +61,37 @@ export type PlexMember = {
   status: MemberStatus;
   lastSeenAt: string | null;
   createdAt: string;
+};
+
+// 1 credit = 30 days of access for one customer.
+export const CREDIT_DAYS = 30;
+export const CREDIT_PACKAGES = [
+  { months: 1, credits: 1, label: "1 month" },
+  { months: 3, credits: 3, label: "3 months" },
+  { months: 6, credits: 6, label: "6 months" },
+  { months: 12, credits: 12, label: "12 months" },
+] as const;
+
+export type PlexResellerSummary = {
+  id: string;
+  name: string;
+  plexUsername: string | null;
+  plexEmail: string | null;
+  connected: boolean;
+  credits: number;
+  status: "active" | "disabled";
+  portalCode: string;
+  memberCount: number;
+  activeMemberCount: number;
+  createdAt: string;
+};
+
+export type ResellerPortalData = {
+  resellerName: string;
+  credits: number;
+  connected: boolean;
+  plexUsername: string | null;
+  members: PlexMember[];
 };
 
 export type PlexShareRow = {
@@ -144,6 +177,7 @@ export type PlexOverview = {
   lastEnforcedAt: string | null;
   lastEnforceResult: EnforceResult | null;
   members: PlexMember[];
+  resellers: PlexResellerSummary[];
 };
 
 // Payload for choosing how long a member's access lasts.

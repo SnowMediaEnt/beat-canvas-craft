@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as PlexRouteImport } from './routes/plex'
+import { Route as ResellerRouteImport } from './routes/reseller'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
 import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
 import { Route as ApiPublicPlexEnforceRouteImport } from './routes/api/public/plex-enforce'
@@ -25,6 +26,11 @@ const IndexRoute = IndexRouteImport.update({
 const PlexRoute = PlexRouteImport.update({
   id: '/plex',
   path: '/plex',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResellerRoute = ResellerRouteImport.update({
+  id: '/reseller',
+  path: '/reseller',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditorProjectIdRoute = EditorProjectIdRouteImport.update({
@@ -56,6 +62,7 @@ const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/plex': typeof PlexRoute
+  '/reseller': typeof ResellerRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
@@ -65,6 +72,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/plex': typeof PlexRoute
+  '/reseller': typeof ResellerRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
@@ -75,6 +83,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/plex': typeof PlexRoute
+  '/reseller': typeof ResellerRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
   '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
@@ -86,6 +95,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/plex'
+    | '/reseller'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
     | '/api/public/plex-enforce'
@@ -95,6 +105,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/plex'
+    | '/reseller'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
     | '/api/public/plex-enforce'
@@ -104,6 +115,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/plex'
+    | '/reseller'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
     | '/api/public/plex-enforce'
@@ -114,6 +126,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   PlexRoute: typeof PlexRoute
+  ResellerRoute: typeof ResellerRoute
   EditorProjectIdRoute: typeof EditorProjectIdRoute
   ApiPublicElevenlabsKeyRoute: typeof ApiPublicElevenlabsKeyRoute
   ApiPublicPlexEnforceRoute: typeof ApiPublicPlexEnforceRoute
@@ -135,6 +148,13 @@ declare module '@tanstack/react-router' {
       path: '/plex'
       fullPath: '/plex'
       preLoaderRoute: typeof PlexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reseller': {
+      id: '/reseller'
+      path: '/reseller'
+      fullPath: '/reseller'
+      preLoaderRoute: typeof ResellerRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/editor/$projectId': {
@@ -178,6 +198,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   PlexRoute: PlexRoute,
+  ResellerRoute: ResellerRoute,
   EditorProjectIdRoute: EditorProjectIdRoute,
   ApiPublicElevenlabsKeyRoute: ApiPublicElevenlabsKeyRoute,
   ApiPublicPlexEnforceRoute: ApiPublicPlexEnforceRoute,

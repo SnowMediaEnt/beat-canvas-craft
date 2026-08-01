@@ -8,6 +8,7 @@ import { ActivityTab } from "@/components/plex/ActivityTab";
 import { AddMemberTab } from "@/components/plex/AddMemberTab";
 import { DevicesTab } from "@/components/plex/DevicesTab";
 import { MembersTab } from "@/components/plex/MembersTab";
+import { ResellersTab } from "@/components/plex/ResellersTab";
 import { SessionsTab } from "@/components/plex/SessionsTab";
 import { SettingsTab } from "@/components/plex/SettingsTab";
 import {
@@ -225,6 +226,14 @@ function Dashboard({ accessCode, onLock }: { accessCode: string; onLock: () => v
                   )}
                 </TabsTrigger>
                 <TabsTrigger value="add">Add member</TabsTrigger>
+                <TabsTrigger value="resellers">
+                  Resellers
+                  {overview.resellers.length > 0 && (
+                    <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 text-xs text-primary">
+                      {overview.resellers.length}
+                    </span>
+                  )}
+                </TabsTrigger>
                 <TabsTrigger value="devices">Devices</TabsTrigger>
                 <TabsTrigger value="sessions">Sessions</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -238,6 +247,9 @@ function Dashboard({ accessCode, onLock }: { accessCode: string; onLock: () => v
                   overview={overview as PlexOverview}
                   onDone={() => setTab("members")}
                 />
+              </TabsContent>
+              <TabsContent value="resellers">
+                <ResellersTab overview={overview as PlexOverview} />
               </TabsContent>
               <TabsContent value="devices">
                 <DevicesTab overview={overview as PlexOverview} />
