@@ -13,6 +13,7 @@ import {
   cancelInvite,
   deleteDevice,
   deleteSharedServer,
+  getDevices,
   getRequestedInvites,
   getSessions,
   getSharedServers,
@@ -227,6 +228,46 @@ export async function runEnforcement(trigger: string): Promise<EnforceResult> {
       }
       if (Object.keys(patch).length > 0) {
         await updateMemberRow(member.id, patch as never);
+      }
+    }
+  } catch {
+    /* monitoring refresh is non-critical */
+  }
+
+  // Link-code members have no plex.tv user of their own, so their "last seen"
+  // comes from device activity instead.
+  try {
+    const linkMembers = active.filter(
+      (m) =>
+        m.access_type === "link_code" &&
+        m.device_ids.length > 0 &&
+        !result.removed.some((r) => r.memberId === m.id),
+    );
+    if (linkMembers.length > 0) {
+      const deviceSeen = new Map<string, string>();
+      const accounts = [
+        ...new Set(linkMembers.map((m) => (m.link_account === "link" ? "link" : "owner"))),
+      ];
+      for (const account of accounts) {
+        const token =
+          account === "link" && settings.link_auth_token
+            ? settings.link_auth_token
+            : settings.auth_token;
+        const devices = await getDevices(token, clientId).catch(() => []);
+        for (const d of devices) {
+          if (d.lastSeenAt) deviceSeen.set(`${account}:${d.id}`, d.lastSeenAt);
+        }
+      }
+      for (const member of linkMembers) {
+        const account = member.link_account === "link" ? "link" : "owner";
+        const seen = member.device_ids
+          .map((id) => deviceSeen.get(`${account}:${id}`))
+          .filter((v): v is string => Boolean(v))
+          .sort()
+          .pop();
+        if (seen && seen !== member.last_seen_at) {
+          await updateMemberRow(member.id, { last_seen_at: seen });
+        }
       }
     }
   } catch {
