@@ -10,14 +10,21 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PlexRouteImport } from './routes/plex'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
-import { Route as ApiPublicRenderUploadRouteImport } from './routes/api/public/render-upload'
-import { Route as ApiPublicRenderDownloadRouteImport } from './routes/api/public/render-download'
 import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
+import { Route as ApiPublicPlexEnforceRouteImport } from './routes/api/public/plex-enforce'
+import { Route as ApiPublicRenderDownloadRouteImport } from './routes/api/public/render-download'
+import { Route as ApiPublicRenderUploadRouteImport } from './routes/api/public/render-upload'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PlexRoute = PlexRouteImport.update({
+  id: '/plex',
+  path: '/plex',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EditorProjectIdRoute = EditorProjectIdRouteImport.update({
@@ -25,9 +32,14 @@ const EditorProjectIdRoute = EditorProjectIdRouteImport.update({
   path: '/editor/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
-  id: '/api/public/render-upload',
-  path: '/api/public/render-upload',
+const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
+  id: '/api/public/elevenlabs-key',
+  path: '/api/public/elevenlabs-key',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicPlexEnforceRoute = ApiPublicPlexEnforceRouteImport.update({
+  id: '/api/public/plex-enforce',
+  path: '/api/public/plex-enforce',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicRenderDownloadRoute = ApiPublicRenderDownloadRouteImport.update({
@@ -35,31 +47,37 @@ const ApiPublicRenderDownloadRoute = ApiPublicRenderDownloadRouteImport.update({
   path: '/api/public/render-download',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
-  id: '/api/public/elevenlabs-key',
-  path: '/api/public/elevenlabs-key',
+const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
+  id: '/api/public/render-upload',
+  path: '/api/public/render-upload',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/plex': typeof PlexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
   '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/plex': typeof PlexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
   '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/plex': typeof PlexRoute
   '/editor/$projectId': typeof EditorProjectIdRoute
   '/api/public/elevenlabs-key': typeof ApiPublicElevenlabsKeyRoute
+  '/api/public/plex-enforce': typeof ApiPublicPlexEnforceRoute
   '/api/public/render-download': typeof ApiPublicRenderDownloadRoute
   '/api/public/render-upload': typeof ApiPublicRenderUploadRoute
 }
@@ -67,30 +85,38 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/plex'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/plex-enforce'
     | '/api/public/render-download'
     | '/api/public/render-upload'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/plex'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/plex-enforce'
     | '/api/public/render-download'
     | '/api/public/render-upload'
   id:
     | '__root__'
     | '/'
+    | '/plex'
     | '/editor/$projectId'
     | '/api/public/elevenlabs-key'
+    | '/api/public/plex-enforce'
     | '/api/public/render-download'
     | '/api/public/render-upload'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PlexRoute: typeof PlexRoute
   EditorProjectIdRoute: typeof EditorProjectIdRoute
   ApiPublicElevenlabsKeyRoute: typeof ApiPublicElevenlabsKeyRoute
+  ApiPublicPlexEnforceRoute: typeof ApiPublicPlexEnforceRoute
   ApiPublicRenderDownloadRoute: typeof ApiPublicRenderDownloadRoute
   ApiPublicRenderUploadRoute: typeof ApiPublicRenderUploadRoute
 }
@@ -104,25 +130,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/plex': {
+      id: '/plex'
+      path: '/plex'
+      fullPath: '/plex'
+      preLoaderRoute: typeof PlexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/editor/$projectId': {
       id: '/editor/$projectId'
       path: '/editor/$projectId'
       fullPath: '/editor/$projectId'
       preLoaderRoute: typeof EditorProjectIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/render-upload': {
-      id: '/api/public/render-upload'
-      path: '/api/public/render-upload'
-      fullPath: '/api/public/render-upload'
-      preLoaderRoute: typeof ApiPublicRenderUploadRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/render-download': {
-      id: '/api/public/render-download'
-      path: '/api/public/render-download'
-      fullPath: '/api/public/render-download'
-      preLoaderRoute: typeof ApiPublicRenderDownloadRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/elevenlabs-key': {
@@ -132,16 +151,49 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicElevenlabsKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/plex-enforce': {
+      id: '/api/public/plex-enforce'
+      path: '/api/public/plex-enforce'
+      fullPath: '/api/public/plex-enforce'
+      preLoaderRoute: typeof ApiPublicPlexEnforceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/render-download': {
+      id: '/api/public/render-download'
+      path: '/api/public/render-download'
+      fullPath: '/api/public/render-download'
+      preLoaderRoute: typeof ApiPublicRenderDownloadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/render-upload': {
+      id: '/api/public/render-upload'
+      path: '/api/public/render-upload'
+      fullPath: '/api/public/render-upload'
+      preLoaderRoute: typeof ApiPublicRenderUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PlexRoute: PlexRoute,
   EditorProjectIdRoute: EditorProjectIdRoute,
   ApiPublicElevenlabsKeyRoute: ApiPublicElevenlabsKeyRoute,
+  ApiPublicPlexEnforceRoute: ApiPublicPlexEnforceRoute,
   ApiPublicRenderDownloadRoute: ApiPublicRenderDownloadRoute,
   ApiPublicRenderUploadRoute: ApiPublicRenderUploadRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

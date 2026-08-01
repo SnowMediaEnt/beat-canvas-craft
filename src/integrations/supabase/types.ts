@@ -14,7 +14,170 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      plex_events: {
+        Row: {
+          action: string
+          created_at: string
+          detail: Json
+          id: string
+          member_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          detail?: Json
+          id?: string
+          member_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          detail?: Json
+          id?: string
+          member_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plex_events_member_id_fkey"
+            columns: ["member_id"]
+            isOneToOne: false
+            referencedRelation: "plex_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plex_members: {
+        Row: {
+          access_type: string
+          created_at: string
+          device_client_ids: string[]
+          device_ids: string[]
+          device_names: string[]
+          display_name: string
+          email: string | null
+          expires_at: string | null
+          id: string
+          invite_status: string | null
+          last_seen_at: string | null
+          library_ids: string[]
+          link_account: string
+          notes: string | null
+          plex_user_id: string | null
+          plex_username: string | null
+          shared_server_id: string | null
+          starts_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          access_type: string
+          created_at?: string
+          device_client_ids?: string[]
+          device_ids?: string[]
+          device_names?: string[]
+          display_name: string
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          invite_status?: string | null
+          last_seen_at?: string | null
+          library_ids?: string[]
+          link_account?: string
+          notes?: string | null
+          plex_user_id?: string | null
+          plex_username?: string | null
+          shared_server_id?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          access_type?: string
+          created_at?: string
+          device_client_ids?: string[]
+          device_ids?: string[]
+          device_names?: string[]
+          display_name?: string
+          email?: string | null
+          expires_at?: string | null
+          id?: string
+          invite_status?: string | null
+          last_seen_at?: string | null
+          library_ids?: string[]
+          link_account?: string
+          notes?: string | null
+          plex_user_id?: string | null
+          plex_username?: string | null
+          shared_server_id?: string | null
+          starts_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      plex_settings: {
+        Row: {
+          account_email: string | null
+          account_username: string | null
+          auth_token: string | null
+          client_identifier: string
+          default_library_ids: string[]
+          enforce_key: string
+          id: string
+          last_enforce_result: Json | null
+          last_enforced_at: string | null
+          link_account_email: string | null
+          link_account_username: string | null
+          link_auth_token: string | null
+          machine_identifier: string | null
+          plex_pass: boolean
+          remove_friend_on_expiry: boolean
+          server_name: string | null
+          server_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_email?: string | null
+          account_username?: string | null
+          auth_token?: string | null
+          client_identifier: string
+          default_library_ids?: string[]
+          enforce_key: string
+          id?: string
+          last_enforce_result?: Json | null
+          last_enforced_at?: string | null
+          link_account_email?: string | null
+          link_account_username?: string | null
+          link_auth_token?: string | null
+          machine_identifier?: string | null
+          plex_pass?: boolean
+          remove_friend_on_expiry?: boolean
+          server_name?: string | null
+          server_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_email?: string | null
+          account_username?: string | null
+          auth_token?: string | null
+          client_identifier?: string
+          default_library_ids?: string[]
+          enforce_key?: string
+          id?: string
+          last_enforce_result?: Json | null
+          last_enforced_at?: string | null
+          link_account_email?: string | null
+          link_account_username?: string | null
+          link_auth_token?: string | null
+          machine_identifier?: string | null
+          plex_pass?: boolean
+          remove_friend_on_expiry?: boolean
+          server_name?: string | null
+          server_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

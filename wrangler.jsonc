@@ -4,4 +4,6 @@
   "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
+  // Auto-enforce Plex member expirations even with the dashboard closed.
+  "triggers": { "crons": ["*/15 * * * *"] },
 }

@@ -12,7 +12,7 @@ let serverEntryPromise: Promise<ServerEntry> | undefined;
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => ((m as { default?: ServerEntry }).default ?? (m as unknown as ServerEntry)),
+      (m) => (m as { default?: ServerEntry }).default ?? (m as unknown as ServerEntry),
     );
   }
   return serverEntryPromise;
@@ -75,6 +75,17 @@ function isServerFunctionRequest(request: Request) {
   );
 }
 
+// Cloudflare injects secrets/vars via `env`; the app reads process.env
+// everywhere, so mirror any missing keys before running scheduled work.
+function hydrateProcessEnv(env: unknown) {
+  if (!env || typeof env !== "object") return;
+  for (const [key, value] of Object.entries(env as Record<string, unknown>)) {
+    if (typeof value === "string" && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
@@ -92,5 +103,21 @@ export default {
       }
       return brandedErrorResponse();
     }
+  },
+
+  // Cloudflare Cron Trigger (wrangler.jsonc "triggers"): auto-remove expired
+  // Plex members even when nobody has the dashboard open.
+  async scheduled(
+    _controller: unknown,
+    env: unknown,
+    ctx: { waitUntil(promise: Promise<unknown>): void },
+  ) {
+    hydrateProcessEnv(env);
+    ctx.waitUntil(
+      import("./lib/plex/plex-enforce.server")
+        .then((m) => m.runEnforcement("cf-cron"))
+        .then((result) => console.log("[plex-enforce]", JSON.stringify(result)))
+        .catch((error) => console.error("[plex-enforce]", error)),
+    );
   },
 };
