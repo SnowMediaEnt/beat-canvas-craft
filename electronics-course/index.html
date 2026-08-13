@@ -6,6 +6,7 @@
 <title>Circuits Preflight</title>
 <style>
   :root {
+    color-scheme: light;
     --paper: #FAF7F0;
     --surface: #FFFFFF;
     --ink: #26303A;
@@ -27,6 +28,7 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
+      color-scheme: dark;
       --paper: #181C22;
       --surface: #1F252D;
       --ink: #E9E4D9;
@@ -45,6 +47,7 @@
     }
   }
   :root[data-theme="dark"] {
+    color-scheme: dark;
     --paper: #181C22;
     --surface: #1F252D;
     --ink: #E9E4D9;
@@ -89,6 +92,7 @@
   .sidebar {
     border-right: 1px solid var(--line);
     padding: 28px 20px 40px;
+    min-width: 0;
   }
   .sidebar-inner { position: sticky; top: 24px; }
   .main { padding: 0 clamp(20px, 5vw, 64px) 80px; min-width: 0; }
@@ -345,7 +349,7 @@
   }
   .field input, .field select {
     font-family: var(--mono);
-    font-size: 15px;
+    font-size: 16px;
     color: var(--ink);
     background: var(--paper);
     border: 1px solid var(--line);
@@ -430,7 +434,7 @@
   .numwrap { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-family: var(--mono); font-size: 15px; }
   .numwrap input {
     font-family: var(--mono);
-    font-size: 15px;
+    font-size: 16px;
     color: var(--ink);
     background: var(--paper);
     border: 1px solid var(--line);
@@ -508,6 +512,14 @@
     .navlist a.active { box-shadow: none; border-color: var(--copper); }
     .nav-legend { display: none; }
     .masthead { padding-top: 28px; }
+    .widget-row .field { flex: 1 1 150px; }
+    .field input, .field select { width: 100%; }
+    .choice { padding: 11px 12px; }
+    button { padding: 12px 18px; }
+    .pager a { flex: 1; text-align: center; }
+    .pager .spacer { display: none; }
+    .quiz-body { padding: 8px 16px 16px; }
+    .quiz-head, .quiz-actions { padding-left: 16px; padding-right: 16px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     html { scroll-behavior: smooth; }
