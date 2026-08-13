@@ -1,0 +1,1645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circuits Preflight</title>
+<style>
+  :root {
+    --paper: #FAF7F0;
+    --surface: #FFFFFF;
+    --ink: #26303A;
+    --muted: #5C6670;
+    --line: #E3DDD1;
+    --grid: #ECE6DA;
+    --copper: #B4622D;
+    --copper-ink: #8F4C20;
+    --schematic: #33608F;
+    --good: #2F7D4F;
+    --good-bg: #E8F3EC;
+    --bad: #B23A3E;
+    --bad-bg: #F8EAEA;
+    --code-bg: #F1EDE4;
+    --focus: #33608F;
+    --display: "Avenir Next", Avenir, Futura, "Trebuchet MS", sans-serif;
+    --serif: Charter, "Iowan Old Style", Georgia, serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #181C22;
+      --surface: #1F252D;
+      --ink: #E9E4D9;
+      --muted: #9AA3AD;
+      --line: #333B45;
+      --grid: #21272F;
+      --copper: #D9915A;
+      --copper-ink: #E0A070;
+      --schematic: #7FA8D9;
+      --good: #63B98A;
+      --good-bg: #20342A;
+      --bad: #E08A8D;
+      --bad-bg: #3A2628;
+      --code-bg: #232933;
+      --focus: #7FA8D9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #181C22;
+    --surface: #1F252D;
+    --ink: #E9E4D9;
+    --muted: #9AA3AD;
+    --line: #333B45;
+    --grid: #21272F;
+    --copper: #D9915A;
+    --copper-ink: #E0A070;
+    --schematic: #7FA8D9;
+    --good: #63B98A;
+    --good-bg: #20342A;
+    --bad: #E08A8D;
+    --bad-bg: #3A2628;
+    --code-bg: #232933;
+    --focus: #7FA8D9;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.65;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* ---------- shell ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    max-width: 1180px;
+    margin: 0 auto;
+    min-height: 100vh;
+  }
+  .sidebar {
+    border-right: 1px solid var(--line);
+    padding: 28px 20px 40px;
+  }
+  .sidebar-inner { position: sticky; top: 24px; }
+  .main { padding: 0 clamp(20px, 5vw, 64px) 80px; min-width: 0; }
+
+  .brand {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+    letter-spacing: 0.01em;
+    margin: 0 0 2px;
+  }
+  .brand .bolt { color: var(--copper); }
+  .brand-sub {
+    font-family: var(--display);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    margin: 0 0 22px;
+  }
+
+  .navlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .navlist a {
+    display: grid;
+    grid-template-columns: 22px 1fr auto;
+    gap: 8px;
+    align-items: baseline;
+    padding: 7px 9px;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--ink);
+    font-family: var(--display);
+    font-size: 14px;
+    line-height: 1.35;
+  }
+  .navlist a:hover { background: var(--code-bg); }
+  .navlist a.active { background: var(--code-bg); box-shadow: inset 2px 0 0 var(--copper); }
+  .nav-num { font-family: var(--mono); font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .nav-dot {
+    align-self: center;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    border: 1.5px solid var(--muted);
+    background: transparent;
+  }
+  .nav-dot.started { border-color: var(--copper); background: transparent; }
+  .nav-dot.passed { border-color: var(--good); background: var(--good); }
+  .nav-legend {
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-family: var(--display);
+    font-size: 11.5px;
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .nav-legend span { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* ---------- header band ---------- */
+  .masthead {
+    padding: 44px 0 30px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 36px;
+    background:
+      repeating-linear-gradient(0deg, var(--grid) 0, var(--grid) 1px, transparent 1px, transparent 24px),
+      repeating-linear-gradient(90deg, var(--grid) 0, var(--grid) 1px, transparent 1px, transparent 24px);
+  }
+  .eyebrow {
+    font-family: var(--display);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--copper-ink);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(30px, 5vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    margin: 0 0 12px;
+    text-wrap: balance;
+  }
+  .lede { font-size: 19px; color: var(--muted); max-width: 60ch; margin: 0; }
+
+  /* ---------- content ---------- */
+  .lesson { max-width: 68ch; }
+  .lesson h2 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 27px;
+    line-height: 1.15;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .lesson h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+    margin: 36px 0 10px;
+  }
+  .lesson-kicker {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--copper-ink);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .lesson-intro { color: var(--muted); font-size: 18px; margin: 0 0 28px; }
+  .lesson p { margin: 0 0 16px; }
+  .lesson ul, .lesson ol { margin: 0 0 16px; padding-left: 24px; }
+  .lesson li { margin-bottom: 6px; }
+  .lesson strong { font-weight: 700; }
+  code, .u {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  sub, sup { line-height: 0; }
+
+  .formula {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 19px;
+    text-align: center;
+    background: var(--code-bg);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 18px 0;
+    overflow-x: auto;
+  }
+  .formula .rm { font-style: normal; }
+
+  table {
+    border-collapse: collapse;
+    font-family: var(--display);
+    font-size: 14.5px;
+    margin: 18px 0;
+    width: 100%;
+  }
+  .table-scroll { overflow-x: auto; margin: 18px 0; }
+  .table-scroll table { margin: 0; }
+  th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; }
+  th {
+    font-weight: 600;
+    font-size: 12.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    background: var(--code-bg);
+  }
+  td.num, th.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
+
+  .aero {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--schematic);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 22px 0;
+    background: var(--surface);
+  }
+  .aero-tag {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--schematic);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .aero p { margin: 0; font-size: 15.5px; }
+
+  .example {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .example-tag {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--copper-ink);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .example p { font-size: 15.5px; margin-bottom: 10px; }
+  .example p:last-child { margin-bottom: 0; }
+  .example .steps { font-family: var(--mono); font-size: 14px; line-height: 2; overflow-x: auto; }
+
+  figure { margin: 26px 0; }
+  figure svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+  figcaption {
+    font-family: var(--display);
+    font-size: 13.5px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 10px;
+  }
+  .fig-frame {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 18px 12px;
+    overflow-x: auto;
+  }
+  svg .sym { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  svg .sym-thin { fill: none; stroke: currentColor; stroke-width: 1.4; }
+  svg .sym-accent { stroke: var(--copper); }
+  svg .sym-blue { stroke: var(--schematic); }
+  svg .sym-box { fill: var(--surface); stroke: currentColor; stroke-width: 2; }
+  svg .dashed { stroke-dasharray: 5 5; }
+  svg text { font-family: var(--display); font-size: 13px; fill: currentColor; }
+  svg .t-mono { font-family: var(--mono); font-size: 12px; }
+  svg .t-muted { fill: var(--muted); }
+  svg .t-accent { fill: var(--copper-ink); }
+  svg .t-blue { fill: var(--schematic); }
+  svg .node { fill: currentColor; stroke: none; }
+
+  /* ---------- interactive widgets ---------- */
+  .widget {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 18px 20px 20px;
+    margin: 24px 0;
+  }
+  .widget-tag {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--copper-ink);
+    display: block;
+    margin-bottom: 10px;
+  }
+  .widget-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label {
+    font-family: var(--display);
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .field input, .field select {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 10px;
+    width: 130px;
+  }
+  .field select { width: auto; }
+  .widget-out {
+    font-family: var(--mono);
+    font-size: 15px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-top: 14px;
+    min-height: 20px;
+  }
+  .widget-out strong { color: var(--copper-ink); }
+  .widget-note { font-family: var(--display); font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+
+  button {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 14.5px;
+    color: var(--paper);
+    background: var(--copper);
+    border: none;
+    border-radius: 7px;
+    padding: 9px 18px;
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(1.06); }
+  button.ghost {
+    background: transparent;
+    color: var(--copper-ink);
+    border: 1.5px solid var(--copper);
+  }
+
+  /* ---------- quiz ---------- */
+  .quiz {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    margin: 40px 0 12px;
+    overflow: hidden;
+  }
+  .quiz-head {
+    padding: 16px 22px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    background:
+      repeating-linear-gradient(90deg, var(--grid) 0, var(--grid) 1px, transparent 1px, transparent 24px);
+  }
+  .quiz-title { font-family: var(--display); font-weight: 600; font-size: 17px; margin: 0; }
+  .quiz-meta { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .quiz-body { padding: 8px 22px 22px; }
+  .qcard { padding: 18px 0 6px; border-bottom: 1px solid var(--line); }
+  .qcard:last-of-type { border-bottom: none; }
+  .qtext { font-size: 16.5px; margin: 0 0 12px; }
+  .qnum { font-family: var(--mono); font-size: 12.5px; color: var(--copper-ink); margin-right: 8px; }
+  .choices { display: flex; flex-direction: column; gap: 7px; margin: 0 0 14px; }
+  .choice {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    cursor: pointer;
+    font-family: var(--display);
+    font-size: 14.5px;
+    line-height: 1.45;
+  }
+  .choice:hover { border-color: var(--copper); }
+  .choice input { accent-color: var(--copper); margin: 0; transform: translateY(1px); flex: none; }
+  .choice.correct { border-color: var(--good); background: var(--good-bg); }
+  .choice.wrong { border-color: var(--bad); background: var(--bad-bg); }
+  .numwrap { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-family: var(--mono); font-size: 15px; }
+  .numwrap input {
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 10px;
+    width: 140px;
+  }
+  .numwrap.correct input { border-color: var(--good); background: var(--good-bg); }
+  .numwrap.wrong input { border-color: var(--bad); background: var(--bad-bg); }
+  .verdict { font-family: var(--display); font-size: 13.5px; font-weight: 600; margin: 0 0 6px; }
+  .verdict.ok { color: var(--good); }
+  .verdict.no { color: var(--bad); }
+  .explain {
+    font-size: 14.5px;
+    color: var(--muted);
+    border-left: 2px solid var(--line);
+    padding: 2px 0 2px 12px;
+    margin: 0 0 12px;
+  }
+  .quiz-actions { padding: 18px 22px; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .scorebar { font-family: var(--display); font-size: 15px; font-weight: 600; }
+  .scorebar.pass { color: var(--good); }
+  .scorebar.fail { color: var(--bad); }
+  .bestnote { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+
+  .pager { display: flex; justify-content: space-between; gap: 12px; margin-top: 36px; max-width: 68ch; }
+  .pager a {
+    font-family: var(--display);
+    font-size: 14.5px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--copper-ink);
+    border: 1.5px solid var(--copper);
+    border-radius: 7px;
+    padding: 9px 16px;
+  }
+  .pager a:hover { background: var(--code-bg); }
+  .pager .spacer { flex: 1; }
+
+  .overview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 26px 0; }
+  .ov-card {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    text-decoration: none;
+    color: var(--ink);
+    display: block;
+  }
+  .ov-card:hover { border-color: var(--copper); }
+  .ov-num { font-family: var(--mono); font-size: 12px; color: var(--copper-ink); display: block; margin-bottom: 6px; }
+  .ov-title { font-family: var(--display); font-weight: 600; font-size: 16px; display: block; margin-bottom: 5px; }
+  .ov-desc { font-family: var(--display); font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+  .ov-state { font-family: var(--mono); font-size: 11.5px; margin-top: 10px; display: block; color: var(--muted); }
+  .ov-state.passed { color: var(--good); }
+
+  section[hidden] { display: none; }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; }
+    .sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding: 16px 20px;
+      position: sticky;
+      top: 0;
+      background: var(--paper);
+      z-index: 5;
+    }
+    .sidebar-inner { position: static; }
+    .brand { display: inline; margin-right: 10px; }
+    .brand-sub { display: none; }
+    .navlist { flex-direction: row; overflow-x: auto; gap: 4px; padding: 8px 0 2px; }
+    .navlist a { grid-template-columns: auto auto auto; white-space: nowrap; padding: 5px 10px; border: 1px solid var(--line); }
+    .navlist a.active { box-shadow: none; border-color: var(--copper); }
+    .nav-legend { display: none; }
+    .masthead { padding-top: 28px; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html { scroll-behavior: smooth; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar" aria-label="Course sections">
+    <div class="sidebar-inner">
+      <p class="brand">Circuits <span class="bolt">Preflight</span></p>
+      <p class="brand-sub">Electronics refresher</p>
+      <ul class="navlist" id="navlist">
+        <li><a href="#home" data-nav="home"><span class="nav-num">&nbsp;&nbsp;</span><span>Course map</span><span></span></a></li>
+        <li><a href="#s1" data-nav="s1"><span class="nav-num">01</span><span>Charge, current &amp; voltage</span><span class="nav-dot" data-dot="s1"></span></a></li>
+        <li><a href="#s2" data-nav="s2"><span class="nav-num">02</span><span>Resistors &amp; the color code</span><span class="nav-dot" data-dot="s2"></span></a></li>
+        <li><a href="#s3" data-nav="s3"><span class="nav-num">03</span><span>Series circuits</span><span class="nav-dot" data-dot="s3"></span></a></li>
+        <li><a href="#s4" data-nav="s4"><span class="nav-num">04</span><span>Parallel circuits</span><span class="nav-dot" data-dot="s4"></span></a></li>
+        <li><a href="#s5" data-nav="s5"><span class="nav-num">05</span><span>Series–parallel networks</span><span class="nav-dot" data-dot="s5"></span></a></li>
+        <li><a href="#s6" data-nav="s6"><span class="nav-num">06</span><span>Kirchhoff &amp; the bridge</span><span class="nav-dot" data-dot="s6"></span></a></li>
+        <li><a href="#s7" data-nav="s7"><span class="nav-num">07</span><span>Capacitors &amp; RC transients</span><span class="nav-dot" data-dot="s7"></span></a></li>
+      </ul>
+      <div class="nav-legend">
+        <span><span class="nav-dot"></span> not started</span>
+        <span><span class="nav-dot started"></span> quiz attempted</span>
+        <span><span class="nav-dot passed"></span> passed (80%+)</span>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main">
+
+    <!-- ============ COURSE MAP ============ -->
+    <section id="home">
+      <header class="masthead">
+        <p class="eyebrow">Before the first day of class</p>
+        <h1>Circuits Preflight</h1>
+        <p class="lede">A self-paced refresher on DC circuits and resistor networks, built for a return to aeronautical engineering. Seven lessons, each closed out by a checkride-style quiz. Pass a quiz at 80% and the lesson is signed off.</p>
+      </header>
+      <div class="lesson">
+        <p>Lessons 1–5 rebuild the fundamentals: what current, voltage, and resistance actually are, how resistors behave, and how series, parallel, and combined networks reduce to a single equivalent. Lessons 6–7 are the step up: Kirchhoff's laws done properly, the Wheatstone bridge you'll meet again in strain-gauge instrumentation, and a first look at capacitors, inductors, and time constants.</p>
+        <p>Your quiz scores save automatically in this browser, so you can leave and pick up where you stopped. Retake any quiz as often as you like — the best score is kept.</p>
+      </div>
+      <div class="overview-grid" id="overview-grid">
+        <a class="ov-card" href="#s1"><span class="ov-num">Lesson 01</span><span class="ov-title">Charge, current &amp; voltage</span><span class="ov-desc">The three quantities everything else is built from, plus Ohm's law and electrical power.</span><span class="ov-state" data-state="s1"></span></a>
+        <a class="ov-card" href="#s2"><span class="ov-num">Lesson 02</span><span class="ov-title">Resistors &amp; the color code</span><span class="ov-desc">What resistors do, reading the four-band code, tolerance, and power ratings.</span><span class="ov-state" data-state="s2"></span></a>
+        <a class="ov-card" href="#s3"><span class="ov-num">Lesson 03</span><span class="ov-title">Series circuits</span><span class="ov-desc">One path, one current. Adding resistance, voltage drops, and the voltage divider.</span><span class="ov-state" data-state="s3"></span></a>
+        <a class="ov-card" href="#s4"><span class="ov-num">Lesson 04</span><span class="ov-title">Parallel circuits</span><span class="ov-desc">Shared voltage, divided current, and why the equivalent resistance always shrinks.</span><span class="ov-state" data-state="s4"></span></a>
+        <a class="ov-card" href="#s5"><span class="ov-num">Lesson 05</span><span class="ov-title">Series–parallel networks</span><span class="ov-desc">Reducing real circuits step by step to a single equivalent resistance.</span><span class="ov-state" data-state="s5"></span></a>
+        <a class="ov-card" href="#s6"><span class="ov-num">Lesson 06</span><span class="ov-title">Kirchhoff &amp; the bridge</span><span class="ov-desc">KCL, KVL, and the Wheatstone bridge behind strain-gauge measurement.</span><span class="ov-state" data-state="s6"></span></a>
+        <a class="ov-card" href="#s7"><span class="ov-num">Lesson 07</span><span class="ov-title">Capacitors &amp; RC transients</span><span class="ov-desc">Storage elements, time constants, and why aircraft power runs at 400 Hz.</span><span class="ov-state" data-state="s7"></span></a>
+      </div>
+    </section>
+
+    <!-- ============ LESSON 1 ============ -->
+    <section id="s1" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 01</p>
+        <h2>Charge, current, voltage &amp; power</h2>
+        <p class="lesson-intro">Every circuit problem you will ever solve reduces to three quantities and two laws. This lesson rebuilds them from the ground up.</p>
+
+        <h3>Charge and current</h3>
+        <p>Electric <strong>charge</strong> is a property of matter, carried in circuits by electrons. It is measured in <strong>coulombs (C)</strong> — one coulomb is the charge of about 6.24&#8202;&times;&#8202;10<sup>18</sup> electrons.</p>
+        <p><strong>Current</strong> is charge in motion: the rate at which charge flows past a point. One <strong>ampere (A)</strong> is one coulomb per second. By convention, circuit diagrams show <em>conventional current</em> flowing from the + terminal of a source, around the circuit, and back to the &minus; terminal — even though the electrons physically drift the opposite way. Every formula in this course uses conventional current, so you never have to think about electron direction again.</p>
+
+        <h3>Voltage</h3>
+        <p><strong>Voltage</strong> is the electrical pressure that pushes charge around: formally, the difference in potential energy per unit of charge between two points, measured in <strong>volts (V)</strong>. The water analogy holds up well: voltage is water pressure, current is flow rate, and resistance is a narrow section of pipe. Two things follow from it that trip people up:</p>
+        <ul>
+          <li>Voltage is always <em>between two points</em>. "The voltage at this node" secretly means "relative to ground."</li>
+          <li>A battery can present voltage with no current flowing — like a pressurized tank with the valve shut.</li>
+        </ul>
+
+        <h3>Resistance and Ohm's law</h3>
+        <p><strong>Resistance</strong> is opposition to current flow, measured in <strong>ohms (&Omega;)</strong>. The three quantities are locked together by <strong>Ohm's law</strong>, the single most-used equation in electronics:</p>
+        <div class="formula">V = I &times; R&ensp;<span class="rm">&harr;</span>&ensp;I = V / R&ensp;<span class="rm">&harr;</span>&ensp;R = V / I</div>
+        <p>Given any two of voltage, current, and resistance, the third is fixed. A 100&#8202;&Omega; resistor with 1&#8202;A through it must have 100&#8202;V across it; put 10&#8202;V across it and exactly 0.1&#8202;A flows.</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 360 210" role="img" aria-label="A simple circuit: a 12 volt battery drives current I clockwise through a single resistor R.">
+              <path class="sym" d="M40 40 H140" />
+              <path class="sym sym-accent" d="M140 40 h10 l6 -11 l12 22 l12 -22 l12 22 l12 -22 l6 11 h10" />
+              <path class="sym" d="M220 40 H320 V160 H40 V108" />
+              <path class="sym" d="M40 92 V40" />
+              <line class="sym" x1="24" y1="92" x2="56" y2="92" />
+              <line class="sym" x1="32" y1="108" x2="48" y2="108" stroke-width="4" />
+              <text x="14" y="86">+</text>
+              <text x="14" y="122">&minus;</text>
+              <text x="64" y="86" class="t-mono">12 V</text>
+              <text x="180" y="20" text-anchor="middle" class="t-accent">R</text>
+              <path class="sym sym-blue" d="M240 62 h34" />
+              <polygon points="274,62 265,57.5 265,66.5" fill="var(--schematic)" stroke="none" />
+              <text x="257" y="84" text-anchor="middle" class="t-blue">I</text>
+              <text x="180" y="186" text-anchor="middle" class="t-muted">conventional current: + terminal &rarr; load &rarr; &minus; terminal</text>
+            </svg>
+          </div>
+          <figcaption>The simplest complete circuit: one source, one load, one loop.</figcaption>
+        </figure>
+
+        <h3>Power</h3>
+        <p><strong>Power</strong> is the rate at which electrical energy is converted to heat, light, or motion, measured in <strong>watts (W)</strong>. Combine <span class="u">P = V &times; I</span> with Ohm's law and you get three interchangeable forms:</p>
+        <div class="formula">P = V I&ensp;=&ensp;I&#178;R&ensp;=&ensp;V&#178;/R</div>
+        <p>The squared terms matter: double the current through a resistor and it dissipates <em>four times</em> the heat. That is why undersized wiring and under-rated resistors burn, and why power calculations are a safety check, not an afterthought.</p>
+
+        <h3>Units and prefixes</h3>
+        <p>Real circuit values span enormous ranges, so metric prefixes do the heavy lifting. You will constantly convert between these:</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Prefix</th><th>Symbol</th><th class="num">Factor</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td>mega</td><td>M</td><td class="num">&times; 1 000 000</td><td class="num">2.2 M&Omega; = 2 200 000 &Omega;</td></tr>
+            <tr><td>kilo</td><td>k</td><td class="num">&times; 1 000</td><td class="num">4.7 k&Omega; = 4 700 &Omega;</td></tr>
+            <tr><td>milli</td><td>m</td><td class="num">&divide; 1 000</td><td class="num">150 mA = 0.15 A</td></tr>
+            <tr><td>micro</td><td>&micro;</td><td class="num">&divide; 1 000 000</td><td class="num">47 &micro;F = 0.000047 F</td></tr>
+          </tbody>
+        </table></div>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>A pitot-heat element on a light aircraft draws 3.5&#8202;A from the 28&#8202;V bus. What is its resistance, and how much power does it dissipate?</p>
+          <div class="steps">
+            R = V / I = 28 / 3.5 = <strong>8 &Omega;</strong><br>
+            P = V &times; I = 28 &times; 3.5 = <strong>98 W</strong>
+          </div>
+          <p>Nearly 100&#8202;W of deliberate heating — which is exactly the point of pitot heat.</p>
+        </div>
+
+        <div class="widget">
+          <span class="widget-tag">Try it — Ohm's law solver</span>
+          <div class="widget-row">
+            <div class="field"><label for="ohm-v">Voltage V (volts)</label><input id="ohm-v" type="number" step="any" inputmode="decimal"></div>
+            <div class="field"><label for="ohm-i">Current I (amps)</label><input id="ohm-i" type="number" step="any" inputmode="decimal"></div>
+            <div class="field"><label for="ohm-r">Resistance R (ohms)</label><input id="ohm-r" type="number" step="any" inputmode="decimal"></div>
+            <button type="button" id="ohm-solve">Solve</button>
+            <button type="button" class="ghost" id="ohm-clear">Clear</button>
+          </div>
+          <div class="widget-out" id="ohm-out">Fill in any two values, leave the third blank, then press Solve.</div>
+        </div>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Most general-aviation aircraft run a 14&#8202;V or 28&#8202;V DC electrical bus; large transports add 115&#8202;V AC at 400&#8202;Hz. Every load on the aircraft — avionics, lights, heaters, actuators — is sized with exactly the V, I, R, and P arithmetic on this page.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s1"></div>
+      </div>
+      <nav class="pager"><span class="spacer"></span><a href="#s2">Next: Resistors &rarr;</a></nav>
+    </section>
+
+    <!-- ============ LESSON 2 ============ -->
+    <section id="s2" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 02</p>
+        <h2>Resistors &amp; the color code</h2>
+        <p class="lesson-intro">The most common component in electronics exists to do one job on purpose: oppose current. Here is how to read one, size one, and not burn one.</p>
+
+        <h3>What resistors are for</h3>
+        <p>A resistor converts electrical energy to heat at a controlled rate. That sounds wasteful, but it is how circuits limit current into LEDs and sensors, divide voltages down to safe levels, set gain and timing in amplifiers, and pull signal lines to a known state. In schematics you will see two symbols for the same part:</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 360 130" role="img" aria-label="Two schematic symbols for a resistor: the ANSI zigzag and the IEC rectangle.">
+              <path class="sym" d="M30 40 h30 l7 -12 l14 24 l14 -24 l14 24 l14 -24 l7 12 h30" />
+              <text x="240" y="45">ANSI / US zigzag</text>
+              <path class="sym" d="M30 95 h30" />
+              <rect class="sym-box" x="60" y="84" width="100" height="22" />
+              <path class="sym" d="M160 95 h30" />
+              <text x="240" y="100">IEC / box</text>
+            </svg>
+          </div>
+          <figcaption>Same component, two drawing standards. US textbooks favor the zigzag; international ones the box.</figcaption>
+        </figure>
+
+        <h3>Reading the four-band color code</h3>
+        <p>Through-hole resistors carry their value as painted bands. On the common four-band part: the <strong>first two bands are digits</strong>, the <strong>third is a multiplier</strong> (the number of zeros to append), and the <strong>fourth is tolerance</strong>. Read with the tolerance band — usually gold or silver, and set apart by a gap — on the right.</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Color</th><th class="num">Digit</th><th class="num">Multiplier</th><th class="num">Tolerance</th></tr></thead>
+          <tbody>
+            <tr><td>Black</td><td class="num">0</td><td class="num">&times;1</td><td class="num">&mdash;</td></tr>
+            <tr><td>Brown</td><td class="num">1</td><td class="num">&times;10</td><td class="num">&plusmn;1%</td></tr>
+            <tr><td>Red</td><td class="num">2</td><td class="num">&times;100</td><td class="num">&plusmn;2%</td></tr>
+            <tr><td>Orange</td><td class="num">3</td><td class="num">&times;1k</td><td class="num">&mdash;</td></tr>
+            <tr><td>Yellow</td><td class="num">4</td><td class="num">&times;10k</td><td class="num">&mdash;</td></tr>
+            <tr><td>Green</td><td class="num">5</td><td class="num">&times;100k</td><td class="num">&plusmn;0.5%</td></tr>
+            <tr><td>Blue</td><td class="num">6</td><td class="num">&times;1M</td><td class="num">&plusmn;0.25%</td></tr>
+            <tr><td>Violet</td><td class="num">7</td><td class="num">&times;10M</td><td class="num">&plusmn;0.1%</td></tr>
+            <tr><td>Grey</td><td class="num">8</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+            <tr><td>White</td><td class="num">9</td><td class="num">&mdash;</td><td class="num">&mdash;</td></tr>
+            <tr><td>Gold</td><td class="num">&mdash;</td><td class="num">&times;0.1</td><td class="num">&plusmn;5%</td></tr>
+            <tr><td>Silver</td><td class="num">&mdash;</td><td class="num">&times;0.01</td><td class="num">&plusmn;10%</td></tr>
+          </tbody>
+        </table></div>
+        <p>Example: <strong>yellow&ndash;violet&ndash;red&ndash;gold</strong> reads 4, 7, &times;100 &rarr; 4700&#8202;&Omega; = 4.7&#8202;k&Omega;, &plusmn;5%. A classic mnemonic order to memorize: <em>B</em>lack, <em>B</em>rown, <em>R</em>ed, <em>O</em>range, <em>Y</em>ellow, <em>G</em>reen, <em>B</em>lue, <em>V</em>iolet, <em>G</em>rey, <em>W</em>hite — 0 through 9.</p>
+
+        <div class="widget">
+          <span class="widget-tag">Try it — band decoder</span>
+          <svg viewBox="0 0 360 110" role="img" aria-label="A resistor drawing whose four color bands match the selections below." style="max-width:340px">
+            <path class="sym" d="M20 55 H75" />
+            <path class="sym" d="M285 55 H340" />
+            <rect x="75" y="33" width="210" height="44" rx="18" fill="#D9BA8F" />
+            <rect id="deco-b1" x="103" y="33" width="16" height="44" fill="#F1C40F" />
+            <rect id="deco-b2" x="137" y="33" width="16" height="44" fill="#8E44AD" />
+            <rect id="deco-b3" x="171" y="33" width="16" height="44" fill="#C0392B" />
+            <rect id="deco-b4" x="240" y="33" width="16" height="44" fill="#C9A227" />
+          </svg>
+          <div class="widget-row">
+            <div class="field"><label for="band1">Band 1 (digit)</label><select id="band1"></select></div>
+            <div class="field"><label for="band2">Band 2 (digit)</label><select id="band2"></select></div>
+            <div class="field"><label for="band3">Band 3 (multiplier)</label><select id="band3"></select></div>
+            <div class="field"><label for="band4">Band 4 (tolerance)</label><select id="band4"></select></div>
+          </div>
+          <div class="widget-out" id="deco-out"></div>
+        </div>
+
+        <h3>Tolerance</h3>
+        <p>Tolerance is the manufacturer's guarantee band. A 1&#8202;k&Omega; &plusmn;5% part may measure anywhere from 950&#8202;&Omega; to 1050&#8202;&Omega; and still be in spec. Precision circuits — instrumentation, references, bridge networks — use &plusmn;1% or better; general-purpose work is fine at &plusmn;5%.</p>
+
+        <h3>Power rating</h3>
+        <p>A resistor's value says how it behaves; its <strong>power rating</strong> says how much heat it can shed without failing. Common through-hole sizes are &frac14;&#8202;W, &frac12;&#8202;W, 1&#8202;W, and up. The working rule: compute the real dissipation with <span class="u">P = I&#178;R</span> or <span class="u">P = V&#178;/R</span>, then pick a rating with margin — at least double is good practice.</p>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>A 100&#8202;&Omega; resistor carries 200&#8202;mA. Which rating do you buy?</p>
+          <div class="steps">
+            P = I&#178;R = (0.2)&#178; &times; 100 = 0.04 &times; 100 = <strong>4 W</strong><br>
+            &frac14; W part &rarr; burns &middot; 1 W part &rarr; burns &middot; buy <strong>5 W</strong> (or larger) with margin
+          </div>
+        </div>
+
+        <h3>Beyond fixed resistors</h3>
+        <ul>
+          <li><strong>Potentiometers</strong> — three-terminal adjustable resistors; a wiper taps a fraction of the total. Volume knobs and position sensors.</li>
+          <li><strong>Thermistors &amp; RTDs</strong> — resistance changes with temperature; the basis of most temperature probes.</li>
+          <li><strong>Strain gauges</strong> — a thin foil grid whose resistance rises a tiny amount when stretched. Bond one to a wing spar and resistance becomes a measure of structural load (lesson 6 shows how to read that tiny change).</li>
+        </ul>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Aerospace test rigs are covered in resistive sensors: strain gauges on airframes, RTDs in engine instrumentation, potentiometer-style position transducers on control surfaces. "A resistance that varies with the physical world" is half of aircraft instrumentation.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s2"></div>
+      </div>
+      <nav class="pager"><a href="#s1">&larr; Lesson 1</a><a href="#s3">Next: Series circuits &rarr;</a></nav>
+    </section>
+    <!-- ============ LESSON 3 ============ -->
+    <section id="s3" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 03</p>
+        <h2>Series circuits</h2>
+        <p class="lesson-intro">Components in series form a single path. One rule about current and one about voltage give you everything else.</p>
+
+        <h3>One path, one current</h3>
+        <p>Two components are <strong>in series</strong> when the same current has no choice but to flow through both — the tail of one connects to the head of the next with no branch in between. Because charge cannot pile up or leak out, <strong>the current is identical at every point in a series loop</strong>. Measure it anywhere; you get the same number.</p>
+
+        <h3>Resistance adds</h3>
+        <p>Each series resistor adds its own opposition, so the equivalent resistance is a plain sum — always bigger than the largest single resistor:</p>
+        <div class="formula">R<sub>eq</sub> = R&#8321; + R&#8322; + R&#8323; + &hellip;</div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 420 210" role="img" aria-label="A 24 volt source drives one current I through three series resistors; each resistor drops part of the source voltage.">
+              <path class="sym" d="M40 50 H84" />
+              <path class="sym sym-accent" d="M84 50 h6 l5 -10 l10 20 l10 -20 l10 20 l10 -20 l5 10 h4" />
+              <path class="sym" d="M144 50 h30" />
+              <path class="sym sym-accent" d="M174 50 h6 l5 -10 l10 20 l10 -20 l10 20 l10 -20 l5 10 h4" />
+              <path class="sym" d="M234 50 h30" />
+              <path class="sym sym-accent" d="M264 50 h6 l5 -10 l10 20 l10 -20 l10 20 l10 -20 l5 10 h4" />
+              <path class="sym" d="M324 50 H380 V160 H40 V118" />
+              <path class="sym" d="M40 102 V50" />
+              <line class="sym" x1="24" y1="102" x2="56" y2="102" />
+              <line class="sym" x1="32" y1="118" x2="48" y2="118" stroke-width="4" />
+              <text x="14" y="96">+</text>
+              <text x="60" y="96" class="t-mono">24 V</text>
+              <text x="114" y="26" text-anchor="middle" class="t-accent">R&#8321;</text>
+              <text x="204" y="26" text-anchor="middle" class="t-accent">R&#8322;</text>
+              <text x="294" y="26" text-anchor="middle" class="t-accent">R&#8323;</text>
+              <text x="114" y="86" text-anchor="middle" class="t-mono t-muted">V&#8321;</text>
+              <text x="204" y="86" text-anchor="middle" class="t-mono t-muted">V&#8322;</text>
+              <text x="294" y="86" text-anchor="middle" class="t-mono t-muted">V&#8323;</text>
+              <path class="sym sym-blue" d="M175 160 h-34" />
+              <polygon points="141,160 150,155.5 150,164.5" fill="var(--schematic)" stroke="none" />
+              <text x="158" y="182" class="t-blue">I (same everywhere)</text>
+            </svg>
+          </div>
+          <figcaption>Series: one loop, one current. The source voltage splits across the resistors: V&#8321; + V&#8322; + V&#8323; = 24 V.</figcaption>
+        </figure>
+
+        <h3>Voltage drops</h3>
+        <p>As current pushes through each resistor it gives up energy, so the voltage <em>drops</em> across each one by <span class="u">V = I &times; R</span>. Around the whole loop the drops must account for exactly what the source supplies — this is Kirchhoff's voltage law, which lesson 6 states formally:</p>
+        <div class="formula">V<sub>source</sub> = V&#8321; + V&#8322; + V&#8323;</div>
+        <p>Two consequences worth internalizing: the <strong>largest resistor drops the most voltage</strong> (same I, bigger R), and if the path breaks anywhere — a blown bulb, a broken wire — current stops <em>everywhere</em>, because there is no other route.</p>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>2&#8202;k&Omega;, 4&#8202;k&Omega;, and 6&#8202;k&Omega; in series across a 24&#8202;V supply. Find the current and each drop.</p>
+          <div class="steps">
+            R<sub>eq</sub> = 2k + 4k + 6k = 12 k&Omega;<br>
+            I = V / R<sub>eq</sub> = 24 / 12000 = <strong>2 mA</strong><br>
+            V&#8321; = 0.002 &times; 2000 = <strong>4 V</strong> &middot; V&#8322; = 0.002 &times; 4000 = <strong>8 V</strong> &middot; V&#8323; = 0.002 &times; 6000 = <strong>12 V</strong><br>
+            Check: 4 + 8 + 12 = 24 V &check;
+          </div>
+        </div>
+
+        <h3>The voltage divider</h3>
+        <p>Two series resistors are the standard trick for producing a smaller voltage from a bigger one. The output is tapped between them, and the fraction is just a resistance ratio — no current calculation needed:</p>
+        <div class="formula">V<sub>out</sub> = V<sub>in</sub> &times; <span class="rm">R&#8322; / (R&#8321; + R&#8322;)</span></div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 320 260" role="img" aria-label="A voltage divider: Vin at the top, R1 then R2 in series to ground, with Vout tapped between them.">
+              <path class="sym" d="M120 30 v14" />
+              <line class="sym" x1="104" y1="30" x2="136" y2="30" />
+              <text x="146" y="35" class="t-mono">V<tspan baseline-shift="sub" font-size="9">in</tspan></text>
+              <path class="sym sym-accent" d="M120 44 v8 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v8" />
+              <text x="140" y="90" class="t-accent">R&#8321;</text>
+              <circle class="node" cx="120" cy="130" r="4" />
+              <path class="sym sym-blue" d="M124 130 H196" />
+              <polygon points="204,130 195,125.5 195,134.5" fill="var(--schematic)" stroke="none" />
+              <text x="212" y="135" class="t-mono t-blue">V<tspan baseline-shift="sub" font-size="9">out</tspan></text>
+              <path class="sym sym-accent" d="M120 130 v8 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v8" />
+              <text x="140" y="176" class="t-accent">R&#8322;</text>
+              <path class="sym" d="M120 216 v10" />
+              <line class="sym" x1="102" y1="226" x2="138" y2="226" />
+              <line class="sym" x1="108" y1="233" x2="132" y2="233" />
+              <line class="sym" x1="114" y1="240" x2="126" y2="240" />
+              <text x="150" y="238" class="t-muted">0 V (ground)</text>
+            </svg>
+          </div>
+          <figcaption>The divider: V<sub>out</sub> is the fraction of V<sub>in</sub> that R&#8322; claims of the total resistance.</figcaption>
+        </figure>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>Divide a 9&#8202;V supply down for a sensor using R&#8321; = 6&#8202;k&Omega; and R&#8322; = 3&#8202;k&Omega;.</p>
+          <div class="steps">
+            V<sub>out</sub> = 9 &times; 3000 / (6000 + 3000) = 9 &times; &#8531; = <strong>3 V</strong>
+          </div>
+          <p>Caution from practice: the formula assumes almost nothing draws current from the tap. A heavy load on V<sub>out</sub> effectively adds itself in parallel with R&#8322; and drags the voltage down.</p>
+        </div>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Classic fuel-quantity systems are voltage dividers: the float arm drives a variable resistor, and the gauge reads the tapped voltage. A potentiometer is a voltage divider you can turn — trim position sensors work the same way.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s3"></div>
+      </div>
+      <nav class="pager"><a href="#s2">&larr; Lesson 2</a><a href="#s4">Next: Parallel circuits &rarr;</a></nav>
+    </section>
+
+    <!-- ============ LESSON 4 ============ -->
+    <section id="s4" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 04</p>
+        <h2>Parallel circuits</h2>
+        <p class="lesson-intro">Components in parallel share the same two nodes. Voltage is shared, current divides, and total resistance always shrinks.</p>
+
+        <h3>Same voltage, divided current</h3>
+        <p>Components are <strong>in parallel</strong> when both of their terminals connect to the same pair of nodes, giving current multiple routes. Because each branch spans the same two points, <strong>every parallel branch sees the same voltage</strong>. The source current splits among the branches — each branch draws <span class="u">I = V / R</span> independently — and the branch currents add back together at the nodes.</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 420 230" role="img" aria-label="A 12 volt source feeding three resistors in parallel; the total current splits into three branch currents.">
+              <path class="sym" d="M40 50 H380" />
+              <path class="sym" d="M40 180 H380" />
+              <path class="sym" d="M40 102 V50 M40 118 V180" />
+              <line class="sym" x1="24" y1="102" x2="56" y2="102" />
+              <line class="sym" x1="32" y1="118" x2="48" y2="118" stroke-width="4" />
+              <text x="14" y="96">+</text>
+              <text x="58" y="96" class="t-mono">12 V</text>
+              <circle class="node" cx="180" cy="50" r="4" />
+              <circle class="node" cx="280" cy="50" r="4" />
+              <circle class="node" cx="180" cy="180" r="4" />
+              <circle class="node" cx="280" cy="180" r="4" />
+              <path class="sym sym-accent" d="M180 50 v14 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v46" />
+              <path class="sym sym-accent" d="M280 50 v14 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v46" />
+              <path class="sym sym-accent" d="M380 50 v14 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v46" />
+              <text x="158" y="120" text-anchor="end" class="t-accent">R&#8321;</text>
+              <text x="258" y="120" text-anchor="end" class="t-accent">R&#8322;</text>
+              <text x="358" y="120" text-anchor="end" class="t-accent">R&#8323;</text>
+              <text x="196" y="160" class="t-mono t-blue">I&#8321;</text>
+              <text x="296" y="160" class="t-mono t-blue">I&#8322;</text>
+              <text x="366" y="160" class="t-mono t-blue">I&#8323;</text>
+              <path class="sym sym-blue" d="M92 50 h26" />
+              <polygon points="126,50 117,45.5 117,54.5" fill="var(--schematic)" stroke="none" />
+              <text x="98" y="36" class="t-blue">I<tspan baseline-shift="sub" font-size="9">total</tspan></text>
+              <text x="210" y="210" text-anchor="middle" class="t-muted">I<tspan baseline-shift="sub" font-size="9">total</tspan> = I&#8321; + I&#8322; + I&#8323;</text>
+            </svg>
+          </div>
+          <figcaption>Parallel: every branch spans the same 12 V; the source supplies the sum of the branch currents.</figcaption>
+        </figure>
+
+        <h3>Equivalent resistance</h3>
+        <p>More paths means less total opposition, so <strong>the equivalent of a parallel group is always smaller than its smallest member</strong>. The general rule adds the reciprocals:</p>
+        <div class="formula">1 / R<sub>eq</sub> = 1/R&#8321; + 1/R&#8322; + 1/R&#8323; + &hellip;</div>
+        <p>Two shortcuts cover most real work:</p>
+        <ul>
+          <li><strong>Exactly two resistors</strong> — product over sum: <span class="u">R&#8202;eq = R&#8321;R&#8322; / (R&#8321; + R&#8322;)</span>. Example: 6&#8202;k&Omega; &#8214; 3&#8202;k&Omega; = 18M/9k = 2&#8202;k&Omega;.</li>
+          <li><strong>N equal resistors</strong> — divide by N: three 330&#8202;&Omega; in parallel make 110&#8202;&Omega;.</li>
+        </ul>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>A 12&#8202;V supply feeds a 4&#8202;&Omega; branch and a 6&#8202;&Omega; branch in parallel. Find the branch currents, total current, and R<sub>eq</sub>.</p>
+          <div class="steps">
+            I&#8321; = 12 / 4 = <strong>3 A</strong> &middot; I&#8322; = 12 / 6 = <strong>2 A</strong> &middot; I<sub>total</sub> = <strong>5 A</strong><br>
+            R<sub>eq</sub> = V / I<sub>total</sub> = 12 / 5 = <strong>2.4 &Omega;</strong><br>
+            Check by product over sum: 4&times;6 / (4+6) = 24/10 = 2.4 &Omega; &check;
+          </div>
+        </div>
+
+        <h3>The current divider</h3>
+        <p>When a known current reaches a two-branch split, it divides in <em>inverse</em> proportion to resistance — the smaller resistor takes the larger share. For two branches, the current through R&#8321; is:</p>
+        <div class="formula">I&#8321; = I<sub>total</sub> &times; <span class="rm">R&#8322; / (R&#8321; + R&#8322;)</span></div>
+        <p>Note the flip: it is the <em>other</em> branch's resistance on top. Sanity-check every answer with "the small resistor hogs the current."</p>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Every load on an aircraft bus — radios, lights, pumps — hangs in parallel, so each sees full bus voltage and any one can fail without silencing the rest. Redundant flight-critical systems take the same idea up a level: parallel paths so no single break is fatal.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s4"></div>
+      </div>
+      <nav class="pager"><a href="#s3">&larr; Lesson 3</a><a href="#s5">Next: Series&ndash;parallel &rarr;</a></nav>
+    </section>
+
+    <!-- ============ LESSON 5 ============ -->
+    <section id="s5" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 05</p>
+        <h2>Series&ndash;parallel networks</h2>
+        <p class="lesson-intro">Real circuits mix both configurations. The skill is seeing which is which, then collapsing the network one step at a time.</p>
+
+        <h3>The reduction method</h3>
+        <ol>
+          <li><strong>Identify by nodes, not by drawing.</strong> Two resistors are in series only if the same current must pass through both (no branch between them); in parallel only if they connect the same two nodes. Redraw the circuit if the geometry is confusing — position on the page means nothing.</li>
+          <li><strong>Collapse the innermost group first</strong> — the combination farthest from the source — and replace it with one equivalent resistor.</li>
+          <li><strong>Repeat</strong> until one R<sub>eq</sub> remains, then find the total current with Ohm's law.</li>
+          <li><strong>Expand back out</strong> to find individual voltages and currents, using voltage drops for series parts and shared voltage for parallel parts.</li>
+        </ol>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 420 230" role="img" aria-label="A 12 volt source in series with a 4 ohm resistor, feeding a 6 ohm and a 3 ohm resistor in parallel.">
+              <path class="sym" d="M40 50 H120" />
+              <path class="sym sym-accent" d="M120 50 h8 l5 -10 l10 20 l10 -20 l10 20 l10 -20 l5 10 h8" />
+              <text x="153" y="26" text-anchor="middle" class="t-accent">R&#8321; = 4 &Omega;</text>
+              <path class="sym" d="M186 50 H380" />
+              <path class="sym" d="M40 180 H380" />
+              <path class="sym" d="M40 102 V50 M40 118 V180" />
+              <line class="sym" x1="24" y1="102" x2="56" y2="102" />
+              <line class="sym" x1="32" y1="118" x2="48" y2="118" stroke-width="4" />
+              <text x="14" y="96">+</text>
+              <text x="58" y="96" class="t-mono">12 V</text>
+              <circle class="node" cx="280" cy="50" r="4" />
+              <circle class="node" cx="280" cy="180" r="4" />
+              <text x="280" y="36" text-anchor="middle" class="t-muted">node A</text>
+              <path class="sym sym-accent" d="M280 50 v14 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v46" />
+              <path class="sym sym-accent" d="M380 50 v14 l-10 5 l20 10 l-20 10 l20 10 l-20 10 l10 5 v46" />
+              <text x="258" y="120" text-anchor="end" class="t-accent">R&#8322; = 6 &Omega;</text>
+              <text x="416" y="120" text-anchor="end" class="t-accent">R&#8323; = 3 &Omega;</text>
+              <text x="210" y="210" text-anchor="middle" class="t-muted">node B on the bottom rail</text>
+            </svg>
+          </div>
+          <figcaption>The lesson's running example: R&#8321; in series with the parallel pair R&#8322; &#8214; R&#8323;.</figcaption>
+        </figure>
+
+        <div class="example">
+          <span class="example-tag">Worked example — the full solve</span>
+          <p>For the circuit above: total current, then every voltage and branch current.</p>
+          <div class="steps">
+            Step 1 &mdash; collapse the pair: R&#8322; &#8214; R&#8323; = 6&times;3/(6+3) = 18/9 = <strong>2 &Omega;</strong><br>
+            Step 2 &mdash; now a plain series loop: R<sub>eq</sub> = 4 + 2 = <strong>6 &Omega;</strong><br>
+            Step 3 &mdash; total current: I = 12 / 6 = <strong>2 A</strong><br>
+            Step 4 &mdash; expand: V across R&#8321; = 2 &times; 4 = <strong>8 V</strong>; across the pair = 2 &times; 2 = <strong>4 V</strong> (check: 8+4 = 12 &check;)<br>
+            Step 5 &mdash; branch currents: I&#8322; = 4/6 = <strong>0.667 A</strong> &middot; I&#8323; = 4/3 = <strong>1.333 A</strong> (sum = 2 A &check;)
+          </div>
+          <p>Every solve carries its own error-checking: series drops must sum to the source, branch currents must sum to the total. Use both, every time.</p>
+        </div>
+
+        <div class="widget">
+          <span class="widget-tag">Try it — equivalent-resistance calculator</span>
+          <div class="widget-row">
+            <div class="field" style="flex:1; min-width: 240px;">
+              <label for="rp-list">Resistor values in ohms, comma-separated (e.g. 100, 220, 470)</label>
+              <input id="rp-list" type="text" style="width:100%" inputmode="text" placeholder="100, 220, 470">
+            </div>
+            <button type="button" id="rp-go">Compute</button>
+          </div>
+          <div class="widget-out" id="rp-out">Enter values to see the series and parallel equivalents.</div>
+          <p class="widget-note">Use it to check homework: the parallel result must always land below the smallest value you typed; the series result is the plain sum.</p>
+        </div>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>This reduce-then-expand discipline is the same one you'll use on bigger systems: collapse a subsystem to its equivalent, solve the top level, then push back down for the detail. Circuit reduction is the training ground for that habit.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s5"></div>
+      </div>
+      <nav class="pager"><a href="#s4">&larr; Lesson 4</a><a href="#s6">Next: Kirchhoff &amp; the bridge &rarr;</a></nav>
+    </section>
+    <!-- ============ LESSON 6 ============ -->
+    <section id="s6" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 06 &middot; Step up</p>
+        <h2>Kirchhoff's laws &amp; the Wheatstone bridge</h2>
+        <p class="lesson-intro">The series and parallel rules you've been using are special cases of two laws that solve <em>any</em> circuit — and power the instrument bridge you'll meet throughout aerospace test engineering.</p>
+
+        <h3>Kirchhoff's current law (KCL)</h3>
+        <p>Charge cannot accumulate at a junction, so <strong>the current flowing into any node equals the current flowing out</strong>. That's it — conservation of charge, applied locally. It is why parallel branch currents must add up to the supply current.</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 340 180" role="img" aria-label="Three amps flow into a node and split into 1.2 amps and 1.8 amps flowing out.">
+              <path class="sym" d="M50 90 H158" />
+              <polygon points="150,90 138,84 138,96" fill="currentColor" stroke="none" />
+              <circle class="node" cx="170" cy="90" r="5" />
+              <path class="sym" d="M180 84 L272 47" />
+              <polygon points="282,43 268,42 273,54" fill="currentColor" stroke="none" />
+              <path class="sym" d="M180 96 L272 133" />
+              <polygon points="282,137 273,126 268,138" fill="currentColor" stroke="none" />
+              <text x="92" y="76" class="t-mono">3 A in</text>
+              <text x="236" y="30" class="t-mono">1.2 A out</text>
+              <text x="236" y="162" class="t-mono">1.8 A out</text>
+              <text x="170" y="120" text-anchor="middle" class="t-muted">node: 3 = 1.2 + 1.8</text>
+            </svg>
+          </div>
+          <figcaption>KCL at one node: what flows in must flow out.</figcaption>
+        </figure>
+
+        <h3>Kirchhoff's voltage law (KVL)</h3>
+        <p>Walk any closed loop in a circuit and <strong>the algebraic sum of the voltage changes is zero</strong> — every rise through a source is matched by drops across components before you return to your starting point. "Algebraic" is the operative word: pick a direction around the loop, count rises positive and drops negative, and the books must balance.</p>
+        <div class="formula">&Sigma; V<sub>loop</sub> = 0&ensp;<span class="rm">&nbsp;(rises +, drops &minus;)</span></div>
+        <p>For a single loop this is just "drops sum to the source," which you used in lesson 3. Its real power is on circuits with several loops and several sources, where series/parallel shortcuts break down: write KVL around each loop, KCL at each node, and solve the resulting equations.</p>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>A loop contains a 12&#8202;V source and three resistors. Two of the drops measure 5&#8202;V and 4&#8202;V. What is the third?</p>
+          <div class="steps">
+            +12 &minus; 5 &minus; 4 &minus; V&#8323; = 0&ensp;&rarr;&ensp;V&#8323; = <strong>3 V</strong>
+          </div>
+        </div>
+
+        <h3>The Wheatstone bridge</h3>
+        <p>The bridge is four resistors in a diamond with a sensitive meter across the middle. Each side of the diamond is a voltage divider; the meter compares their tapped voltages. When the ratios match, the taps sit at the same potential and the meter reads <strong>zero</strong> — the bridge is <em>balanced</em>:</p>
+        <div class="formula">R&#8321; / R&#8322; = R&#8323; / R&#8324;&ensp;<span class="rm">&rArr; V&#8202;across the meter = 0</span></div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 320 312" role="img" aria-label="A Wheatstone bridge: four resistors in a diamond between a supply at top and ground at bottom, with a galvanometer bridging the two middle nodes.">
+              <path class="sym" d="M160 14 V40" />
+              <text x="172" y="24" class="t-mono">+V</text>
+              <path class="sym" d="M160 40 L60 150 L160 260 L260 150 Z" />
+              <circle class="node" cx="160" cy="40" r="4" />
+              <circle class="node" cx="60" cy="150" r="4" />
+              <circle class="node" cx="260" cy="150" r="4" />
+              <circle class="node" cx="160" cy="260" r="4" />
+              <rect class="sym-box" x="88" y="87" width="44" height="16" transform="rotate(132.3 110 95)" />
+              <rect class="sym-box" x="188" y="87" width="44" height="16" transform="rotate(47.7 210 95)" />
+              <rect class="sym-box" x="88" y="197" width="44" height="16" transform="rotate(47.7 110 205)" />
+              <rect class="sym-box" x="188" y="197" width="44" height="16" transform="rotate(132.3 210 205)" />
+              <text x="74" y="76" text-anchor="end" class="t-accent">R&#8321;</text>
+              <text x="246" y="76" class="t-accent">R&#8323;</text>
+              <text x="74" y="232" text-anchor="end" class="t-accent">R&#8322;</text>
+              <text x="246" y="232" class="t-accent">R&#8324;</text>
+              <path class="sym" d="M64 150 H142" />
+              <circle class="sym sym-blue" cx="160" cy="150" r="18" fill="none" />
+              <text x="160" y="155" text-anchor="middle" class="t-blue">G</text>
+              <path class="sym" d="M178 150 H256" />
+              <path class="sym" d="M160 260 V282" />
+              <line class="sym" x1="142" y1="282" x2="178" y2="282" />
+              <line class="sym" x1="148" y1="289" x2="172" y2="289" />
+              <line class="sym" x1="154" y1="296" x2="166" y2="296" />
+            </svg>
+          </div>
+          <figcaption>Two voltage dividers back to back; the galvanometer G reads the difference between their taps.</figcaption>
+        </figure>
+
+        <p>To measure an unknown resistance, put it in the R&#8324; position, adjust a known resistor until the meter nulls, and solve <span class="u">R&#8324; = R&#8322; &times; R&#8323; / R&#8321;</span>. Better still, the bridge converts a <em>tiny change</em> in one arm into a measurable meter voltage — which is exactly what strain measurement needs.</p>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>R&#8321; = 1&#8202;k&Omega;, R&#8322; = 2&#8202;k&Omega;, R&#8323; = 1.5&#8202;k&Omega;. What value of R&#8324; balances the bridge?</p>
+          <div class="steps">
+            R&#8321;/R&#8322; = R&#8323;/R&#8324;&ensp;&rarr;&ensp;R&#8324; = R&#8322; &times; R&#8323; / R&#8321; = 2000 &times; 1500 / 1000 = <strong>3 k&Omega;</strong>
+          </div>
+        </div>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Bond a strain gauge to a wing spar and wire it as one bridge arm. Under load the gauge stretches, its resistance shifts a fraction of a percent, and the unbalanced bridge outputs a voltage proportional to strain. Structural test rigs, load cells, and pressure transducers are Wheatstone bridges all the way down.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s6"></div>
+      </div>
+      <nav class="pager"><a href="#s5">&larr; Lesson 5</a><a href="#s7">Next: Capacitors &amp; RC &rarr;</a></nav>
+    </section>
+
+    <!-- ============ LESSON 7 ============ -->
+    <section id="s7" hidden>
+      <div class="lesson">
+        <p class="lesson-kicker">Lesson 07 &middot; Step up</p>
+        <h2>Capacitors, inductors &amp; RC transients</h2>
+        <p class="lesson-intro">Resistors only dissipate. The other two passive components <em>store</em> energy — and storage introduces time into circuit behavior.</p>
+
+        <h3>Capacitors</h3>
+        <p>A <strong>capacitor</strong> is two conductive plates separated by an insulator. Push charge onto it and a voltage builds: <span class="u">Q = C &times; V</span>, where <strong>capacitance C</strong> is measured in <strong>farads (F)</strong> — practical parts run from picofarads to millifarads. A capacitor passes current only while its voltage is <em>changing</em>; once charged to the supply voltage, current stops. It stores energy in an electric field and blocks DC while coupling changing signals.</p>
+        <p>Combination rules are the <em>reverse</em> of resistors: <strong>parallel capacitors add</strong> (more plate area), while series capacitors combine by reciprocals.</p>
+
+        <h3>Inductors</h3>
+        <p>An <strong>inductor</strong> is a coil of wire, with <strong>inductance L</strong> measured in <strong>henries (H)</strong>. It stores energy in a magnetic field and <strong>opposes changes in current</strong> — current through an inductor cannot jump instantly, just as voltage across a capacitor cannot. Inductors combine like resistors: series adds, parallel by reciprocals. You'll meet them in filters, motors, relays, and transformers.</p>
+
+        <h3>The RC time constant</h3>
+        <p>Put a resistor in series with a capacitor and close the switch. The capacitor charges quickly at first, then ever more slowly as its rising voltage cuts the charging current. The pace of the whole process is set by one number, the <strong>time constant</strong>:</p>
+        <div class="formula">&tau; = R &times; C&ensp;<span class="rm">(seconds = ohms &times; farads)</span></div>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 380 210" role="img" aria-label="An RC charging circuit: battery, switch, and resistor in series with a capacitor.">
+              <path class="sym" d="M40 50 H78" />
+              <circle class="node" cx="80" cy="50" r="3.5" />
+              <path class="sym" d="M80 50 L124 30" />
+              <path class="sym" d="M132 50 H160" />
+              <text x="100" y="20" class="t-muted">switch</text>
+              <path class="sym sym-accent" d="M160 50 h6 l5 -10 l10 20 l10 -20 l10 20 l10 -20 l5 10 h4" />
+              <text x="190" y="26" text-anchor="middle" class="t-accent">R</text>
+              <path class="sym" d="M220 50 H340 V98" />
+              <line class="sym" x1="322" y1="98" x2="358" y2="98" />
+              <line class="sym" x1="322" y1="112" x2="358" y2="112" />
+              <text x="366" y="110" class="t-accent">C</text>
+              <path class="sym" d="M340 112 V170 H40 V118" />
+              <path class="sym" d="M40 102 V50" />
+              <line class="sym" x1="24" y1="102" x2="56" y2="102" />
+              <line class="sym" x1="32" y1="118" x2="48" y2="118" stroke-width="4" />
+              <text x="14" y="96">+</text>
+              <text x="60" y="96" class="t-mono">V</text>
+            </svg>
+          </div>
+          <figcaption>Close the switch and C charges through R toward the supply voltage.</figcaption>
+        </figure>
+
+        <p>After one time constant the capacitor has reached about <strong>63%</strong> of the supply voltage; each further &tau; closes 63% of the remaining gap. By <strong>5&tau;</strong> it is above 99% — "fully charged" for engineering purposes. Discharging runs the same curve in reverse: down to 37% after one &tau;.</p>
+
+        <figure>
+          <div class="fig-frame">
+            <svg viewBox="0 0 440 250" role="img" aria-label="Capacitor voltage versus time while charging: an exponential curve reaching 63 percent at one time constant and nearly 100 percent by five.">
+              <path class="sym-thin" d="M60 20 V200 H420" />
+              <line class="sym-thin dashed" x1="60" y1="40" x2="420" y2="40" />
+              <text x="416" y="32" text-anchor="end" class="t-muted">supply voltage (100%)</text>
+              <path class="sym sym-accent" d="M60 200 C78 152 100 116 124 99 C148 86 166 70 188 62 C212 54 232 50 252 48 C274 45.8 296 44 316 43.2 C338 42.6 368 42.2 396 42" />
+              <line class="sym-thin dashed" x1="60" y1="99" x2="124" y2="99" />
+              <line class="sym-thin dashed" x1="124" y1="200" x2="124" y2="99" />
+              <circle cx="124" cy="99" r="5" fill="var(--copper)" stroke="none" />
+              <text x="132" y="92" class="t-blue">63% at t = &tau;</text>
+              <text x="54" y="103" text-anchor="end" class="t-mono">63%</text>
+              <text x="54" y="204" text-anchor="end" class="t-mono">0</text>
+              <text x="60" y="222" text-anchor="middle" class="t-mono">0</text>
+              <text x="124" y="222" text-anchor="middle" class="t-mono">&tau;</text>
+              <text x="188" y="222" text-anchor="middle" class="t-mono">2&tau;</text>
+              <text x="252" y="222" text-anchor="middle" class="t-mono">3&tau;</text>
+              <text x="316" y="222" text-anchor="middle" class="t-mono">4&tau;</text>
+              <text x="380" y="222" text-anchor="middle" class="t-mono">5&tau;</text>
+              <text x="420" y="240" text-anchor="end" class="t-muted">time</text>
+              <text x="30" y="20" class="t-muted">V&#8202;c</text>
+            </svg>
+          </div>
+          <figcaption>The universal charging curve: 63% per time constant, effectively complete at 5&tau;.</figcaption>
+        </figure>
+
+        <div class="example">
+          <span class="example-tag">Worked example</span>
+          <p>A 10&#8202;k&Omega; resistor charges a 100&#8202;&micro;F capacitor from a 28&#8202;V bus. How long to 63%? To "full"?</p>
+          <div class="steps">
+            &tau; = R &times; C = 10&#8202;000 &times; 0.0001 = <strong>1 s</strong>&ensp;&rarr;&ensp;63% (&asymp;17.6 V) after <strong>1 s</strong><br>
+            5&tau; = <strong>5 s</strong> to &gt;99% of 28 V
+          </div>
+        </div>
+
+        <h3>Switch-on and steady state</h3>
+        <p>Two limiting cases carry you through most transient reasoning without any calculus:</p>
+        <ul>
+          <li>At the instant of switch-on, an uncharged capacitor behaves like a <strong>short circuit</strong> (a plain wire); a long time later, like an <strong>open circuit</strong> (a break).</li>
+          <li>An inductor is the mirror image: <strong>open</strong> at the first instant, <strong>short</strong> in steady state.</li>
+        </ul>
+
+        <div class="aero">
+          <span class="aero-tag">Aero note</span>
+          <p>Aircraft AC power runs at 400&#8202;Hz rather than the ground grid's 50/60&#8202;Hz because transformer and motor cores can be far smaller and lighter at higher frequency — and weight is everything in the air. RC time constants set the response lag in sensor filters, and capacitor banks ride avionics through momentary bus transfers.</p>
+        </div>
+
+        <div class="quiz" data-quiz="s7"></div>
+      </div>
+      <nav class="pager"><a href="#s6">&larr; Lesson 6</a><span class="spacer"></span><a href="#home">Back to the course map</a></nav>
+    </section>
+
+  </main>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  /* ================= quiz data ================= */
+  // mc: {t, choices, a (index), ex}  num: {t, unit, a, tol? (absolute), ex}
+  var QUIZ = {
+    s1: { title: "Checkride 1 — Charge, current & voltage", questions: [
+      { type: "mc", t: "Electric current is best described as…",
+        choices: ["The amount of stored charge in a component", "The rate at which charge flows past a point, in amperes", "The pressure difference between two points", "The rate at which energy is dissipated"],
+        a: 1, ex: "Current I is charge per unit time: 1 A = 1 coulomb per second. Pressure is the voltage analogy; energy rate is power." },
+      { type: "num", t: "A 220 Ω resistor carries 0.05 A. What voltage appears across it?", unit: "V", a: 11,
+        ex: "V = I × R = 0.05 × 220 = 11 V." },
+      { type: "mc", t: "The voltage across a fixed resistor is doubled. Its power dissipation…",
+        choices: ["Doubles", "Halves", "Quadruples", "Stays the same"],
+        a: 2, ex: "P = V²/R — power scales with the square of voltage, so 2× voltage means 4× power." },
+      { type: "num", t: "A pitot-heat element draws 3.5 A from a 28 V bus. What power does it dissipate?", unit: "W", a: 98,
+        ex: "P = V × I = 28 × 3.5 = 98 W." },
+      { type: "mc", t: "4.7 kΩ written in plain ohms is…",
+        choices: ["47 Ω", "470 Ω", "4 700 Ω", "47 000 Ω"],
+        a: 2, ex: "kilo = ×1000, so 4.7 kΩ = 4 700 Ω." },
+      { type: "num", t: "A 12 V supply is placed across 3.3 kΩ. What current flows, in milliamps?", unit: "mA", a: 3.64, tol: 0.1,
+        ex: "I = V/R = 12 / 3300 = 0.00364 A = 3.64 mA." },
+      { type: "mc", t: "Conventional current in a circuit diagram flows…",
+        choices: ["From − to + outside the source, like the electrons", "From + to − outside the source, opposite to electron drift", "In whichever direction the largest resistor points", "Only when the voltage is changing"],
+        a: 1, ex: "By convention current leaves the + terminal, passes through the loads, and returns to −. Electrons physically drift the other way, but every formula uses the convention." },
+      { type: "mc", t: "Which quantity is defined between two points rather than at a single point?",
+        choices: ["Current", "Charge", "Voltage", "Power"],
+        a: 2, ex: "Voltage is a potential difference — it only exists between two points. \"Voltage at a node\" implicitly means \"relative to ground.\"" }
+    ]},
+    s2: { title: "Checkride 2 — Resistors & the color code", questions: [
+      { type: "mc", t: "A resistor is banded yellow–violet–red–gold. Its value is…",
+        choices: ["47 Ω ±5%", "470 Ω ±10%", "4.7 kΩ ±5%", "47 kΩ ±5%"],
+        a: 2, ex: "Yellow 4, violet 7, red ×100 → 4700 Ω = 4.7 kΩ; gold is ±5%." },
+      { type: "mc", t: "Brown–black–orange–gold reads…",
+        choices: ["1 kΩ", "10 kΩ", "100 kΩ", "1 MΩ"],
+        a: 1, ex: "Brown 1, black 0, orange ×1000 → 10 × 1000 = 10 kΩ." },
+      { type: "num", t: "A 1 kΩ ±5% resistor is at the top of its tolerance. What is its resistance?", unit: "Ω", a: 1050,
+        ex: "5% of 1000 Ω is 50 Ω, so the maximum in-spec value is 1050 Ω." },
+      { type: "mc", t: "A 100 Ω resistor must carry 200 mA continuously. The smallest safe stock rating to buy is…",
+        choices: ["¼ W", "½ W", "1 W", "5 W"],
+        a: 3, ex: "P = I²R = 0.2² × 100 = 4 W. A ¼, ½, or 1 W part burns; the next stock size with margin is 5 W." },
+      { type: "mc", t: "A silver fourth band means the tolerance is…",
+        choices: ["±1%", "±2%", "±5%", "±10%"],
+        a: 3, ex: "Gold is ±5%, silver ±10%, brown ±1%, red ±2%." },
+      { type: "mc", t: "Red–red–brown–gold reads…",
+        choices: ["22 Ω", "220 Ω", "2.2 kΩ", "22 kΩ"],
+        a: 1, ex: "Red 2, red 2, brown ×10 → 22 × 10 = 220 Ω." },
+      { type: "mc", t: "A strain gauge works because…",
+        choices: ["Its capacitance rises under load", "Stretching its foil grid slightly changes its resistance", "It generates a voltage when bent", "Temperature changes its color bands"],
+        a: 1, ex: "Stretching makes the foil grid longer and thinner, raising resistance a tiny, repeatable amount — that ΔR is the measurement." },
+      { type: "num", t: "Decode green–blue–black–gold, in ohms.", unit: "Ω", a: 56,
+        ex: "Green 5, blue 6, black ×1 → 56 Ω." }
+    ]},
+    s3: { title: "Checkride 3 — Series circuits", questions: [
+      { type: "num", t: "100 Ω, 220 Ω, and 330 Ω are wired in series. What is the equivalent resistance?", unit: "Ω", a: 650,
+        ex: "Series resistance is a plain sum: 100 + 220 + 330 = 650 Ω." },
+      { type: "mc", t: "In a series circuit, the current…",
+        choices: ["Is largest through the biggest resistor", "Is largest through the smallest resistor", "Is the same through every component", "Splits evenly between components"],
+        a: 2, ex: "There is only one path, so the same current flows through everything in the loop." },
+      { type: "num", t: "2 kΩ, 4 kΩ, and 6 kΩ in series across 24 V. What current flows, in milliamps?", unit: "mA", a: 2,
+        ex: "Req = 12 kΩ; I = 24 / 12 000 = 2 mA." },
+      { type: "num", t: "A divider uses R₁ = 6 kΩ on top and R₂ = 3 kΩ on the bottom across 9 V. What is Vout across R₂?", unit: "V", a: 3,
+        ex: "Vout = 9 × 3k/(6k+3k) = 9 × ⅓ = 3 V." },
+      { type: "mc", t: "Around a series loop, the individual voltage drops…",
+        choices: ["Are all equal", "Sum to the source voltage", "Sum to zero volts across the source", "Depend on the order of the resistors"],
+        a: 1, ex: "KVL: the source's rise equals the sum of the drops. Order around the loop doesn't matter." },
+      { type: "mc", t: "One lamp in a series string burns out (open circuit). What happens?",
+        choices: ["The other lamps get brighter", "The other lamps dim slightly", "Every lamp goes dark", "Only lamps after the break go dark"],
+        a: 2, ex: "An open anywhere in a series path stops current everywhere — there is no alternate route." },
+      { type: "num", t: "Three 470 Ω resistors in series total…", unit: "Ω", a: 1410,
+        ex: "3 × 470 = 1410 Ω." },
+      { type: "mc", t: "In a series circuit, the component that drops the most voltage is…",
+        choices: ["The one closest to the + terminal", "The one with the smallest resistance", "The one with the largest resistance", "Impossible to know without the current"],
+        a: 2, ex: "V = I × R with the same I everywhere, so the biggest R claims the biggest drop — position is irrelevant." }
+    ]},
+    s4: { title: "Checkride 4 — Parallel circuits", questions: [
+      { type: "num", t: "Two 100 Ω resistors in parallel make…", unit: "Ω", a: 50,
+        ex: "N equal resistors divide by N: 100 / 2 = 50 Ω." },
+      { type: "num", t: "6 kΩ in parallel with 3 kΩ equals how many kΩ?", unit: "kΩ", a: 2,
+        ex: "Product over sum: (6×3)/(6+3) = 18/9 = 2 kΩ." },
+      { type: "mc", t: "Across parallel branches, which quantity is identical?",
+        choices: ["Current", "Voltage", "Power", "Resistance"],
+        a: 1, ex: "All branches span the same two nodes, so they share the same voltage; each draws its own current." },
+      { type: "mc", t: "The equivalent resistance of any parallel group is always…",
+        choices: ["Larger than the largest branch", "Between the smallest and largest branch", "Smaller than the smallest branch", "Equal to the average of the branches"],
+        a: 2, ex: "Every added path makes current flow easier, so Req falls below even the smallest single branch." },
+      { type: "num", t: "Three 330 Ω resistors in parallel make…", unit: "Ω", a: 110,
+        ex: "Equal resistors divide by the count: 330 / 3 = 110 Ω." },
+      { type: "num", t: "A 12 V bus feeds a 4 Ω branch and a 6 Ω branch in parallel. Total supply current?", unit: "A", a: 5,
+        ex: "Each branch sees 12 V: 12/4 = 3 A and 12/6 = 2 A; KCL sums them to 5 A." },
+      { type: "mc", t: "One branch of a parallel circuit fails open. The other branches…",
+        choices: ["Stop conducting too", "See a higher voltage", "Carry on exactly as before", "Split the failed branch's current between them"],
+        a: 2, ex: "Each branch has its own path across the same source voltage, so the survivors are unaffected — the basis of redundancy." },
+      { type: "num", t: "6 A reaches a split between 2 Ω and 4 Ω. How much current takes the 4 Ω branch?", unit: "A", a: 2,
+        ex: "Current divider: I₄ = 6 × 2/(2+4) = 2 A. The other branch's R goes on top — and the smaller resistor hogs the current (4 A)." }
+    ]},
+    s5: { title: "Checkride 5 — Series–parallel networks", questions: [
+      { type: "num", t: "A 100 Ω resistor is in series with two parallel 200 Ω resistors. Total resistance?", unit: "Ω", a: 200,
+        ex: "200 ∥ 200 = 100 Ω; then 100 + 100 = 200 Ω." },
+      { type: "num", t: "A 1 kΩ + 1 kΩ series pair is placed in parallel with 2 kΩ. Equivalent, in ohms?", unit: "Ω", a: 1000,
+        ex: "The series pair is 2 kΩ; 2 kΩ ∥ 2 kΩ = 1 kΩ = 1000 Ω." },
+      { type: "mc", t: "When reducing a series–parallel network, you should start with…",
+        choices: ["The resistor nearest the source", "The innermost combination, farthest from the source", "The largest resistor", "The branch carrying the most current"],
+        a: 1, ex: "Collapse the deepest group into one equivalent, then work outward until a single Req faces the source." },
+      { type: "num", t: "12 V drives R₁ = 4 Ω in series with (6 Ω ∥ 3 Ω). What is the total current?", unit: "A", a: 2,
+        ex: "6 ∥ 3 = 2 Ω; Req = 4 + 2 = 6 Ω; I = 12/6 = 2 A." },
+      { type: "num", t: "In that same circuit, what voltage appears across the parallel pair?", unit: "V", a: 4,
+        ex: "The pair's equivalent is 2 Ω carrying 2 A: V = 2 × 2 = 4 V. (R₁ drops the other 8 V.)" },
+      { type: "num", t: "Still the same circuit: how much current flows through the 6 Ω resistor?", unit: "A", a: 0.667, tol: 0.02,
+        ex: "The pair shares 4 V, so I₆ = 4/6 ≈ 0.667 A; the 3 Ω branch takes 1.333 A." },
+      { type: "mc", t: "Two resistors drawn side by side on a schematic are in parallel only if…",
+        choices: ["They are drawn vertically", "They have equal values", "Both of their terminals join the same two nodes", "They are next to the same battery"],
+        a: 2, ex: "Configuration is about connection, not page layout. Same two nodes → parallel; same forced current path → series." },
+      { type: "num", t: "470 Ω in series with (1 kΩ ∥ 1 kΩ) totals…", unit: "Ω", a: 970,
+        ex: "1 k ∥ 1 k = 500 Ω; 470 + 500 = 970 Ω." }
+    ]},
+    s6: { title: "Checkride 6 — Kirchhoff & the bridge", questions: [
+      { type: "mc", t: "Kirchhoff's current law says…",
+        choices: ["Current is the same at every point in any circuit", "The current into a node equals the current out", "Current always takes the path of least resistance only", "Branch currents are proportional to branch resistance"],
+        a: 1, ex: "Charge can't pile up at a junction, so inflow must equal outflow at every node." },
+      { type: "mc", t: "Kirchhoff's voltage law says that around any closed loop…",
+        choices: ["The voltage drops are all equal", "The algebraic sum of voltage changes is zero", "The current sums to zero", "The power in equals the power out"],
+        a: 1, ex: "Count rises positive and drops negative around a loop and the total is zero — you return to the potential you started at." },
+      { type: "num", t: "3 A enters a node; 1.2 A leaves through one branch. How much leaves through the other?", unit: "A", a: 1.8,
+        ex: "KCL: 3 = 1.2 + x, so x = 1.8 A." },
+      { type: "mc", t: "A Wheatstone bridge is balanced when…",
+        choices: ["All four resistors are equal", "R₁/R₂ = R₃/R₄", "The supply voltage is removed", "The galvanometer resistance matches the bridge"],
+        a: 1, ex: "Equal divider ratios put both taps at the same potential, so no current crosses the meter. Equal resistors satisfy the ratio but aren't required." },
+      { type: "num", t: "R₁ = 1 kΩ, R₂ = 2 kΩ, R₃ = 1.5 kΩ. What R₄ (in kΩ) balances the bridge?", unit: "kΩ", a: 3,
+        ex: "R₄ = R₂ × R₃ / R₁ = 2 × 1.5 / 1 = 3 kΩ." },
+      { type: "mc", t: "Bridges are the standard front end for strain gauges because they…",
+        choices: ["Amplify current like a transistor", "Convert a tiny resistance change into a measurable voltage difference", "Eliminate the need for a power supply", "Increase the gauge's resistance change"],
+        a: 1, ex: "Near balance, the meter voltage responds directly to a fractional ΔR in one arm — perfect for the sub-1% shifts strain produces." },
+      { type: "num", t: "A loop holds a 12 V source and three resistors; two drops measure 5 V and 4 V. The third drop is…", unit: "V", a: 3,
+        ex: "KVL: 12 − 5 − 4 − V₃ = 0 → V₃ = 3 V." },
+      { type: "mc", t: "\"Algebraic sum\" in KVL means…",
+        choices: ["Add all magnitudes, ignoring direction", "Assign + to rises and − to drops as you walk the loop", "Only count the resistors, not the sources", "Average the voltages around the loop"],
+        a: 1, ex: "Pick a walking direction, keep consistent signs for rises and drops, and the loop total is zero. Signs are the whole game in multi-loop circuits." }
+    ]},
+    s7: { title: "Checkride 7 — Capacitors & RC transients", questions: [
+      { type: "num", t: "τ for a 10 kΩ resistor charging a 100 µF capacitor, in seconds?", unit: "s", a: 1,
+        ex: "τ = RC = 10 000 × 0.0001 = 1 s." },
+      { type: "mc", t: "Capacitors placed in parallel…",
+        choices: ["Combine by reciprocals, like parallel resistors", "Add directly, the reverse of the resistor rule", "Cancel each other out", "Must have equal values"],
+        a: 1, ex: "Parallel plates effectively enlarge the plate area, so parallel capacitance adds: the mirror image of resistors." },
+      { type: "mc", t: "One time constant after switch-on, a charging capacitor has reached about…",
+        choices: ["37% of the supply voltage", "50% of the supply voltage", "63% of the supply voltage", "99% of the supply voltage"],
+        a: 2, ex: "63.2% after 1τ; each further τ closes 63% of what remains. Discharge mirrors it: down to 37% after 1τ." },
+      { type: "mc", t: "A capacitor is considered fully charged, for engineering purposes, after…",
+        choices: ["1τ", "2τ", "3τ", "5τ"],
+        a: 3, ex: "By 5τ the voltage is above 99% of the supply — the conventional \"done\" point." },
+      { type: "num", t: "τ for 4.7 kΩ with 10 µF, in milliseconds?", unit: "ms", a: 47, tol: 0.5,
+        ex: "τ = 4700 × 0.00001 = 0.047 s = 47 ms." },
+      { type: "mc", t: "An inductor opposes…",
+        choices: ["Any current flowing through it", "Changes in the current through it", "Changes in the voltage across it", "DC but not AC"],
+        a: 1, ex: "Its magnetic field resists changes in current — current through an inductor can't jump instantly, just as capacitor voltage can't." },
+      { type: "mc", t: "At the instant a switch first connects an uncharged capacitor, the capacitor behaves like…",
+        choices: ["An open circuit", "A short circuit", "A resistor equal to R", "A voltage source"],
+        a: 1, ex: "Uncharged means 0 V across it, so at t = 0 it passes current freely like a wire. Fully charged, it passes nothing — an open." },
+      { type: "mc", t: "Aircraft AC systems run at 400 Hz mainly because…",
+        choices: ["It matches engine RPM", "Higher frequency lets transformers and motors be smaller and lighter", "It reduces the risk of electric shock", "Radios require it"],
+        a: 1, ex: "Core size shrinks as frequency rises, and weight is the currency of aircraft design. The tradeoff: 400 Hz doesn't transmit well over long ground lines." }
+    ]}
+  };
+
+  var PASS_MARK = 80;
+  var STORE_KEY = "circuits-preflight-v1";
+
+  /* ================= progress ================= */
+  function loadProgress() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
+    catch (e) { return {}; }
+  }
+  function saveProgress(p) {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch (e) {}
+  }
+  function recordScore(id, pct) {
+    var p = loadProgress();
+    var rec = p[id] || { best: 0, passed: false };
+    rec.best = Math.max(rec.best, pct);
+    rec.passed = rec.passed || pct >= PASS_MARK;
+    rec.attempted = true;
+    p[id] = rec;
+    saveProgress(p);
+    refreshBadges();
+    return rec;
+  }
+  function refreshBadges() {
+    var p = loadProgress();
+    document.querySelectorAll("[data-dot]").forEach(function (dot) {
+      var rec = p[dot.getAttribute("data-dot")];
+      dot.classList.remove("started", "passed");
+      if (rec && rec.passed) dot.classList.add("passed");
+      else if (rec && rec.attempted) dot.classList.add("started");
+    });
+    document.querySelectorAll("[data-state]").forEach(function (el) {
+      var rec = p[el.getAttribute("data-state")];
+      el.classList.remove("passed");
+      if (rec && rec.passed) { el.textContent = "✓ passed · best " + rec.best + "%"; el.classList.add("passed"); }
+      else if (rec && rec.attempted) { el.textContent = "attempted · best " + rec.best + "%"; }
+      else { el.textContent = "not started"; }
+    });
+  }
+
+  /* ================= quiz rendering ================= */
+  function el(tag, cls, html) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html !== undefined) n.innerHTML = html;
+    return n;
+  }
+
+  function renderQuiz(id, host) {
+    var data = QUIZ[id];
+    host.innerHTML = "";
+
+    var head = el("div", "quiz-head");
+    head.appendChild(el("p", "quiz-title", data.title));
+    head.appendChild(el("span", "quiz-meta", data.questions.length + " questions · pass at " + PASS_MARK + "%"));
+    host.appendChild(head);
+
+    var body = el("div", "quiz-body");
+    data.questions.forEach(function (q, qi) {
+      var card = el("div", "qcard");
+      card.appendChild(el("p", "qtext", "<span class='qnum'>Q" + (qi + 1) + "</span>" + q.t));
+      if (q.type === "mc") {
+        var box = el("div", "choices");
+        q.choices.forEach(function (c, ci) {
+          var lab = el("label", "choice");
+          var r = document.createElement("input");
+          r.type = "radio";
+          r.name = id + "-q" + qi;
+          r.value = ci;
+          lab.appendChild(r);
+          lab.appendChild(el("span", null, c));
+          box.appendChild(lab);
+        });
+        card.appendChild(box);
+      } else {
+        var wrap = el("div", "numwrap");
+        var inp = document.createElement("input");
+        inp.type = "text";
+        inp.inputMode = "decimal";
+        inp.autocomplete = "off";
+        inp.setAttribute("aria-label", "Numeric answer in " + q.unit);
+        inp.dataset.q = qi;
+        wrap.appendChild(inp);
+        wrap.appendChild(el("span", null, q.unit));
+        card.appendChild(wrap);
+      }
+      card.appendChild(el("p", "verdict"));
+      card.appendChild(el("p", "explain", q.ex)).hidden = true;
+      body.appendChild(card);
+    });
+    host.appendChild(body);
+
+    var actions = el("div", "quiz-actions");
+    var submit = el("button", null, "Grade my answers");
+    submit.type = "button";
+    var score = el("span", "scorebar");
+    var best = el("span", "bestnote");
+    var rec = loadProgress()[id];
+    if (rec && rec.attempted) best.textContent = "best so far: " + rec.best + "%" + (rec.passed ? " · passed" : "");
+    actions.appendChild(submit);
+    actions.appendChild(score);
+    actions.appendChild(best);
+    host.appendChild(actions);
+
+    submit.addEventListener("click", function () {
+      if (submit.dataset.mode === "retake") { renderQuiz(id, host); return; }
+      var right = 0;
+      var cards = body.querySelectorAll(".qcard");
+      data.questions.forEach(function (q, qi) {
+        var card = cards[qi];
+        var verdict = card.querySelector(".verdict");
+        var explain = card.querySelector(".explain");
+        var ok = false, answered = false;
+        if (q.type === "mc") {
+          var chosen = card.querySelector("input:checked");
+          answered = !!chosen;
+          card.querySelectorAll(".choice").forEach(function (lab, ci) {
+            lab.classList.remove("correct", "wrong");
+            var inp = lab.querySelector("input");
+            inp.disabled = true;
+            if (ci === q.a) lab.classList.add("correct");
+            else if (inp.checked) lab.classList.add("wrong");
+          });
+          ok = answered && Number(chosen.value) === q.a;
+        } else {
+          var inp2 = card.querySelector("input");
+          inp2.disabled = true;
+          var v = parseFloat(String(inp2.value).replace(",", "."));
+          answered = inp2.value.trim() !== "" && isFinite(v);
+          var tol = Math.max(q.tol !== undefined ? q.tol : 0, Math.abs(q.a) * 0.02);
+          ok = answered && Math.abs(v - q.a) <= tol;
+          card.querySelector(".numwrap").classList.add(ok ? "correct" : "wrong");
+        }
+        if (ok) { right++; verdict.textContent = "Correct"; verdict.classList.add("ok"); }
+        else {
+          verdict.textContent = answered ? "Not quite" : "No answer given";
+          verdict.classList.add("no");
+        }
+        explain.hidden = false;
+      });
+      var pct = Math.round(100 * right / data.questions.length);
+      var recNow = recordScore(id, pct);
+      score.textContent = right + "/" + data.questions.length + " — " + pct + "%" + (pct >= PASS_MARK ? " · lesson signed off" : " · below the " + PASS_MARK + "% bar");
+      score.classList.add(pct >= PASS_MARK ? "pass" : "fail");
+      best.textContent = "best so far: " + recNow.best + "%" + (recNow.passed ? " · passed" : "");
+      submit.textContent = "Retake quiz";
+      submit.dataset.mode = "retake";
+    });
+  }
+
+  document.querySelectorAll("[data-quiz]").forEach(function (host) {
+    renderQuiz(host.getAttribute("data-quiz"), host);
+  });
+
+  /* ================= navigation ================= */
+  var sections = document.querySelectorAll("main > section");
+  function show(idRaw) {
+    var id = idRaw && document.getElementById(idRaw) ? idRaw : "home";
+    sections.forEach(function (s) { s.hidden = s.id !== id; });
+    document.querySelectorAll("[data-nav]").forEach(function (a) {
+      a.classList.toggle("active", a.getAttribute("data-nav") === id);
+    });
+    window.scrollTo(0, 0);
+  }
+  window.addEventListener("hashchange", function () { show(location.hash.slice(1)); });
+  show(location.hash.slice(1));
+  refreshBadges();
+
+  /* ================= widget: Ohm's law solver ================= */
+  var ohmV = document.getElementById("ohm-v"),
+      ohmI = document.getElementById("ohm-i"),
+      ohmR = document.getElementById("ohm-r"),
+      ohmOut = document.getElementById("ohm-out");
+  function fmt(x) {
+    if (!isFinite(x)) return "∞";
+    var a = Math.abs(x);
+    if (a >= 1e6) return (x / 1e6).toPrecision(4).replace(/\.?0+$/, "") + " M";
+    if (a >= 1e3) return (x / 1e3).toPrecision(4).replace(/\.?0+$/, "") + " k";
+    if (a < 0.01 && a > 0) return (x * 1000).toPrecision(4).replace(/\.?0+$/, "") + " m";
+    return String(parseFloat(x.toPrecision(4)));
+  }
+  document.getElementById("ohm-solve").addEventListener("click", function () {
+    var v = ohmV.value.trim(), i = ohmI.value.trim(), r = ohmR.value.trim();
+    var blanks = [v, i, r].filter(function (x) { return x === ""; }).length;
+    if (blanks !== 1) { ohmOut.innerHTML = "Leave exactly <strong>one</strong> field blank — that's the one I'll solve for."; return; }
+    var V = parseFloat(v), I = parseFloat(i), R = parseFloat(r);
+    if (v === "") {
+      V = I * R;
+      ohmOut.innerHTML = "V = I × R = " + fmt(I) + "A × " + fmt(R) + "Ω = <strong>" + fmt(V) + "V</strong>" + power(V, I);
+    } else if (i === "") {
+      if (R === 0) { ohmOut.textContent = "R = 0 gives infinite current — a short circuit."; return; }
+      I = V / R;
+      ohmOut.innerHTML = "I = V / R = " + fmt(V) + "V / " + fmt(R) + "Ω = <strong>" + fmt(I) + "A</strong>" + power(V, I);
+    } else {
+      if (I === 0) { ohmOut.textContent = "I = 0 means no current — resistance is undefined (open circuit)."; return; }
+      R = V / I;
+      ohmOut.innerHTML = "R = V / I = " + fmt(V) + "V / " + fmt(I) + "A = <strong>" + fmt(R) + "Ω</strong>" + power(V, I);
+    }
+  });
+  function power(V, I) { return " &nbsp;·&nbsp; P = V × I = <strong>" + fmt(V * I) + "W</strong>"; }
+  document.getElementById("ohm-clear").addEventListener("click", function () {
+    ohmV.value = ohmI.value = ohmR.value = "";
+    ohmOut.textContent = "Fill in any two values, leave the third blank, then press Solve.";
+  });
+
+  /* ================= widget: color-band decoder ================= */
+  var DIGITS = [
+    ["Black", 0, "#1A1A1A"], ["Brown", 1, "#7B4A21"], ["Red", 2, "#C0392B"], ["Orange", 3, "#E67E22"],
+    ["Yellow", 4, "#F1C40F"], ["Green", 5, "#27AE60"], ["Blue", 6, "#2980B9"], ["Violet", 7, "#8E44AD"],
+    ["Grey", 8, "#95A5A6"], ["White", 9, "#F5F2EA"]
+  ];
+  var MULTS = [
+    ["Black ×1", 1, "#1A1A1A"], ["Brown ×10", 10, "#7B4A21"], ["Red ×100", 100, "#C0392B"],
+    ["Orange ×1k", 1e3, "#E67E22"], ["Yellow ×10k", 1e4, "#F1C40F"], ["Green ×100k", 1e5, "#27AE60"],
+    ["Blue ×1M", 1e6, "#2980B9"], ["Gold ×0.1", 0.1, "#C9A227"], ["Silver ×0.01", 0.01, "#BDC3C7"]
+  ];
+  var TOLS = [
+    ["Gold ±5%", 5, "#C9A227"], ["Silver ±10%", 10, "#BDC3C7"],
+    ["Brown ±1%", 1, "#7B4A21"], ["Red ±2%", 2, "#C0392B"]
+  ];
+  function fillSelect(sel, rows, def) {
+    rows.forEach(function (row, i) {
+      var o = document.createElement("option");
+      o.value = i;
+      o.textContent = row[0];
+      if (i === def) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+  var b1 = document.getElementById("band1"), b2 = document.getElementById("band2"),
+      b3 = document.getElementById("band3"), b4 = document.getElementById("band4");
+  fillSelect(b1, DIGITS, 4); fillSelect(b2, DIGITS, 7); fillSelect(b3, MULTS, 2); fillSelect(b4, TOLS, 0);
+  function fmtOhms(x) {
+    if (x >= 1e6) return parseFloat((x / 1e6).toPrecision(4)) + " MΩ";
+    if (x >= 1e3) return parseFloat((x / 1e3).toPrecision(4)) + " kΩ";
+    return parseFloat(x.toPrecision(4)) + " Ω";
+  }
+  function decode() {
+    var d1 = DIGITS[b1.value], d2 = DIGITS[b2.value], m = MULTS[b3.value], t = TOLS[b4.value];
+    document.getElementById("deco-b1").setAttribute("fill", d1[2]);
+    document.getElementById("deco-b2").setAttribute("fill", d2[2]);
+    document.getElementById("deco-b3").setAttribute("fill", m[2]);
+    document.getElementById("deco-b4").setAttribute("fill", t[2]);
+    var val = (d1[1] * 10 + d2[1]) * m[1];
+    var lo = val * (1 - t[1] / 100), hi = val * (1 + t[1] / 100);
+    document.getElementById("deco-out").innerHTML =
+      "<strong>" + fmtOhms(val) + "</strong> ±" + t[1] + "% &nbsp;·&nbsp; in-spec range " + fmtOhms(lo) + " – " + fmtOhms(hi);
+  }
+  [b1, b2, b3, b4].forEach(function (s) { s.addEventListener("change", decode); });
+  decode();
+
+  /* ================= widget: series/parallel calculator ================= */
+  document.getElementById("rp-go").addEventListener("click", function () {
+    var out = document.getElementById("rp-out");
+    var vals = document.getElementById("rp-list").value
+      .split(/[,;\s]+/)
+      .filter(function (s) { return s !== ""; })
+      .map(function (s) { return parseFloat(s.replace(",", ".")); });
+    if (!vals.length || vals.some(function (v) { return !isFinite(v) || v <= 0; })) {
+      out.textContent = "Enter one or more positive resistances, separated by commas.";
+      return;
+    }
+    var series = vals.reduce(function (a, b) { return a + b; }, 0);
+    var par = 1 / vals.reduce(function (a, b) { return a + 1 / b; }, 0);
+    out.innerHTML = vals.length + " resistor" + (vals.length > 1 ? "s" : "") +
+      " &nbsp;·&nbsp; series: <strong>" + fmtOhms(series) + "</strong>" +
+      " &nbsp;·&nbsp; parallel: <strong>" + fmtOhms(par) + "</strong>";
+  });
+})();
+</script>
+</body>
+</html>
