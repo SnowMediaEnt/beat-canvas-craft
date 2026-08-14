@@ -369,6 +369,10 @@
   }
   .widget-out strong { color: var(--copper-ink); }
   .widget-note { font-family: var(--display); font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+  .save-status { font-family: var(--display); font-size: 13.5px; margin: 0 0 12px; color: var(--muted); }
+  .save-status.warn { color: var(--copper-ink); font-weight: 600; }
+  .save-status.bad { color: var(--bad); font-weight: 600; }
+  #save-code, #restore-code { width: 100%; }
 
   button {
     font-family: var(--display);
@@ -561,7 +565,20 @@
       </header>
       <div class="lesson">
         <p>Lessons 1–5 rebuild the fundamentals: what current, voltage, and resistance actually are, how resistors behave, and how series, parallel, and combined networks reduce to a single equivalent. Lessons 6–7 are the step up: Kirchhoff's laws done properly, the Wheatstone bridge you'll meet again in strain-gauge instrumentation, and a first look at capacitors, inductors, and time constants.</p>
-        <p>Your quiz scores save automatically in this browser, so you can leave and pick up where you stopped. Retake any quiz as often as you like — the best score is kept.</p>
+        <p>Retake any quiz as often as you like — the best score is kept. Progress saves in this browser where it can, and the <strong>save code</strong> below is your seatbelt: copy it when you wrap up a session, paste it to restore — or to carry your progress between devices.</p>
+      </div>
+      <div class="widget">
+        <span class="widget-tag">Your progress</span>
+        <p class="save-status" id="save-status"></p>
+        <div class="widget-row">
+          <div class="field" style="flex:1 1 220px"><label for="save-code">Save code — updates as you pass quizzes</label><input id="save-code" readonly placeholder="no quiz attempts yet"></div>
+          <button type="button" id="copy-code">Copy</button>
+        </div>
+        <div class="widget-row" style="margin-top:10px">
+          <div class="field" style="flex:1 1 220px"><label for="restore-code">Paste a save code to restore progress</label><input id="restore-code" autocomplete="off" placeholder="e.g. s1=100 s2=88"></div>
+          <button type="button" class="ghost" id="apply-code">Restore</button>
+        </div>
+        <div class="widget-out" id="code-msg" hidden></div>
       </div>
       <div class="overview-grid" id="overview-grid">
         <a class="ov-card" href="#s1"><span class="ov-num">Lesson 01</span><span class="ov-title">Charge, current &amp; voltage</span><span class="ov-desc">The three quantities everything else is built from, plus Ohm's law and electrical power.</span><span class="ov-state" data-state="s1"></span></a>
@@ -1388,12 +1405,67 @@
   var STORE_KEY = "circuits-preflight-v1";
 
   /* ================= progress ================= */
+  // localStorage can be blocked (sandboxed frames) or wiped between visits
+  // (hosted artifact viewers), so everything runs through an in-memory copy
+  // and the user-facing save code is the durable path.
+  var memStore = null;
+  var storageOK = (function () {
+    try { localStorage.setItem("__cp_probe", "1"); localStorage.removeItem("__cp_probe"); return true; }
+    catch (e) { return false; }
+  })();
+  var inFrame = (function () {
+    try { return window.self !== window.top; } catch (e) { return true; }
+  })();
   function loadProgress() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; }
-    catch (e) { return {}; }
+    if (memStore) return memStore;
+    var p = {};
+    if (storageOK) {
+      try { p = JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch (e) { p = {}; }
+    }
+    memStore = p;
+    return p;
   }
   function saveProgress(p) {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch (e) {}
+    memStore = p;
+    if (storageOK) {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(p)); } catch (e) {}
+    }
+  }
+  function encodeProgress() {
+    var p = loadProgress(), parts = [];
+    for (var i = 1; i <= 7; i++) {
+      var r = p["s" + i];
+      if (r && r.attempted) parts.push("s" + i + "=" + r.best);
+    }
+    return parts.join(" ");
+  }
+  function applyCode(str) {
+    var re = /s([1-7])\s*=\s*(\d{1,3})/gi, p = loadProgress(), m, n = 0;
+    while ((m = re.exec(str))) {
+      var id = "s" + m[1], score = Math.min(100, parseInt(m[2], 10));
+      var rec = p[id] || { best: 0, passed: false };
+      rec.best = Math.max(rec.best, score);
+      rec.passed = rec.passed || score >= PASS_MARK;
+      rec.attempted = true;
+      p[id] = rec;
+      n++;
+    }
+    if (n) saveProgress(p);
+    return n;
+  }
+  function copyText(t) {
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = t;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (e) { return false; }
   }
   function recordScore(id, pct) {
     var p = loadProgress();
@@ -1421,6 +1493,8 @@
       else if (rec && rec.attempted) { el.textContent = "attempted · best " + rec.best + "%"; }
       else { el.textContent = "not started"; }
     });
+    var codeField = document.getElementById("save-code");
+    if (codeField) codeField.value = encodeProgress();
   }
 
   /* ================= quiz rendering ================= */
@@ -1530,6 +1604,19 @@
       best.textContent = "best so far: " + recNow.best + "%" + (recNow.passed ? " · passed" : "");
       submit.textContent = "Retake quiz";
       submit.dataset.mode = "retake";
+      if ((inFrame || !storageOK) && !actions.querySelector(".savelink")) {
+        var sl = el("button", "ghost savelink", "Copy save code");
+        sl.type = "button";
+        sl.addEventListener("click", function () {
+          if (copyText(encodeProgress())) {
+            sl.textContent = "Copied ✓";
+            setTimeout(function () { sl.textContent = "Copy save code"; }, 2000);
+          } else {
+            location.hash = "#home";
+          }
+        });
+        actions.appendChild(sl);
+      }
     });
   }
 
@@ -1550,6 +1637,44 @@
   window.addEventListener("hashchange", function () { show(location.hash.slice(1)); });
   show(location.hash.slice(1));
   refreshBadges();
+
+  /* ================= progress panel ================= */
+  var statusEl = document.getElementById("save-status");
+  if (!storageOK) {
+    statusEl.textContent = "⚠ This browser is blocking storage, so progress lasts only while the page is open. Copy your save code before you leave.";
+    statusEl.classList.add("bad");
+  } else if (inFrame) {
+    statusEl.textContent = "Progress saves in this browser, but the online viewer can clear it between visits — copy your save code when you finish a session.";
+    statusEl.classList.add("warn");
+  } else {
+    statusEl.textContent = "Progress saves automatically in this browser. Use the save code to move it to another device or a fresh copy of this file.";
+  }
+  function codeMsg(text) {
+    var box = document.getElementById("code-msg");
+    box.hidden = false;
+    box.innerHTML = text;
+  }
+  document.getElementById("copy-code").addEventListener("click", function () {
+    var code = encodeProgress();
+    if (!code) { codeMsg("No quiz attempts yet — pass a quiz and a code will appear here."); return; }
+    if (copyText(code)) codeMsg("Copied ✓ — paste it into any copy of this course to restore: <strong>" + code + "</strong>");
+    else {
+      var f = document.getElementById("save-code");
+      f.focus(); f.select();
+      codeMsg("Automatic copy was blocked — the code is selected above, press ⌘C / Ctrl-C.");
+    }
+  });
+  document.getElementById("apply-code").addEventListener("click", function () {
+    var raw = document.getElementById("restore-code").value;
+    var n = applyCode(raw);
+    if (!n) { codeMsg("That didn't contain any lesson scores — a save code looks like <strong>s1=100 s2=88</strong>."); return; }
+    document.querySelectorAll("[data-quiz]").forEach(function (h) {
+      renderQuiz(h.getAttribute("data-quiz"), h);
+    });
+    refreshBadges();
+    document.getElementById("restore-code").value = "";
+    codeMsg("Restored " + n + " lesson score" + (n > 1 ? "s" : "") + " ✓ — the lesson map below reflects it.");
+  });
 
   /* ================= widget: Ohm's law solver ================= */
   var ohmV = document.getElementById("ohm-v"),

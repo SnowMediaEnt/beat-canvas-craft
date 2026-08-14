@@ -20,3 +20,8 @@ Seven lessons, each ending in an 8-question quiz (pass at 80%):
 Quiz scores save automatically in the browser (localStorage), per device.
 Retake quizzes freely — the best score is kept. The page follows your system's
 light/dark appearance.
+
+Because some hosted viewers clear browser storage between visits, the course
+map has a **save code** panel: copy the code (e.g. `s1=100 s2=88`) when you
+finish a session, and paste it into any copy of the course — on any device —
+to restore your progress.
