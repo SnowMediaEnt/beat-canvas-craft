@@ -75,22 +75,70 @@ function isServerFunctionRequest(request: Request) {
   );
 }
 
+// Content-Security-Policy is shipped Report-Only by default so it can never
+// white-screen the app before it has been verified in the browser. Confirm the
+// app works with no CSP violations in the console, then set CSP_ENFORCE = true
+// to switch the same policy to enforcing. Tighten `connect-src https:` to the
+// specific hosts the app talks to (Supabase, S3/amazonaws, ElevenLabs, Lovable)
+// once you have confirmed the full list.
+const CSP_ENFORCE = false;
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "script-src 'self' 'unsafe-inline'",
+  "connect-src 'self' https:",
+  "worker-src 'self' blob:",
+].join("; ");
+
+// Applied to every outgoing response. These headers cannot break rendering, so
+// they are always enforced; only the CSP is gated behind CSP_ENFORCE above.
+function applySecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+
+  headers.set("strict-transport-security", "max-age=63072000; includeSubDomains; preload");
+  headers.set("x-content-type-options", "nosniff");
+  headers.set("x-frame-options", "DENY");
+  headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("cross-origin-opener-policy", "same-origin");
+  headers.set("permissions-policy", "camera=(), microphone=(), geolocation=(), browsing-topics=()");
+  headers.set(
+    CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only",
+    CONTENT_SECURITY_POLICY,
+  );
+
+  // 204/304 must not carry a body; re-wrapping with the original null body is safe.
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return applySecurityHeaders(await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
       if (isServerFunctionRequest(request)) {
         const message = error instanceof Error ? error.message : "Server error";
-        return new Response(JSON.stringify({ error: message }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
-        });
+        return applySecurityHeaders(
+          new Response(JSON.stringify({ error: message }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          }),
+        );
       }
-      return brandedErrorResponse();
+      return applySecurityHeaders(brandedErrorResponse());
     }
   },
 };

@@ -2,8 +2,39 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AwsClient } from "aws4fetch";
 
 const MAX_BYTES = 200 * 1024 * 1024; // 200MB cap
-const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
+
+// Only the media types this app actually renders (audio track, image/video
+// background, image logo) may be written to the bucket. The stored object's
+// content-type is taken from this map, never from the client-supplied
+// x-content-type header, so a caller cannot make S3 serve, e.g., text/html.
+const ALLOWED_TYPES: Record<string, string> = {
+  // audio
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/opus",
+  flac: "audio/flac",
+  weba: "audio/webm",
+  // image
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+  bmp: "image/bmp",
+  heic: "image/heic",
+  heif: "image/heif",
+  // video
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  m4v: "video/x-m4v",
+};
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -52,10 +83,14 @@ export const Route = createFileRoute("/api/public/render-upload")({
         try {
           const assetId = request.headers.get("x-asset-id") || "";
           const ext = (request.headers.get("x-asset-ext") || "bin").toLowerCase();
-          const contentType = request.headers.get("x-content-type") || "application/octet-stream";
 
-          if (!SAFE_ID.test(assetId) || !SAFE_EXT.test(ext)) {
+          if (!SAFE_ID.test(assetId)) {
             return jsonError(400, "Invalid asset identifier");
+          }
+
+          const contentType = ALLOWED_TYPES[ext];
+          if (!contentType) {
+            return jsonError(415, "Unsupported file type");
           }
 
           const lenHeader = request.headers.get("content-length");
