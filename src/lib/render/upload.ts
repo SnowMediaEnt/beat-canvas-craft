@@ -1,5 +1,6 @@
 import { get } from "idb-keyval";
 import type { AssetRef } from "@/lib/project/types";
+import { getAccessToken } from "@/integrations/supabase/session";
 
 const UPLOAD_ENDPOINT = "/api/public/render-upload";
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
@@ -64,10 +65,16 @@ export async function uploadBlobForRender({
     throw err;
   }
 
+  const token = await getAccessToken();
+  if (!token) {
+    throw new Error("You must be signed in to upload files for rendering.");
+  }
+
   const res = await fetch(UPLOAD_ENDPOINT, {
     method: "POST",
     headers: {
       "content-type": "application/octet-stream",
+      authorization: `Bearer ${token}`,
       "x-asset-id": assetId,
       "x-asset-ext": ext,
       "x-content-type": contentType || "application/octet-stream",

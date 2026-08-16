@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const REMOTION_RENDER_PREFIX = "renders/";
 
@@ -27,8 +28,9 @@ function extractTag(block: string, tag: string): string | undefined {
   return m?.[1];
 }
 
-export const listLambdaRenders = createServerFn({ method: "GET" }).handler(
-  async (): Promise<CloudRender[]> => {
+export const listLambdaRenders = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async (): Promise<CloudRender[]> => {
     const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
     const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
     const defaultRegion = process.env.REMOTION_AWS_REGION || "us-east-1";

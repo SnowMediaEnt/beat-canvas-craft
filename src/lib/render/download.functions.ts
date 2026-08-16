@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const ALLOWED_HOST = /^(?:[a-z0-9-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/i;
 const ALLOWED_BUCKET = /^remotionlambda-[a-z0-9-]+$/i;
@@ -62,6 +63,7 @@ function parseS3Target(rawUrl: string) {
 }
 
 export const getFreshRenderDownloadUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input) => inputSchema.parse(input))
   .handler(async ({ data }) => {
     const accessKeyId = process.env.AWS_ACCESS_KEY_ID;

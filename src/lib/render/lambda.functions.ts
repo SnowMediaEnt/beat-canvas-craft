@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 
@@ -431,6 +432,7 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
 }
 
 export const startLambdaRender = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input) => inputPropsSchema.extend({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }) => {
     if (data.accessCode !== RENDER_ACCESS_CODE) {
@@ -476,6 +478,7 @@ export const startLambdaRender = createServerFn({ method: "POST" })
   });
 
 export const getLambdaProgress = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
     const env = getAwsEnv();
@@ -554,6 +557,7 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
   });
 
 export const cancelLambdaRender = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
   .handler(async ({ data }) => {
     const env = getAwsEnv();

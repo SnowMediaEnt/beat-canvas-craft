@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 
+import { AuthProvider, AuthGate } from "@/integrations/supabase/auth-context";
 import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
@@ -115,7 +116,11 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <AuthProvider>
+        <AuthGate>
+          <Outlet />
+        </AuthGate>
+      </AuthProvider>
       <Toaster theme="dark" position="bottom-center" richColors />
     </QueryClientProvider>
   );

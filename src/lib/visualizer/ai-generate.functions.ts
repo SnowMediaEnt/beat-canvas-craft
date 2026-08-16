@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 /**
  * AI-driven preset generator. Takes a free-text prompt and returns a partial
@@ -9,6 +10,7 @@ import { z } from "zod";
  * the same draw function, guaranteeing 1:1 parity.
  */
 export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ prompt: z.string().min(2).max(500) }).parse(d))
   .handler(async ({ data }) => {
     const apiKey = process.env.LOVABLE_API_KEY;

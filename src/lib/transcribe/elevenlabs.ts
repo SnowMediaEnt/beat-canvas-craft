@@ -1,5 +1,6 @@
 import { get, set, del } from "idb-keyval";
 import type { TranscribedWord } from "@/lib/lyrics/types";
+import { getAccessToken } from "@/integrations/supabase/session";
 
 export type TranscribeStatus = "idle" | "uploading" | "transcribing" | "ready" | "error";
 
@@ -88,10 +89,17 @@ async function fetchKey(): Promise<string> {
   keyPromise = (async () => {
     const errors: string[] = [];
 
+    const token = await getAccessToken();
+    if (!token) {
+      keyPromise = null;
+      throw new Error("You must be signed in to transcribe audio.");
+    }
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
     for (const url of getKeyUrlCandidates()) {
       try {
         console.log("[elevenlabs-direct] key fetch attempt", url);
-        const res = await fetch(url, { method: "GET", cache: "no-store" });
+        const res = await fetch(url, { method: "GET", cache: "no-store", headers: authHeaders });
         if (!res.ok) {
           const t = await res.text().catch(() => "");
           console.error("[elevenlabs-direct] key fetch failed", res.status, t);

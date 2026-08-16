@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 /**
  * AI-driven lyric alignment. Sends the user's lyric lines + the
@@ -12,6 +13,7 @@ import { z } from "zod";
  * lyrics and we should align them to the audio rather than overwrite.
  */
 export const aiAlignLyrics = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
   .inputValidator((d) =>
     z
       .object({

@@ -1,6 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AwsClient } from "aws4fetch";
+import { corsHeaders } from "@/lib/http/cors";
+import { requireBearerAuth } from "@/integrations/supabase/require-auth";
 
+const METHODS = "POST, OPTIONS";
 const MAX_BYTES = 200 * 1024 * 1024; // 200MB cap
 const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
@@ -36,19 +39,10 @@ const ALLOWED_TYPES: Record<string, string> = {
   m4v: "video/x-m4v",
 };
 
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "POST, OPTIONS",
-  "access-control-allow-headers": "content-type, x-asset-id, x-asset-ext, x-content-type",
-  "access-control-max-age": "86400",
-};
-
-const JSON_HEADERS = { "content-type": "application/json", ...CORS };
-
-function jsonError(status: number, message: string, detail?: string) {
+function jsonError(cors: Record<string, string>, status: number, message: string, detail?: string) {
   return new Response(JSON.stringify({ error: message, ...(detail ? { detail } : {}) }), {
     status,
-    headers: JSON_HEADERS,
+    headers: { "content-type": "application/json", ...cors },
   });
 }
 
@@ -78,24 +72,31 @@ function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucke
 export const Route = createFileRoute("/api/public/render-upload")({
   server: {
     handlers: {
-      OPTIONS: async () => new Response(null, { status: 204, headers: CORS }),
+      OPTIONS: async ({ request }) =>
+        new Response(null, { status: 204, headers: corsHeaders(request, METHODS) }),
       POST: async ({ request }) => {
+        const cors = corsHeaders(request, METHODS);
         try {
+          const auth = await requireBearerAuth(request);
+          if (!auth.ok) {
+            return jsonError(cors, auth.status, auth.message);
+          }
+
           const assetId = request.headers.get("x-asset-id") || "";
           const ext = (request.headers.get("x-asset-ext") || "bin").toLowerCase();
 
           if (!SAFE_ID.test(assetId)) {
-            return jsonError(400, "Invalid asset identifier");
+            return jsonError(cors, 400, "Invalid asset identifier");
           }
 
           const contentType = ALLOWED_TYPES[ext];
           if (!contentType) {
-            return jsonError(415, "Unsupported file type");
+            return jsonError(cors, 415, "Unsupported file type");
           }
 
           const lenHeader = request.headers.get("content-length");
           if (lenHeader && Number(lenHeader) > MAX_BYTES) {
-            return jsonError(413, "File too large");
+            return jsonError(cors, 413, "File too large");
           }
 
           const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
@@ -105,18 +106,18 @@ export const Route = createFileRoute("/api/public/render-upload")({
           const serveUrl = process.env.REMOTION_AWS_SERVE_URL || "";
 
           if (!accessKeyId || !secretAccessKey) {
-            return jsonError(500, "AWS credentials not configured");
+            return jsonError(cors, 500, "AWS credentials not configured");
           }
 
           const parsed = parseBucketAndRegion(serveUrl, region);
           if (!parsed) {
-            return jsonError(500, "Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
+            return jsonError(cors, 500, "Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
           }
           const { bucket, region: bucketRegion } = parsed;
 
           const buf = await request.arrayBuffer();
           if (buf.byteLength === 0 || buf.byteLength > MAX_BYTES) {
-            return jsonError(400, "Invalid file size");
+            return jsonError(cors, 400, "Invalid file size");
           }
 
           const key = `render-assets/${assetId.replace(/[:.]/g, "_")}.${ext}`;
@@ -139,17 +140,17 @@ export const Route = createFileRoute("/api/public/render-upload")({
           if (!res.ok) {
             const text = await res.text().catch(() => "");
             console.error("[render-upload] S3 PUT failed", { status: res.status, body: text.slice(0, 400) });
-            return jsonError(500, "Upload failed", `S3 ${res.status}`);
+            return jsonError(cors, 500, "Upload failed", `S3 ${res.status}`);
           }
 
           return new Response(JSON.stringify({ url: objectUrl }), {
             status: 200,
-            headers: { ...JSON_HEADERS, "cache-control": "no-store" },
+            headers: { "content-type": "application/json", ...cors, "cache-control": "no-store" },
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : "Unknown error";
           console.error("[render-upload] handler error", err);
-          return jsonError(500, "Upload failed", message);
+          return jsonError(cors, 500, "Upload failed", message);
         }
       },
     },
