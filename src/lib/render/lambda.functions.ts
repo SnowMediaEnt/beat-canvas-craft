@@ -75,7 +75,23 @@ const lyricsConfigSchema = z.object({
   fade: z.boolean(),
 });
 
-const RENDER_ACCESS_CODE = "2650562";
+// Gate an operation behind the shared render access code. The expected code is
+// read from the server environment (RENDER_ACCESS_CODE) so the secret is NOT
+// committed to source. Read at request time — on Cloudflare Workers env binds
+// per-request, so a module-scope read would be empty. Fails closed when unset.
+// The previously-committed code ("2650562") must be treated as compromised —
+// set a new value in the deploy env.
+function checkRenderAccess(code: unknown): void {
+  const expected = process.env.RENDER_ACCESS_CODE ?? "";
+  if (!expected) {
+    throw new Error("Rendering is not configured on the server (RENDER_ACCESS_CODE unset).");
+  }
+  if (typeof code !== "string" || code !== expected) {
+    throw new Error(
+      "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
+    );
+  }
+}
 
 const inputPropsSchema = z.object({
   audioUrl: z.string().url(),
@@ -433,11 +449,7 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
 export const startLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => inputPropsSchema.extend({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    if (data.accessCode !== RENDER_ACCESS_CODE) {
-      throw new Error(
-        "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
-      );
-    }
+    checkRenderAccess(data.accessCode);
     const { accessCode: _accessCode, ...renderProps } = data;
     console.log("[lambda-render-server] validated inputProps", renderProps);
     let env: AwsEnv | null = null;
@@ -554,8 +566,13 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
   });
 
 export const cancelLambdaRender = createServerFn({ method: "POST" })
-  .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
+  .inputValidator((input) =>
+    z.object({ renderId: z.string(), bucketName: z.string(), accessCode: z.string() }).parse(input),
+  )
   .handler(async ({ data }) => {
+    // AuthZ: deleting render output is destructive; require the render access
+    // code so an anonymous caller can't wipe arbitrary renders by id.
+    checkRenderAccess(data.accessCode);
     const env = getAwsEnv();
     try {
       await deleteRenderPrefix(env, data.bucketName, data.renderId);

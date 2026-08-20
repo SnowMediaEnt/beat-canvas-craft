@@ -588,7 +588,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     setStage("Cancelling render…");
     try {
       if (job?.renderId && job?.bucketName) {
-        await cancelRender({ data: { renderId: job.renderId, bucketName: job.bucketName } });
+        await cancelRender({ data: { renderId: job.renderId, bucketName: job.bucketName, accessCode } });
       }
       toast.success("Render cancelled");
       const cancelled: RenderJob | null = job
