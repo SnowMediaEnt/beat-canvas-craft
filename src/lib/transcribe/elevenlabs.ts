@@ -13,8 +13,6 @@ interface Entry {
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
 const hydrating = new Map<string, Promise<TranscribedWord[] | undefined>>();
-let cachedKey: string | null = null;
-let keyPromise: Promise<string> | null = null;
 
 const idbKey = (assetId: string) => `transcript:v2:${assetId}`;
 
@@ -60,74 +58,13 @@ export function hydrateFromIdb(assetId: string): Promise<TranscribedWord[] | und
   return p;
 }
 
-const KEY_PATH = "/api/public/elevenlabs-key";
-
-function getKeyUrlCandidates() {
-  if (typeof window === "undefined") return [KEY_PATH];
-
-  const candidates = new Set<string>();
-  const origin = window.location.origin;
-  const host = window.location.hostname;
-  const projectIdMatch = host.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
-  const projectId = projectIdMatch?.[1];
-
-  candidates.add(new URL(KEY_PATH, origin).toString());
-
-  if (projectId) {
-    candidates.add(`https://id-preview--${projectId}.lovable.app${KEY_PATH}`);
-    candidates.add(`https://project--${projectId}-dev.lovable.app${KEY_PATH}`);
-    candidates.add(`https://project--${projectId}.lovable.app${KEY_PATH}`);
-  }
-
-  return [...candidates];
-}
-
-async function fetchKey(): Promise<string> {
-  if (cachedKey) return cachedKey;
-  if (keyPromise) return keyPromise;
-  keyPromise = (async () => {
-    const errors: string[] = [];
-
-    for (const url of getKeyUrlCandidates()) {
-      try {
-        console.log("[elevenlabs-direct] key fetch attempt", url);
-        const res = await fetch(url, { method: "GET", cache: "no-store" });
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          console.error("[elevenlabs-direct] key fetch failed", res.status, t);
-          errors.push(`${url} -> ${res.status}`);
-          continue;
-        }
-        const contentType = res.headers.get("content-type") || "";
-        if (!contentType.toLowerCase().includes("application/json")) {
-          const body = await res.text().catch(() => "");
-          console.error("[elevenlabs-direct] key fetch returned non-json", url, contentType, body.slice(0, 160));
-          errors.push(`${url} -> non-json ${contentType || "unknown"}`);
-          continue;
-        }
-        const json = (await res.json()) as { key?: string; error?: string };
-        if (!json.key) {
-          errors.push(`${url} -> ${json.error || "missing key"}`);
-          continue;
-        }
-        console.log("[elevenlabs-direct] Key fetched from /api/public/elevenlabs-key (success)");
-        cachedKey = json.key;
-        return cachedKey;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("[elevenlabs-direct] key fetch exception", url, message);
-        errors.push(`${url} -> ${message}`);
-      }
-    }
-
-    keyPromise = null;
-    throw new Error(`Key fetch failed: ${errors.join(" | ")}`);
-  })();
-  return keyPromise;
-}
+// Server-side transcription proxy. The API key stays on the server; the client
+// only ever POSTs audio here and receives the transcript. (Previously this
+// module fetched the raw ElevenLabs key from /api/public/elevenlabs-key and
+// called ElevenLabs directly from the browser, which exposed the key.)
+const TRANSCRIBE_PATH = "/api/public/elevenlabs-key";
 
 async function runTranscription(file: Blob, filename: string): Promise<TranscribedWord[]> {
-  const key = await fetchKey();
   const fd = new FormData();
   fd.append("file", file, filename);
   fd.append("model_id", "scribe_v2");
@@ -135,19 +72,18 @@ async function runTranscription(file: Blob, filename: string): Promise<Transcrib
   fd.append("diarize", "false");
   fd.append("tag_audio_events", "false");
 
-  console.log(`[elevenlabs-direct] POST starting | size=${(file.size / 1024 / 1024).toFixed(2)}MB | filename=${filename}`);
+  console.log(`[elevenlabs] POST starting | size=${(file.size / 1024 / 1024).toFixed(2)}MB | filename=${filename}`);
   const t0 = Date.now();
-  const res = await fetch("https://api.elevenlabs.io/v1/speech-to-text", {
+  const res = await fetch(TRANSCRIBE_PATH, {
     method: "POST",
-    headers: { "xi-api-key": key },
     body: fd,
   });
   const dt = Date.now() - t0;
-  console.log(`[elevenlabs-direct] Response received | status=${res.status} | duration=${dt}ms`);
+  console.log(`[elevenlabs] Response received | status=${res.status} | duration=${dt}ms`);
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
-    throw new Error(`ElevenLabs ${res.status}: ${errText.slice(0, 300)}`);
+    throw new Error(`Transcription ${res.status}: ${errText.slice(0, 300)}`);
   }
   const data = (await res.json()) as {
     text?: string;
