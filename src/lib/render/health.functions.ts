@@ -203,6 +203,47 @@ export const getRenderHealth = createServerFn({ method: "POST" })
     }
   }
 
+  // 7. Same-account check. The Lambda function can only write renders into a
+  // bucket its own account owns. Deploying the site with keys from a second
+  // AWS account silently produces a render that never starts, so compare the
+  // bucket's owner with the account these credentials belong to.
+  if (bucket && s3Client && accessKeyId && secretAccessKey) {
+    let accountId: string | null = null;
+    try {
+      const sts = new AwsClient({ accessKeyId, secretAccessKey, sessionToken, service: "sts", region: region || "us-east-1" });
+      const res = await fetchWithTimeout(sts, `https://sts.${region || "us-east-1"}.amazonaws.com/?Action=GetCallerIdentity&Version=2011-06-15`, { method: "GET" });
+      if (res.ok) accountId = (await res.text()).match(/<Account>(\d+)<\/Account>/)?.[1] ?? null;
+    } catch {
+      // Not fatal: the ownership probe below is skipped instead.
+    }
+
+    if (!accountId) {
+      push({ id: "account", label: "Bucket owned by this account", status: "skip", detail: "Could not read the AWS account id for these keys (sts:GetCallerIdentity denied), so ownership could not be verified." });
+    } else {
+      try {
+        const url = `https://${bucket}.s3.${bucketRegion}.amazonaws.com/?list-type=2&max-keys=1`;
+        const res = await fetchWithTimeout(s3Client, url, { method: "GET", headers: { "x-amz-expected-bucket-owner": accountId } });
+        if (res.ok) {
+          push({ id: "account", label: "Bucket owned by this account", status: "ok", detail: `Bucket ${bucket} belongs to account …${accountId.slice(-4)}, the same account as the Lambda function.` });
+        } else if (res.status === 403) {
+          push({
+            id: "account",
+            label: "Bucket owned by this account",
+            status: "fail",
+            detail:
+              `Bucket ${bucket} is NOT owned by account …${accountId.slice(-4)} (the account these keys belong to). ` +
+              "The visualizer bundle was deployed with keys from a different AWS account, so the Lambda function cannot write renders there and every render stalls at 0%. " +
+              "Redeploy the bundle with keys from this account, then set REMOTION_AWS_SERVE_URL to the URL that deploy prints.",
+          });
+        } else {
+          push({ id: "account", label: "Bucket owned by this account", status: "warn", detail: `S3 answered ${res.status} for the ownership probe on ${bucket}.` });
+        }
+      } catch (e) {
+        push({ id: "account", label: "Bucket owned by this account", status: "warn", detail: `Ownership probe failed: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    }
+  }
+
   const ok = checks.every((c) => c.status === "ok" || c.status === "warn" || c.status === "skip");
   return {
     ok,

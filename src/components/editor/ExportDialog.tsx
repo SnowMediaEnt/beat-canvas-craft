@@ -503,6 +503,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
         // for 6 minutes we assume Lambda is wedged and fail the job instead
         // of polling forever.
         const STALL_MS = 6 * 60 * 1000;
+        // AWS normally writes its first progress file within ~30s. Much
+        // longer than that means the launcher never got going (bad bucket
+        // permissions, an unreachable bundle, a throttled account), and no
+        // amount of extra waiting fixes it.
+        const NO_START_MS = 150 * 1000;
+        const startedAt = Date.now();
         let lastPct = -1;
         let lastPctAt = Date.now();
         let failures = 0;
@@ -541,6 +547,15 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
             const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
             if (p.stage && STAGE_LABELS[p.stage]) setStage(STAGE_LABELS[p.stage]);
+            if (pct === 0 && p.diagnostics) {
+              const d = p.diagnostics;
+              const waited = Math.round((Date.now() - startedAt) / 1000);
+              setStage(
+                d.startedWriting
+                  ? `Starting workers on AWS… (${d.lambdasInvoked} started, ${waited}s)`
+                  : `Waiting for AWS to start the render… (${waited}s)`,
+              );
+            }
 
             if (pct !== lastPct) {
               lastPct = pct;
@@ -572,6 +587,18 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
               stop();
               const msg = p.errors[0]?.message || "Lambda render failed";
               reject(new Error(msg));
+              return;
+            }
+
+            // AWS accepted the job but never started writing progress.
+            if (p.diagnostics && !p.diagnostics.startedWriting && Date.now() - startedAt > NO_START_MS) {
+              stop();
+              reject(
+                new Error(
+                  "AWS accepted the render but never started it. The Lambda function could not write to the render bucket. " +
+                    "Open AWS connection → Check: the function and the bucket must belong to the same AWS account.",
+                ),
+              );
               return;
             }
 

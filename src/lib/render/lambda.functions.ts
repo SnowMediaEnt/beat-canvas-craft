@@ -36,6 +36,20 @@ type LambdaProgressResponse = {
   fatalErrorEncountered: boolean;
   /** Coarse stage label for the UI. */
   stage?: "starting" | "rendering" | "encoding" | "combining" | "done";
+  /**
+   * What AWS has actually done so far. `startedWriting` is false while the
+   * launcher has not written its progress file, which is the state a wedged
+   * render sits in — the UI uses these to explain a stuck render instead of
+   * spinning on "Starting workers".
+   */
+  diagnostics?: {
+    startedWriting: boolean;
+    functionLaunched: boolean;
+    serveUrlOpened: boolean;
+    compositionValidated: boolean;
+    lambdasInvoked: number;
+    framesRendered: number;
+  };
 };
 
 type ProgressJson = {
@@ -218,6 +232,17 @@ function isFatalErrorEntry(error: { isFatal?: boolean; willRetry?: boolean }) {
   return error.isFatal !== false && error.willRetry !== true;
 }
 
+function diagnosticsOf(progress: ProgressJson): NonNullable<LambdaProgressResponse["diagnostics"]> {
+  return {
+    startedWriting: true,
+    functionLaunched: Boolean(progress.functionLaunched),
+    serveUrlOpened: Boolean(progress.serveUrlOpened),
+    compositionValidated: Boolean(progress.compositionValidated),
+    lambdasInvoked: progress.lambdasInvoked ?? 0,
+    framesRendered: progress.framesRendered ?? 0,
+  };
+}
+
 function toLambdaProgressResponse(progress: ProgressJson, region: string, renderId: string, bucketName: string): LambdaProgressResponse {
   if (progress.postRenderData) {
     const postErrors = normalizeErrors(progress.postRenderData.errors);
@@ -228,6 +253,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
       errors: postErrors,
       fatalErrorEncountered: false,
       stage: "done",
+      diagnostics: diagnosticsOf(progress),
     };
   }
 
@@ -255,6 +281,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
           }],
       fatalErrorEncountered: true,
       stage: stageOf(progress),
+      diagnostics: diagnosticsOf(progress),
     };
   }
 
@@ -266,6 +293,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
       errors,
       fatalErrorEncountered: true,
       stage: stageOf(progress),
+      diagnostics: diagnosticsOf(progress),
     };
   }
 
@@ -273,9 +301,10 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
     done: false,
     overallProgress: computeOverallProgress(progress),
     outputFile: undefined,
-    errors: [],
+    errors,
     fatalErrorEncountered: false,
     stage: stageOf(progress),
+    diagnostics: diagnosticsOf(progress),
   };
 }
 
@@ -294,6 +323,69 @@ async function readProgressJson(env: AwsEnv, bucketName: string, renderId: strin
   }
 
   return (await response.json()) as ProgressJson;
+}
+
+/**
+ * Errors Remotion wrote for this render, read straight from S3.
+ *
+ * A launcher that dies before it can write progress.json (no permission on
+ * the bucket, an unreachable site bundle, a missing renderer function) leaves
+ * only these files behind, so without this a broken render looked identical
+ * to a slow one: "Starting workers on AWS" forever.
+ */
+async function readRenderErrors(env: AwsEnv, bucketName: string, renderId: string) {
+  const aws = createS3Client(env);
+  const prefix = `${REMOTION_OUTPUT_PREFIX}${renderId}/errors/`;
+  const params = new URLSearchParams({ "list-type": "2", prefix, "max-keys": "10" });
+  const listUrl = `https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/?${params.toString()}`;
+  const listResponse = await aws.fetch(listUrl, { method: "GET" });
+  if (!listResponse.ok) return [];
+  const xml = await listResponse.text();
+  const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((m) => decodeXmlText(m[1])).slice(0, 5);
+  const out: { message: string; stack?: string }[] = [];
+  for (const key of keys) {
+    try {
+      const objectUrl = `https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/${key.split("/").map(encodeURIComponent).join("/")}`;
+      const res = await aws.fetch(objectUrl, { method: "GET" });
+      if (!res.ok) continue;
+      const parsed = (await res.json()) as { message?: string; stack?: string; name?: string };
+      const message = parsed?.message || parsed?.name;
+      if (message) out.push({ message, stack: parsed.stack });
+    } catch {
+      // A single unreadable error file must not hide the others.
+    }
+  }
+  return out;
+}
+
+/**
+ * Ask the Remotion function itself for the render status. It reads the same
+ * bucket from inside AWS and merges in errors, so it answers even in cases
+ * where our own read of progress.json comes back empty.
+ */
+async function readStatusViaLambda(env: AwsEnv, bucketName: string, renderId: string) {
+  const result = await invokeLambdaJson(
+    env,
+    {
+      type: "status",
+      bucketName,
+      renderId,
+      version: REMOTION_VERSION,
+      logLevel: "info",
+      forcePathStyle: false,
+      s3OutputProvider: null,
+    },
+    "RequestResponse",
+  );
+  if (!result || result.type === "error") {
+    const message = typeof result?.message === "string" ? result.message : null;
+    return { errors: message ? [{ message }] : [], fatal: Boolean(message) };
+  }
+  const raw = Array.isArray(result.errors) ? (result.errors as { message?: string; stack?: string }[]) : [];
+  return {
+    errors: raw.filter((e) => e?.message).map((e) => ({ message: e.message as string, stack: e.stack })),
+    fatal: Boolean(result.fatalErrorEncountered),
+  };
 }
 
 function decodeXmlText(value: string) {
@@ -519,16 +611,34 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
           const progress = await readProgressJson(env, data.bucketName, data.renderId);
-          const response = progress
-            ? toLambdaProgressResponse(progress, env.bucketRegion, data.renderId, data.bucketName)
-            : {
-                done: false,
-                overallProgress: 0,
-                outputFile: undefined,
-                errors: [],
-                fatalErrorEncountered: false,
-                stage: "starting" as const,
-              };
+          let response: LambdaProgressResponse;
+          if (progress) {
+            response = toLambdaProgressResponse(progress, env.bucketRegion, data.renderId, data.bucketName);
+          } else {
+            // No progress file yet: either AWS is still booting the launcher,
+            // or the launcher failed and only left error files behind.
+            const [fromFiles, fromLambda] = await Promise.all([
+              readRenderErrors(env, data.bucketName, data.renderId).catch(() => []),
+              readStatusViaLambda(env, data.bucketName, data.renderId).catch(() => ({ errors: [], fatal: false })),
+            ]);
+            const errors = [...fromFiles, ...fromLambda.errors];
+            response = {
+              done: false,
+              overallProgress: 0,
+              outputFile: undefined,
+              errors,
+              fatalErrorEncountered: errors.length > 0 || fromLambda.fatal,
+              stage: "starting" as const,
+              diagnostics: {
+                startedWriting: false,
+                functionLaunched: false,
+                serveUrlOpened: false,
+                compositionValidated: false,
+                lambdasInvoked: 0,
+                framesRendered: 0,
+              },
+            };
+          }
 
           rememberProgress(cacheKey, response);
           return response;
