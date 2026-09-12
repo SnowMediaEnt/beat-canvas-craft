@@ -17,17 +17,17 @@ import {
   Clock3,
   Cloud,
   Circle,
-  Loader2,
+  ExternalLink,
 } from "lucide-react";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { deleteJob, listJobsFromStorage, saveJob } from "@/lib/project/store";
 import { hydrateAsset, deleteAsset, getAssetDownloadUrl } from "@/lib/project/assets";
 import { useServerFn } from "@tanstack/react-start";
-import { getLambdaProgress } from "@/lib/render/lambda.functions";
+import { getLambdaProgress, deleteLambdaRender } from "@/lib/render/lambda.functions";
 import { listLambdaRenders, type CloudRender } from "@/lib/render/list-renders.functions";
+import { getStoredAccessCode } from "@/lib/render/access-code";
 import { toast } from "sonner";
-import { triggerDownload } from "@/lib/render/download";
-
+import { buildProxyDownloadUrl, triggerDownload } from "@/lib/render/download";
 
 interface Props {
   project: Project;
@@ -50,6 +50,8 @@ const formatDate = (ts?: number) => {
   return new Date(ts).toLocaleString();
 };
 
+const MAX_POLL_FAILURES = 6;
+
 export function CompletedDialog({ project }: Props) {
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<RenderJob[]>([]);
@@ -59,8 +61,10 @@ export function CompletedDialog({ project }: Props) {
   const [inlineError, setInlineError] = useState<string | null>(null);
   const pollProgress = useServerFn(getLambdaProgress);
   const fetchCloudRenders = useServerFn(listLambdaRenders);
+  const deleteCloud = useServerFn(deleteLambdaRender);
 
   const pollingRef = useRef<Set<string>>(new Set());
+  const accessCode = getStoredAccessCode();
 
   const mergeCloudIntoEntries = (localEntries: RenderJob[], cloudEntries: CloudRender[]) => {
     const cloudByRenderId = new Map(cloudEntries.map((entry) => [entry.renderId, entry]));
@@ -74,8 +78,9 @@ export function CompletedDialog({ project }: Props) {
         progress: 100,
         completedAt: entry.completedAt || cloudMatch.lastModified,
         sizeBytes: entry.sizeBytes || cloudMatch.sizeBytes,
-        downloadUrl: entry.downloadUrl || cloudMatch.url,
+        downloadUrl: cloudMatch.url,
         bucketName: entry.bucketName || cloudMatch.bucketName,
+        region: entry.region || cloudMatch.region,
         fileFormat: entry.fileFormat || cloudMatch.fileFormat,
         error: undefined,
       };
@@ -100,6 +105,7 @@ export function CompletedDialog({ project }: Props) {
         aspectRatio: project.aspectRatio,
         renderId: c.renderId,
         bucketName: c.bucketName,
+        region: c.region,
       }));
 
     return { mergedLocal, orphans };
@@ -125,14 +131,16 @@ export function CompletedDialog({ project }: Props) {
       const { hydrated } = await refresh();
       if (cancelled) return;
 
-      // Auto-resume polling for any in-flight Lambda renders (e.g. page was reloaded).
+      // Auto-resume polling for in-flight Lambda renders (e.g. after a reload
+      // or after "Stop watching" in the export dialog). Failed/cancelled jobs
+      // are left alone.
       for (const entry of hydrated) {
         if (
           entry.kind === "lambda" &&
           entry.renderId &&
           entry.bucketName &&
           !entry.downloadUrl &&
-          entry.status !== "completed" &&
+          (entry.status === "queued" || entry.status === "rendering") &&
           !pollingRef.current.has(entry.id)
         ) {
           pollingRef.current.add(entry.id);
@@ -140,17 +148,17 @@ export function CompletedDialog({ project }: Props) {
         }
       }
 
-      // Fetch cloud renders and merge them into local history first, then surface
-      // any remaining orphans.
+      // Cloud listing needs the access code (it enumerates the render bucket).
+      if (!accessCode) return;
       setCloudLoading(true);
       try {
-        const cloud = await fetchCloudRenders();
+        const cloud = await fetchCloudRenders({ data: { accessCode } });
         if (cancelled) return;
         const { mergedLocal, orphans } = mergeCloudIntoEntries(hydrated, cloud);
         setEntries(mergedLocal);
         mergedLocal.forEach((entry) => saveJob(entry));
         setCloudOnly(orphans);
-      } catch (e: any) {
+      } catch (e) {
         console.error("[completed-dialog] list cloud renders failed", e);
       } finally {
         if (!cancelled) setCloudLoading(false);
@@ -164,16 +172,22 @@ export function CompletedDialog({ project }: Props) {
 
   const resumePolling = async (entry: RenderJob) => {
     if (!entry.renderId || !entry.bucketName) return;
-    // Stall watchdog: if progress does not advance for 6 minutes, treat
-    // the render as stuck instead of polling forever.
     const STALL_MS = 6 * 60 * 1000;
     let lastPct = -1;
     let lastPctAt = Date.now();
+    let failures = 0;
     try {
       while (true) {
-        const p = await pollProgress({
-          data: { renderId: entry.renderId, bucketName: entry.bucketName },
-        });
+        let p: Awaited<ReturnType<typeof pollProgress>>;
+        try {
+          p = await pollProgress({ data: { renderId: entry.renderId, bucketName: entry.bucketName } });
+          failures = 0;
+        } catch (e) {
+          failures += 1;
+          if (failures >= MAX_POLL_FAILURES) throw e;
+          await new Promise((r) => setTimeout(r, 4000));
+          continue;
+        }
         const pct = Math.round((p.overallProgress || 0) * 100);
         if (pct !== lastPct) {
           lastPct = pct;
@@ -224,7 +238,7 @@ export function CompletedDialog({ project }: Props) {
         }
         await new Promise((r) => setTimeout(r, 3000));
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error("[completed-dialog] resume polling failed", e);
     } finally {
       pollingRef.current.delete(entry.id);
@@ -232,48 +246,33 @@ export function CompletedDialog({ project }: Props) {
   };
 
   const completed = useMemo(
-    () => entries.sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),
+    () => [...entries].sort((a, b) => (b.completedAt || b.createdAt) - (a.completedAt || a.createdAt)),
     [entries],
   );
 
-  const handleDownload = async (entry: RenderJob) => {
+  const filenameFor = (entry: RenderJob) => {
+    const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
+    return `${(entry.projectName || "render").trim() || "render"}.${ext}`;
+  };
+
+  const handleDownload = async (entry: RenderJob, viaProxy = false) => {
     setBusyId(entry.id);
     setInlineError(null);
     try {
-      const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
-      const filename = `${(entry.projectName || "render").trim() || "render"}.${ext}`;
+      const filename = filenameFor(entry);
       const hydratedLocalUrl = entry.localAsset?.url || null;
-      const storedHref =
+      const href =
         entry.kind === "lambda"
           ? entry.downloadUrl || hydratedLocalUrl
           : hydratedLocalUrl || entry.downloadUrl || (await getAssetDownloadUrl(entry.localAsset));
 
-      if (!storedHref) {
-        console.log("[render-download] missing url", {
-          entryId: entry.id,
-          filename,
-          kind: entry.kind,
-        });
+      if (!href) {
         setInlineError("This file is not available yet.");
         toast.error("File is not available yet");
         return;
       }
-
-      const href =
-        entry.kind === "lambda" && entry.renderId && entry.bucketName
-          ? `https://${entry.bucketName}.s3.us-east-2.amazonaws.com/renders/${entry.renderId}/out.mp4`
-          : storedHref;
-      const isRemote = /^https?:/i.test(href);
-
-      console.log("[render-download] trigger", {
-        entryId: entry.id,
-        filename,
-        storedUrl: storedHref,
-        finalUrl: href,
-        kind: entry.kind,
-      });
-      triggerDownload(href, filename, isRemote);
-
+      const finalHref = viaProxy && /^https?:/i.test(href) ? buildProxyDownloadUrl(href, filename) : href;
+      triggerDownload(finalHref, filename);
     } catch (error) {
       console.error("[render-download] failed", { entryId: entry.id, error });
       setInlineError("Download failed. Please try again.");
@@ -283,13 +282,19 @@ export function CompletedDialog({ project }: Props) {
     }
   };
 
-  const handleDelete = async (entry: RenderJob) => {
+  const handleDelete = async (entry: RenderJob, alsoCloud: boolean) => {
     setBusyId(entry.id);
     try {
+      if (alsoCloud && entry.kind === "lambda" && entry.renderId && entry.bucketName && accessCode) {
+        await deleteCloud({ data: { renderId: entry.renderId, bucketName: entry.bucketName, accessCode } });
+      }
       await deleteAsset(entry.localAsset);
       deleteJob(entry.id);
       setEntries((current) => current.filter((item) => item.id !== entry.id));
-      toast.success("Entry removed");
+      setCloudOnly((current) => current.filter((item) => item.id !== entry.id));
+      toast.success(alsoCloud ? "Render deleted from AWS" : "Entry removed");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
     } finally {
       setBusyId(null);
     }
@@ -317,7 +322,8 @@ export function CompletedDialog({ project }: Props) {
 
         <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground">
           Finished AWS Lambda renders and browser recordings stay here so you can re-download them
-          anytime.
+          anytime. Renders still running on AWS keep updating here even if you closed the export window.
+          {!accessCode && " Enter your access code in Export → Lambda Render to also see renders stored in your AWS bucket."}
         </div>
 
         {completed.length === 0 && cloudOnly.length === 0 ? (
@@ -329,7 +335,7 @@ export function CompletedDialog({ project }: Props) {
             <div className="space-y-3">
               {completed.map((entry) => {
                 const ext = entry.fileFormat || (entry.kind === "lambda" ? "mp4" : "webm");
-                const available = Boolean(entry.localAsset || entry.downloadUrl);
+                const available = Boolean(entry.localAsset?.url || entry.downloadUrl);
                 const isLambda = entry.kind === "lambda";
                 const processing = entry.status === "queued" || entry.status === "rendering";
                 return (
@@ -345,6 +351,8 @@ export function CompletedDialog({ project }: Props) {
                           </span>
                           {available ? (
                             <Badge variant="secondary">Ready</Badge>
+                          ) : entry.status === "failed" ? (
+                            <Badge variant="destructive">Failed</Badge>
                           ) : (
                             <Badge variant="outline">
                               {processing ? `${entry.progress || 0}%` : "Processing"}
@@ -367,12 +375,13 @@ export function CompletedDialog({ project }: Props) {
                           <span className="inline-flex items-center gap-1">
                             <HardDrive className="size-3.5" /> {formatSize(entry.sizeBytes)}
                           </span>
+                          <span>{entry.config.resolution} · {entry.config.fps}fps · {entry.aspectRatio}</span>
                         </div>
                         {entry.error && <p className="text-xs text-destructive">{entry.error}</p>}
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <Button
                         variant="outline"
                         className="flex-1 gap-2"
@@ -381,14 +390,37 @@ export function CompletedDialog({ project }: Props) {
                       >
                         <Download className="size-4" /> Download
                       </Button>
+                      {isLambda && entry.downloadUrl && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-1.5 text-xs"
+                          title="Use if the download opens in a tab instead of saving"
+                          disabled={busyId === entry.id}
+                          onClick={() => void handleDownload(entry, true)}
+                        >
+                          <ExternalLink className="size-3.5" /> Alt link
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         className="gap-2"
                         disabled={busyId === entry.id}
-                        onClick={() => void handleDelete(entry)}
+                        onClick={() => void handleDelete(entry, false)}
                       >
                         <Trash2 className="size-4" /> Remove
                       </Button>
+                      {isLambda && entry.renderId && accessCode && available && (
+                        <Button
+                          variant="ghost"
+                          className="gap-2 text-destructive hover:text-destructive"
+                          disabled={busyId === entry.id}
+                          title="Delete the MP4 from your AWS bucket too"
+                          onClick={() => { if (window.confirm("Delete this render from AWS S3? This cannot be undone.")) void handleDelete(entry, true); }}
+                        >
+                          <Cloud className="size-4" /> Delete from AWS
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
@@ -397,7 +429,7 @@ export function CompletedDialog({ project }: Props) {
               {cloudOnly.length > 0 && (
                 <div className="pt-2">
                   <div className="px-1 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Other cloud renders ({cloudOnly.length})
+                    Other renders in your AWS bucket ({cloudOnly.length})
                   </div>
                   <div className="space-y-3">
                     {cloudOnly.map((entry) => {
@@ -426,14 +458,24 @@ export function CompletedDialog({ project }: Props) {
                               </span>
                             </div>
                           </div>
-                          <Button
-                            variant="outline"
-                            className="w-full gap-2"
-                            disabled={busyId === entry.id}
-                            onClick={() => void handleDownload(entry)}
-                          >
-                            <Download className="size-4" /> Download
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              className="flex-1 gap-2"
+                              disabled={busyId === entry.id}
+                              onClick={() => void handleDownload(entry)}
+                            >
+                              <Download className="size-4" /> Download
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="gap-2 text-destructive hover:text-destructive"
+                              disabled={busyId === entry.id}
+                              onClick={() => { if (window.confirm("Delete this render from AWS S3? This cannot be undone.")) void handleDelete(entry, true); }}
+                            >
+                              <Trash2 className="size-4" /> Delete
+                            </Button>
+                          </div>
                         </div>
                       );
                     })}

@@ -28,6 +28,9 @@ function EditorPage() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const engineRef = useRef<AudioEngine | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // Offscreen canvas the preview loop also paints into while a browser
+  // recording runs (so recordings are full export resolution).
+  const recordTargetRef = useRef<HTMLCanvasElement | null>(null);
   const nav = useNavigate();
 
   // Log codec support once so we can see what Safari reports
@@ -100,7 +103,7 @@ function EditorPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col p-2 sm:p-3 gap-2 sm:gap-3 overflow-hidden">
+    <div className="h-screen h-[100dvh] flex flex-col p-2 sm:p-3 gap-2 sm:gap-3 overflow-hidden">
       <header className="panel rounded-xl px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <Button size="icon" variant="ghost" onClick={() => nav({ to: "/" })}><ArrowLeft className="size-4" /></Button>
@@ -118,15 +121,19 @@ function EditorPage() {
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-muted-foreground hidden md:inline">Auto-saved</span>
           <CompletedDialog project={project} />
-          <ExportDialog project={project} update={update} canvasRef={canvasRef} audioRef={audioRef} engineRef={engineRef} />
+          <ExportDialog project={project} update={update} canvasRef={canvasRef} audioRef={audioRef} engineRef={engineRef} recordTargetRef={recordTargetRef} />
         </div>
       </header>
 
+      {/* Mobile: the preview stays pinned at the top while the control panels
+          scroll underneath it, so "move a slider, watch it react" works on a
+          phone. Desktop keeps the three-column studio layout. */}
       <div className="flex-1 flex flex-col lg:flex-row gap-2 sm:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden">
-        <LeftPanel project={project} update={update} />
-        <main className="flex-1 panel rounded-xl overflow-hidden min-w-0 min-h-[40vh] lg:min-h-0">
-          <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} canvasRef={canvasRef} />
+        <main className="flex-1 panel rounded-xl overflow-hidden min-w-0 h-[34dvh] lg:h-auto shrink-0 lg:shrink lg:min-h-0 sticky top-0 z-10 lg:static">
+          <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} canvasRef={canvasRef} recordTargetRef={recordTargetRef} />
         </main>
+        {/* LeftPanel carries lg:order-first so desktop reads Left · Preview · Right. */}
+        <LeftPanel project={project} update={update} />
         <RightPanel project={project} update={update} />
       </div>
 

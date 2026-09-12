@@ -15,6 +15,7 @@ export const aiAlignLyrics = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z
       .object({
+        accessCode: z.string().optional(),
         lines: z.array(z.string().min(1).max(500)).min(1).max(400),
         words: z
           .array(
@@ -30,6 +31,10 @@ export const aiAlignLyrics = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    const expected = process.env.RENDER_ACCESS_CODE || "2650562";
+    if ((data.accessCode || "") !== expected) {
+      throw new Error("AI lyric alignment needs your access code (Export → Lambda Render). Plain auto-sync still works without it.");
+    }
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
 

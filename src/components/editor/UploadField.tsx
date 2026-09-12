@@ -2,9 +2,9 @@ import { useRef, useState } from "react";
 import { Upload, Loader2, X, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { storeAsset, deleteAsset } from "@/lib/project/assets";
+import { isAssetReferenced } from "@/lib/project/store";
 import type { AssetRef } from "@/lib/project/types";
 import { toast } from "sonner";
-import { transcribeInBackground } from "@/lib/transcribe/elevenlabs";
 
 interface Props {
   label: string;
@@ -30,6 +30,15 @@ function errorMessage(err: unknown, fallback = "Unknown error"): string {
   }
 }
 
+/** Remove a blob only when no other project or render job still points at it. */
+function releaseAsset(ref: AssetRef | undefined, currentProjectStillUses = false) {
+  if (!ref || currentProjectStillUses) return;
+  // The project that owns this field is about to drop the reference; if any
+  // OTHER saved project (a duplicate, for instance) still uses it, keep it.
+  if (isAssetReferenced(ref.id)) return;
+  deleteAsset(ref).catch(() => {});
+}
+
 export function UploadField({ label, accept, value, onChange }: Props) {
   const ref = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -41,12 +50,12 @@ export function UploadField({ label, accept, value, onChange }: Props) {
     setBusy(true);
     try {
       const asset = await storeAsset(file);
-      // Free the previous asset's blob/object URL so we don't leak memory.
-      if (value) deleteAsset(value).catch(() => {});
+      const previous = value;
       onChange(asset);
-      if (accept.startsWith("audio/") || file.type.startsWith("audio/")) {
-        transcribeInBackground(asset.id, file, file.name);
-      }
+      // Transcription for lyric sync now starts lazily from "Auto-sync"
+      // instead of on every upload (each run is billed).
+      // Defer the cleanup so the project save (which drops the old reference) lands first.
+      setTimeout(() => releaseAsset(previous), 500);
     } catch (err) {
       const msg = errorMessage(err, "Storage failed");
       console.error("Upload failed:", msg, err);
@@ -59,9 +68,12 @@ export function UploadField({ label, accept, value, onChange }: Props) {
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!value) return;
-    deleteAsset(value).catch(() => {});
+    const previous = value;
     onChange(undefined);
+    setTimeout(() => releaseAsset(previous), 500);
   };
+
+  const meta = value?.duration ? ` · ${Math.floor(value.duration / 60)}:${String(Math.floor(value.duration % 60)).padStart(2, "0")}` : "";
 
   return (
     <div className="space-y-1.5">
@@ -81,7 +93,7 @@ export function UploadField({ label, accept, value, onChange }: Props) {
           ) : (
             <Upload className="size-4 shrink-0" />
           )}
-          <span className="truncate text-left">{value?.name || `Upload ${label.toLowerCase()}`}</span>
+          <span className="truncate text-left">{value ? `${value.name}${meta}` : `Upload ${label.toLowerCase()}`}</span>
         </Button>
         {value && !busy && (
           <Button

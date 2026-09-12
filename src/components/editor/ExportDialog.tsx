@@ -7,7 +7,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square } from "lucide-react";
+import { Download, Video, CheckCircle2, Loader2, Cloud, Circle, Square, ExternalLink, Youtube, Smartphone, Instagram, MonitorPlay } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import {
   Select,
@@ -19,7 +19,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Project, RenderJob } from "@/lib/project/types";
 import { saveJob, listJobs } from "@/lib/project/store";
-import { getAssetDownloadUrl, storeAsset } from "@/lib/project/assets";
+import { getAssetDownloadUrl, storeAsset, deleteAsset } from "@/lib/project/assets";
+import { get as idbGet } from "idb-keyval";
+import { convertToWav, isAacLike } from "@/lib/audio/convert-wav";
 import { AudioEngine } from "@/lib/visualizer/audioEngine";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -32,8 +34,13 @@ import {
   uploadAssetForRender,
   uploadBlobForRender,
 } from "@/lib/render/upload";
-import { triggerDownload } from "@/lib/render/download";
+import { buildProxyDownloadUrl, triggerDownload } from "@/lib/render/download";
 import { estimateRender, formatBytes, formatDuration } from "@/lib/render/estimate";
+import { getStoredAccessCode, setStoredAccessCode } from "@/lib/render/access-code";
+import { COLOR_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { RENDER_ENGINE_VERSION } from "@/lib/visualizer/engine-version";
+import { RenderHealthPanel } from "./RenderHealthPanel";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface Props {
@@ -42,6 +49,26 @@ interface Props {
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   engineRef: React.RefObject<AudioEngine | null>;
+  /** Offscreen canvas the preview loop paints into while recording (export resolution). */
+  recordTargetRef?: React.MutableRefObject<HTMLCanvasElement | null>;
+}
+
+/** Browser recordings are capped at 1080p — 4K real-time capture is not realistic in a tab. */
+const RECORD_MAX_RESOLUTION = "1080p" as const;
+
+const RECORD_MIME_CANDIDATES = [
+  "video/mp4;codecs=avc1.640028,mp4a.40.2",
+  "video/mp4;codecs=avc1,mp4a.40.2",
+  "video/mp4;codecs=avc1",
+  "video/mp4",
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm",
+];
+
+function pickRecordMime(): string | null {
+  if (typeof MediaRecorder === "undefined") return null;
+  return RECORD_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) ?? null;
 }
 
 const RES_DIMS = {
@@ -51,7 +78,25 @@ const RES_DIMS = {
   "4:5": { "4k": [2160, 2700], "1080p": [1080, 1350], "720p": [864, 1080] },
 } as const;
 
-export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }: Props) {
+/** One-click platform targets: aspect ratio + fps + resolution. */
+const PLATFORM_PRESETS = [
+  { id: "youtube", label: "YouTube", icon: Youtube, aspectRatio: "16:9", fps: 60, resolution: "1080p", hint: "16:9 · 1080p · 60fps" },
+  { id: "shorts", label: "TikTok / Reels / Shorts", icon: Smartphone, aspectRatio: "9:16", fps: 60, resolution: "1080p", hint: "9:16 · 1080p · 60fps" },
+  { id: "feed", label: "Instagram feed", icon: Instagram, aspectRatio: "4:5", fps: 30, resolution: "1080p", hint: "4:5 · 1080p · 30fps" },
+  { id: "4k", label: "4K showcase", icon: MonitorPlay, aspectRatio: "16:9", fps: 60, resolution: "4k", hint: "16:9 · 4K · 60fps" },
+] as const;
+
+const MAX_POLL_FAILURES = 6;
+
+const STAGE_LABELS: Record<string, string> = {
+  starting: "Starting workers on AWS…",
+  rendering: "Rendering frames…",
+  encoding: "Encoding video…",
+  combining: "Stitching chunks together…",
+  done: "Complete",
+};
+
+export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, recordTargetRef }: Props) {
   const [open, setOpen] = useState(false);
   const [job, setJob] = useState<RenderJob | null>(null);
   const [progress, setProgress] = useState(0);
@@ -62,13 +107,48 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
   const pollRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [converting, setConverting] = useState<string | null>(null);
+
+  const convertAudioToWav = async () => {
+    const asset = project.audio;
+    if (!asset) return;
+    setConverting("Reading file…");
+    try {
+      let blob = await idbGet<Blob>(`asset:${asset.id}`);
+      if (!blob && asset.url) blob = await (await fetch(asset.url)).blob();
+      if (!blob) throw new Error("The original file is no longer in browser storage — please re-upload it.");
+      const wav = await convertToWav(blob, asset.name, setConverting);
+      setConverting("Saving…");
+      const stored = await storeAsset(wav);
+      const previous = asset;
+      update((p) => ({ ...p, audio: stored }));
+      setTimeout(() => { deleteAsset(previous).catch(() => {}); }, 800);
+      toast.success(`Converted to WAV (${(wav.size / 1024 / 1024).toFixed(0)} MB). Lambda will now hear the full track.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Conversion failed");
+    } finally {
+      setConverting(null);
+    }
+  };
 
   useEffect(() => {
-    if (open && typeof window !== "undefined") {
-      const stored = window.localStorage.getItem("ac_lambda_access_code");
-      if (stored) setAccessCode(stored);
-    }
+    if (open) setAccessCode(getStoredAccessCode());
   }, [open]);
+
+  // Duration: measured at upload time when possible, else from the element.
+  useEffect(() => {
+    if (!open) return;
+    const fromAsset = project.audio?.duration || 0;
+    const el = audioRef.current;
+    const fromEl = el?.duration && isFinite(el.duration) ? el.duration : 0;
+    setAudioDuration(fromAsset || fromEl);
+    if (!fromAsset && el && !fromEl) {
+      const onMeta = () => setAudioDuration(el.duration && isFinite(el.duration) ? el.duration : 0);
+      el.addEventListener("loadedmetadata", onMeta);
+      return () => el.removeEventListener("loadedmetadata", onMeta);
+    }
+  }, [open, project.audio, audioRef]);
 
   // Browser recording state
   const [recording, setRecording] = useState(false);
@@ -89,36 +169,18 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     };
   }, []);
 
-  const downloadFile = async (
-    url: string | null | undefined,
-    filename: string,
-    kind: "lambda" | "browser",
-  ) => {
+  const downloadFile = (url: string | null | undefined, filename: string, viaProxy = false) => {
     setInlineError(null);
     if (!url) {
-      console.log("[render-download] missing url", { filename, kind });
       setInlineError("Download failed: file URL is missing.");
       toast.error("Download failed: file URL is missing.");
       return;
     }
-
     try {
-      console.log("[render-download] download click", { url, filename, kind });
-      const nextUrl =
-        kind === "lambda" && job?.renderId && job?.bucketName
-          ? `https://${job.bucketName}.s3.us-east-2.amazonaws.com/renders/${job.renderId}/out.mp4`
-          : url;
-      const isRemote = /^https?:/i.test(nextUrl);
-
-      console.log("[render-download] download trigger", {
-        originalUrl: url,
-        finalUrl: nextUrl,
-        filename,
-        kind,
-      });
-      triggerDownload(nextUrl, filename, isRemote);
+      const href = viaProxy && /^https?:/i.test(url) ? buildProxyDownloadUrl(url, filename) : url;
+      triggerDownload(href, filename);
     } catch (error) {
-      console.error("[render-download] failed", { url, filename, kind, error });
+      console.error("[render-download] failed", { url, filename, error });
       setInlineError("Download failed. Please try again.");
       toast.error("Download failed. Please try again.");
     }
@@ -126,7 +188,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
   useEffect(
     () => () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      if (pollRef.current) window.clearTimeout(pollRef.current);
       if (recordRafRef.current) cancelAnimationFrame(recordRafRef.current);
       if (recorderRef.current && recorderRef.current.state !== "inactive") {
         try {
@@ -173,42 +235,64 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       toast.error("Editor not ready yet");
       return;
     }
-    const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
+    const duration = audioEl.duration && isFinite(audioEl.duration) ? audioEl.duration : audioDuration;
     if (!duration) {
       setInlineError("Press play once so the audio duration loads.");
       toast.error("Press play once so the audio duration loads");
       return;
     }
+    const mimeType = pickRecordMime();
+    if (!mimeType) {
+      toast.error("Browser recording is not supported in this browser");
+      return;
+    }
+    const fileFormat: "mp4" | "webm" = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+    const recResolution = project.export.resolution === "4k" ? RECORD_MAX_RESOLUTION : project.export.resolution;
+    const [recW, recH] = RES_DIMS[project.aspectRatio][recResolution];
+
     const browserJobBase: RenderJob = {
       id: crypto.randomUUID(),
       projectId: project.id,
       projectName: project.name,
       kind: "browser",
-      fileFormat: "webm",
+      fileFormat,
       status: "queued",
       progress: 0,
       createdAt: Date.now(),
-      config: project.export,
+      config: { ...project.export, resolution: recResolution },
       aspectRatio: project.aspectRatio,
     };
 
-    // Pick a supported mime type
-    const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-    const mimeType = candidates.find(
-      (m) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(m),
-    );
-    if (!mimeType) {
-      toast.error("Browser recording is not supported in this browser");
-      return;
+    // Export-resolution offscreen canvas painted by the preview loop (same
+    // frame data as the preview, full size). Falls back to the on-screen
+    // canvas when the ref isn't wired.
+    let captureSource: HTMLCanvasElement = canvas;
+    if (recordTargetRef) {
+      const off = document.createElement("canvas");
+      off.width = recW;
+      off.height = recH;
+      recordTargetRef.current = off;
+      captureSource = off;
     }
+    const releaseRecordTarget = () => { if (recordTargetRef) recordTargetRef.current = null; };
+
+    // rAF (and therefore the canvas) freezes in background tabs: stop instead
+    // of silently producing a frozen video.
+    const onVisibility = () => {
+      if (document.hidden && recorderRef.current && recorderRef.current.state === "recording") {
+        toast.error("Recording stopped: the tab was hidden. Keep this tab visible while recording.");
+        stopBrowserRecording();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     try {
       persistJob(browserJobBase);
 
       await engine.resume();
       setRecordStage("Recording…");
-      const fps = project.export.fps || 60;
-      const canvasStream = canvas.captureStream(fps);
+      const fps = Math.min(60, project.export.fps || 60);
+      const canvasStream = captureSource.captureStream(fps);
       const audioStream = engine.dest.stream;
       const combined = new MediaStream([
         ...canvasStream.getVideoTracks(),
@@ -216,7 +300,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       ]);
 
       const chunks: BlobPart[] = [];
-      const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: 4_500_000 });
+      const bitrate = recResolution === "1080p" ? 12_000_000 : 7_000_000;
+      const rec = new MediaRecorder(combined, { mimeType, videoBitsPerSecond: bitrate, audioBitsPerSecond: 256_000 });
       recorderRef.current = rec;
       rec.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -227,6 +312,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
           recordRafRef.current = null;
         }
         recorderRef.current = null;
+        document.removeEventListener("visibilitychange", onVisibility);
+        releaseRecordTarget();
 
         const videoTracks = canvasStream.getVideoTracks();
         const audioTracks = audioStream.getAudioTracks();
@@ -235,11 +322,10 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         try {
           const blob = new Blob(chunks, { type: mimeType });
           const baseName = (project.name || "render").trim() || "render";
-          const fileName = `${baseName}.webm`;
+          const fileName = `${baseName}.${fileFormat}`;
           const localAsset = await storeAsset(
-            new File([blob], fileName, { type: blob.type || "video/webm" }),
+            new File([blob], fileName, { type: blob.type || (fileFormat === "mp4" ? "video/mp4" : "video/webm") }),
           );
-          let remoteUrl: string | undefined;
           const localUrl = await getAssetDownloadUrl(localAsset);
 
           setRecordUrl(localUrl || localAsset.url);
@@ -253,48 +339,45 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             completedAt: Date.now(),
             localAsset,
             sizeBytes: blob.size,
-            fileFormat: "webm",
+            fileFormat,
           };
           persistJob(completedEntry);
 
-          try {
-            setRecordStage("Uploading backup copy…");
-            remoteUrl = await uploadBlobForRender({
-              assetId: `browser-recording-${crypto.randomUUID()}`,
-              fileName,
-              contentType: blob.type || "video/webm",
-              blob,
-              onProgress: (pct) => setRecordProgress(pct),
-            });
-            persistJob({
-              ...completedEntry,
-              downloadUrl: remoteUrl,
-              status: "completed",
-              progress: 100,
-            });
-          } catch (e: any) {
-            console.error("[browser-record] remote backup upload failed", e);
-            toast.error("Recording saved locally. Cloud backup upload failed.");
+          // Cloud backup only when the owner's access code is available.
+          const code = getStoredAccessCode();
+          let remoteUrl: string | undefined;
+          if (code) {
+            try {
+              setRecordStage("Uploading backup copy…");
+              remoteUrl = await uploadBlobForRender({
+                assetId: `browser-recording-${crypto.randomUUID()}`,
+                fileName,
+                contentType: blob.type || (fileFormat === "mp4" ? "video/mp4" : "video/webm"),
+                blob,
+                accessCode: code,
+                onProgress: (pct) => setRecordProgress(pct),
+              });
+              persistJob({ ...completedEntry, downloadUrl: remoteUrl });
+            } catch (e) {
+              console.error("[browser-record] remote backup upload failed", e);
+              toast.error("Recording saved locally. Cloud backup upload failed.");
+            }
           }
 
           setRecordStage(remoteUrl ? "Recording complete" : "Recording saved locally");
           toast.success("Recording complete");
-        } catch (e: any) {
-          console.error("[browser-record] upload failed", e);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          console.error("[browser-record] save failed", e);
           setRecordStage("");
           setRecordUrl(null);
-          persistJob({
-            ...browserJobBase,
-            status: "failed",
-            error: e?.message || "Unknown error",
-          });
-          toast.error(`Recording upload failed: ${e?.message || "unknown"}`);
+          persistJob({ ...browserJobBase, status: "failed", error: msg });
+          toast.error(`Recording failed: ${msg}`);
         } finally {
           setRecording(false);
         }
       };
 
-      // Reset audio to start, play, begin recording
       setRecordUrl(null);
       setRecordProgress(0);
       setRecordStage("Recording…");
@@ -323,10 +406,13 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         recordRafRef.current = requestAnimationFrame(tick);
       };
       recordRafRef.current = requestAnimationFrame(tick);
-    } catch (e: any) {
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("[browser-record]", e);
-      persistJob({ ...browserJobBase, status: "failed", error: e?.message || "Unknown error" });
-      toast.error(`Recording failed: ${e?.message || "unknown"}`);
+      document.removeEventListener("visibilitychange", onVisibility);
+      releaseRecordTarget();
+      persistJob({ ...browserJobBase, status: "failed", error: msg });
+      toast.error(`Recording failed: ${msg}`);
       setRecording(false);
       setRecordStage("");
     }
@@ -337,12 +423,12 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
       toast.error("Upload an audio file first");
       return;
     }
-    const audioEl = audioRef.current;
-    const duration = audioEl?.duration && isFinite(audioEl.duration) ? audioEl.duration : 0;
+    const duration = audioDuration || (audioRef.current?.duration && isFinite(audioRef.current.duration) ? audioRef.current.duration : 0);
     if (!duration) {
       toast.error("Press play once so the audio duration loads");
       return;
     }
+    const code = accessCode.trim();
 
     const j: RenderJob = {
       id: crypto.randomUUID(),
@@ -360,48 +446,22 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
     persistJob(j);
     setProgress(0);
     setDownloadUrl(null);
+    setInlineError(null);
     cancelledRef.current = false;
 
     try {
       setStage("Uploading assets…");
-      console.log("[lambda-render] asset upload request", {
-        audio: project.audio
-          ? {
-              id: project.audio.id,
-              name: project.audio.name,
-              indexedDbKey: `asset:${project.audio.id}`,
-            }
-          : null,
-        background: project.background
-          ? {
-              id: project.background.id,
-              name: project.background.name,
-              indexedDbKey: `asset:${project.background.id}`,
-            }
-          : null,
-        logo: project.logo
-          ? {
-              id: project.logo.id,
-              name: project.logo.name,
-              indexedDbKey: `asset:${project.logo.id}`,
-            }
-          : null,
-      });
+      const isColorBg = !!project.background?.id.startsWith(COLOR_BG_PREFIX);
+      const backgroundColor = isColorBg ? project.background!.id.slice(COLOR_BG_PREFIX.length) : null;
 
       const [audioUrl, backgroundUrl, logoUrl] = await Promise.all([
-        uploadAssetForRender(project.audio),
-        uploadAssetForRender(project.background),
-        uploadAssetForRender(project.logo),
+        uploadAssetForRender(project.audio, code),
+        isColorBg ? Promise.resolve(null) : uploadAssetForRender(project.background, code),
+        uploadAssetForRender(project.logo, code),
       ]);
 
-      console.log("[lambda-render] asset upload results", {
-        audioUrl,
-        backgroundUrl,
-        logoUrl,
-      });
-
       const resolvedAudioUrl = assertRenderableAssetUrl("audio", audioUrl);
-      const resolvedBackgroundUrl = project.background
+      const resolvedBackgroundUrl = project.background && !isColorBg
         ? assertRenderableAssetUrl("background", backgroundUrl)
         : null;
       const resolvedLogoUrl = project.logo ? assertRenderableAssetUrl("logo", logoUrl) : null;
@@ -416,46 +476,36 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
         width: w,
         height: h,
         backgroundUrl: resolvedBackgroundUrl,
-        backgroundType: project.background?.type ?? null,
+        backgroundType: isColorBg ? "color" : (project.background?.type ?? null),
+        backgroundColor,
         logoUrl: resolvedLogoUrl,
         visualizer: project.visualizer,
         effects: project.effects,
         lyrics: project.lyrics,
+        title: project.trackTitle || project.name,
+        engineVersion: RENDER_ENGINE_VERSION,
+        quality: project.export.quality,
       };
 
-      const invalidFields = Object.entries(inputProps)
-        .filter(([, value]) => value === undefined || value === "")
-        .map(([key, value]) => ({ key, value }));
-
-      console.log("[lambda-render] final inputProps", inputProps);
-      // eslint-disable-next-line no-console
-      console.log("[size-trace] inputProps.visualizer.size =", inputProps.visualizer?.size);
-      if (invalidFields.length > 0) {
-        console.error("[lambda-render] invalid inputProps detected before Lambda", invalidFields);
-        throw new Error(`Invalid render input: ${invalidFields.map((f) => f.key).join(", ")}`);
-      }
-
-      const { renderId, bucketName } = await startRender({
-        data: { ...inputProps, accessCode },
+      const { renderId, bucketName, region } = await startRender({
+        data: { ...inputProps, accessCode: code },
       });
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("ac_lambda_access_code", accessCode);
-      }
+      setStoredAccessCode(code);
 
-      setStage("Rendering on AWS Lambda…");
-      const running: RenderJob = { ...j, status: "rendering", renderId, bucketName };
+      setStage(STAGE_LABELS.starting);
+      const running: RenderJob = { ...j, status: "rendering", renderId, bucketName, region };
       setJob(running);
       persistJob(running);
 
       await new Promise<void>((resolve, reject) => {
         let stopped = false;
         // Client-side stall watchdog: if overallProgress does not advance
-        // for 6 minutes we assume Lambda is wedged (chunks stuck / silently
-        // timed out before writing errors) and fail the job instead of
-        // polling forever.
+        // for 6 minutes we assume Lambda is wedged and fail the job instead
+        // of polling forever.
         const STALL_MS = 6 * 60 * 1000;
         let lastPct = -1;
         let lastPctAt = Date.now();
+        let failures = 0;
         const stop = () => {
           stopped = true;
           if (pollRef.current) {
@@ -471,14 +521,26 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               resolve();
               return;
             }
-            const p = await pollProgress({ data: { renderId, bucketName } });
-            const pct = Math.round((p.overallProgress || 0) * 100);
-            if (!mountedRef.current) {
+            let p: Awaited<ReturnType<typeof pollProgress>>;
+            try {
+              p = await pollProgress({ data: { renderId, bucketName } });
+              failures = 0;
+            } catch (e) {
+              // Transient network / throttling blips must not fail a
+              // multi-minute render.
+              failures += 1;
+              if (failures >= MAX_POLL_FAILURES) throw e;
+              if (!stopped) pollRef.current = window.setTimeout(() => void runPoll(), 4000);
+              return;
+            }
+            if (cancelledRef.current || !mountedRef.current) {
               stop();
               resolve();
               return;
             }
+            const pct = Math.round((p.overallProgress || 0) * 100);
             setProgress(pct);
+            if (p.stage && STAGE_LABELS[p.stage]) setStage(STAGE_LABELS[p.stage]);
 
             if (pct !== lastPct) {
               lastPct = pct;
@@ -487,32 +549,24 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
             persistJob({ ...running, progress: pct });
             if (p.done && p.outputFile) {
-              try {
-                stop();
-                const done: RenderJob = {
-                  ...running,
-                  kind: "lambda",
-                  fileFormat: "mp4",
-                  status: "completed",
-                  progress: 100,
-                  completedAt: Date.now(),
-                  downloadUrl: p.outputFile,
-                };
-                if (mountedRef.current) {
-                  setDownloadUrl(p.outputFile);
-                  setJob(done);
-                  setProgress(100);
-                  setStage("Complete");
-                }
-                persistJob(done);
-                toast.success("Render complete");
-                resolve();
-                return;
-              } catch (error) {
-                console.error("[lambda-render] completion handler failed", error);
-                reject(error);
-                return;
+              stop();
+              const done: RenderJob = {
+                ...running,
+                status: "completed",
+                progress: 100,
+                completedAt: Date.now(),
+                downloadUrl: p.outputFile,
+              };
+              if (mountedRef.current) {
+                setDownloadUrl(p.outputFile);
+                setJob(done);
+                setProgress(100);
+                setStage("Complete");
               }
+              persistJob(done);
+              toast.success("Render complete");
+              resolve();
+              return;
             }
             if (p.fatalErrorEncountered && !p.outputFile) {
               stop();
@@ -536,7 +590,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 void runPoll();
               }, 3000);
             }
-          } catch (e: any) {
+          } catch (e) {
             stop();
             reject(e);
           }
@@ -544,68 +598,66 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
         void runPoll();
       });
-    } catch (e: any) {
-      if (cancelledRef.current) {
-        const cancelled: RenderJob = {
-          ...j,
-          kind: "lambda",
-          fileFormat: "mp4",
-          status: "failed",
-          error: "Cancelled by user",
-        };
-        setJob(cancelled);
-        persistJob(cancelled);
-        setStage("Cancelled");
-        return;
-      }
+    } catch (e) {
+      if (cancelledRef.current) return;
+      const msg = e instanceof Error ? e.message : "Unknown error";
       console.error("[lambda-render]", e);
-      const msg: string = e?.message || "Unknown error";
-      if (/invalid access code/i.test(msg) && typeof window !== "undefined") {
-        window.localStorage.removeItem("ac_lambda_access_code");
-      }
+      if (/invalid access code/i.test(msg)) setStoredAccessCode("");
       setInlineError(msg);
-      const failed: RenderJob = {
-        ...j,
-        kind: "lambda",
-        fileFormat: "mp4",
-        status: "failed",
-        error: e?.message || "Unknown error",
-      };
+      const failed: RenderJob = { ...j, status: "failed", error: msg };
       setJob(failed);
       persistJob(failed);
-      toast.error(`Render failed: ${e?.message || "unknown"}`);
+      toast.error(`Render failed: ${msg}`);
       setStage("");
     }
   };
 
-  const killRender = async () => {
+  /**
+   * Remotion Lambda cannot stop a render that has started — the chunks
+   * finish on AWS regardless. So this only stops watching; the job stays
+   * "rendering" and the Completed dialog picks it up when it finishes.
+   */
+  const stopWatching = async () => {
     cancelledRef.current = true;
     if (pollRef.current) {
       window.clearTimeout(pollRef.current);
       pollRef.current = null;
     }
     setCancelling(true);
-    setStage("Cancelling render…");
     try {
       if (job?.renderId && job?.bucketName) {
         await cancelRender({ data: { renderId: job.renderId, bucketName: job.bucketName } });
       }
-      toast.success("Render cancelled");
-      const cancelled: RenderJob | null = job
-        ? { ...job, status: "failed", error: "Cancelled by user" }
-        : null;
-      if (cancelled) {
-        setJob(cancelled);
-        persistJob(cancelled);
-      }
-      setStage("Cancelled");
-    } catch (e: any) {
-      console.error("[lambda-render] cancel failed", e);
-      toast.error(`Cancel failed: ${e?.message || "unknown"}`);
+      toast.message("Stopped watching this render", {
+        description: "AWS finishes it in the background — it will appear under Completed.",
+      });
+      setStage("Stopped watching — check Completed later");
+      setJob(null);
     } finally {
       setCancelling(false);
     }
   };
+
+  const applyPlatform = (preset: (typeof PLATFORM_PRESETS)[number]) => {
+    update((p) => ({
+      ...p,
+      aspectRatio: preset.aspectRatio,
+      export: { ...p.export, fps: preset.fps, resolution: preset.resolution },
+    }));
+  };
+
+  const activePlatform = PLATFORM_PRESETS.find(
+    (pp) => pp.aspectRatio === project.aspectRatio && pp.fps === project.export.fps && pp.resolution === project.export.resolution,
+  )?.id;
+
+  const isAac = isAacLike(project.audio);
+  const recordFormatLabel = typeof window !== "undefined" && (pickRecordMime() ?? "").startsWith("video/mp4") ? "MP4" : "WebM";
+
+  const est = audioDuration
+    ? estimateRender({ durationSeconds: audioDuration, fps: project.export.fps, resolution: project.export.resolution })
+    : null;
+
+  const busy = job?.status === "queued" || job?.status === "rendering";
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -614,7 +666,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
           <Download className="size-4" /> Export
         </Button>
       </DialogTrigger>
-      <DialogContent className="panel max-w-md">
+      <DialogContent className="panel max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="size-4" /> Export Video
@@ -627,7 +679,34 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
           </div>
         )}
 
-        <Tabs defaultValue="browser" className="w-full">
+        {/* Platform quick picks */}
+        <div className="space-y-1.5">
+          <div className="text-xs text-muted-foreground">Where is this going?</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {PLATFORM_PRESETS.map((pp) => {
+              const Icon = pp.icon;
+              const active = activePlatform === pp.id;
+              return (
+                <button
+                  key={pp.id}
+                  onClick={() => applyPlatform(pp)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs transition-all",
+                    active ? "border-primary bg-primary/10" : "border-border bg-elevated/40 hover:bg-elevated",
+                  )}
+                >
+                  <Icon className="size-3.5 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{pp.label}</div>
+                    <div className="text-[10px] text-muted-foreground">{pp.hint}</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <Tabs defaultValue={getStoredAccessCode() ? "lambda" : "browser"} className="w-full">
           <TabsList className="grid grid-cols-2 w-full">
             <TabsTrigger value="browser" className="gap-1.5">
               <Circle className="size-3.5" /> Browser Recording
@@ -637,15 +716,16 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             </TabsTrigger>
           </TabsList>
 
-          {/* Browser recording — works while AWS quota is low */}
           <TabsContent value="browser" className="space-y-4 mt-4">
             <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
               <div className="flex items-center gap-1.5 text-foreground/90">
                 <Circle className="size-3.5" /> Record in your browser
               </div>
               <p>
-                Plays the song from the start and captures the canvas + audio in real time as a WebM
-                file. Finished recordings are kept in the Completed menu beside Export.
+                Plays the song from the start and records it in real time at{" "}
+                {project.export.resolution === "4k" ? "1080p (browser max)" : project.export.resolution} as{" "}
+                {recordFormatLabel}. Free and instant. Keep this tab visible until it finishes — for 4K or
+                perfectly smooth 60 fps use Lambda Render.
               </p>
             </div>
 
@@ -667,15 +747,9 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <Button
                     variant="outline"
                     className="w-full gap-2"
-                    onClick={() =>
-                      void downloadFile(
-                        recordUrl,
-                        `${(project.name || "render").trim() || "render"}.webm`,
-                        "browser",
-                      )
-                    }
+                    onClick={() => downloadFile(recordUrl, `${(project.name || "render").trim() || "render"}.${recordFormatLabel.toLowerCase()}`)}
                   >
-                    <Download className="size-4" /> Download WebM
+                    <Download className="size-4" /> Download {recordFormatLabel}
                   </Button>
                 )}
               </div>
@@ -695,31 +769,38 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
             )}
           </TabsContent>
 
-          {/* Server-side Lambda render */}
           <TabsContent value="lambda" className="space-y-4 mt-4">
-            {(() => {
-              const t = (project.audio?.type || "").toLowerCase();
-              const n = (project.audio?.name || "").toLowerCase();
-              const isAac =
-                t.includes("m4a") ||
-                t.includes("aac") ||
-                t.includes("mp4") ||
-                n.endsWith(".m4a") ||
-                n.endsWith(".aac");
-              if (!isAac) return null;
-              return (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200/90 space-y-1">
-                  <div className="font-medium text-amber-100">M4A/AAC audio detected</div>
-                  <p>
-                    Lambda's audio decoder produces near-silent samples for AAC, which makes the
-                    visualizer bars render much smaller than in the live preview. For best results,
-                    re-export your track as <strong>MP3</strong> or <strong>WAV</strong> and
-                    re-upload before rendering.
-                  </p>
-                </div>
-              );
-            })()}
-            <div className="grid grid-cols-2 gap-3">
+            {isAac && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200/90 space-y-2">
+                <div className="font-medium text-amber-100">M4A/AAC audio detected</div>
+                <p>
+                  AWS can't decode this format properly, so the visualizer would barely move in the
+                  MP4. Convert it to WAV right here (takes a few seconds, happens in your browser).
+                </p>
+                <Button size="sm" variant="outline" className="h-8 gap-1.5 bg-background/40" onClick={() => void convertAudioToWav()} disabled={!!converting}>
+                  {converting ? <Loader2 className="size-3.5 animate-spin" /> : <Video className="size-3.5" />}
+                  {converting || "Convert to WAV now"}
+                </Button>
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">Quality</label>
+                <Select
+                  value={project.export.quality}
+                  onValueChange={(v) =>
+                    update((p) => ({ ...p, export: { ...p.export, quality: v as "high" | "standard" } }))
+                  }
+                >
+                  <SelectTrigger className="h-9 bg-elevated/60">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">High (320k audio)</SelectItem>
+                    <SelectItem value="standard">Standard (smaller file)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">FPS</label>
                 <Select
@@ -765,74 +846,32 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
               </div>
             </div>
 
-            {(() => {
-              const duration =
-                audioRef.current?.duration && isFinite(audioRef.current.duration)
-                  ? audioRef.current.duration
-                  : 0;
-              if (!duration) {
-                return (
-                  <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1.5 text-foreground/90">
-                      <Cloud className="size-3.5" /> AWS Lambda server-side render
-                    </div>
-                    <p>
-                      Press play once on the audio so we can read its duration and estimate render
-                      size/time.
-                    </p>
-                  </div>
-                );
-              }
-              const est = estimateRender({
-                durationSeconds: duration,
-                fps: project.export.fps,
-                resolution: project.export.resolution,
-                framesPerLambda: 60,
-              });
-              return (
-                <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
-                  <div className="flex items-center gap-1.5 text-foreground/90">
-                    <Cloud className="size-3.5" /> Render estimate
-                  </div>
-                  <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
-                    <span>Duration</span>
-                    <span className="text-right font-mono text-foreground/90">
-                      {formatDuration(duration)}
-                    </span>
-                    <span>Total frames</span>
-                    <span className="text-right font-mono text-foreground/90">
-                      {est.totalFrames.toLocaleString()}
-                    </span>
-                    <span>Workers</span>
-                    <span className="text-right font-mono text-foreground/90">
-                      {est.estimatedWorkers} × {est.framesPerWorker}f
-                    </span>
-                    <span>Est. file size</span>
-                    <span className="text-right font-mono text-foreground/90">
-                      {formatBytes(est.estimatedSizeMB)}
-                    </span>
-                    <span>Est. render time</span>
-                    <span className="text-right font-mono text-foreground/90">
-                      ~{formatDuration(est.estimatedRenderSeconds)}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
-                    framesPerLambda = 60. Small chunks keep each worker well under the 900s Lambda
-                    timeout for heavy presets.
-                  </p>
-                  <div className="rounded bg-background/60 p-2 space-y-1">
-                    <p className="text-[10px] text-muted-foreground/80">
-                      If you changed presets, effects, or colors since the last deploy, Lambda is
-                      still using the old bundle. Redeploy from your local machine:
-                    </p>
-                    <code className="block font-mono text-[10px] text-foreground/90 bg-black/30 rounded px-1.5 py-1 select-all">
-                      npx remotion lambda sites create src/remotion/index.ts --site-name=lyrics-viz
-                      --region=us-east-2
-                    </code>
-                  </div>
+            {!est ? (
+              <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
+                <div className="flex items-center gap-1.5 text-foreground/90">
+                  <Cloud className="size-3.5" /> AWS Lambda server-side render
                 </div>
-              );
-            })()}
+                <p>Upload a song (or press play once) so we can read its duration and estimate the render.</p>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs space-y-2">
+                <div className="flex items-center gap-1.5 text-foreground/90">
+                  <Cloud className="size-3.5" /> Render estimate
+                </div>
+                <div className="grid grid-cols-2 gap-y-1 gap-x-3 text-muted-foreground">
+                  <span>Duration</span>
+                  <span className="text-right font-mono text-foreground/90">{formatDuration(audioDuration)}</span>
+                  <span>Total frames</span>
+                  <span className="text-right font-mono text-foreground/90">{est.totalFrames.toLocaleString()}</span>
+                  <span>Workers</span>
+                  <span className="text-right font-mono text-foreground/90">{est.estimatedWorkers} × {est.framesPerWorker}f</span>
+                  <span>Est. file size</span>
+                  <span className="text-right font-mono text-foreground/90">{formatBytes(est.estimatedSizeMB)}</span>
+                  <span>Est. render time</span>
+                  <span className="text-right font-mono text-foreground/90">~{formatDuration(est.estimatedRenderSeconds)}</span>
+                </div>
+              </div>
+            )}
 
             {job && (
               <div className="space-y-2">
@@ -840,6 +879,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                   <span className="flex items-center gap-1.5">
                     {job.status === "completed" ? (
                       <CheckCircle2 className="size-3.5 text-primary" />
+                    ) : job.status === "failed" ? (
+                      <Square className="size-3.5 text-destructive" />
                     ) : (
                       <Loader2 className="size-3.5 animate-spin" />
                     )}
@@ -849,19 +890,21 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
                 </div>
                 <Progress value={progress} />
                 {downloadUrl && (
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={() =>
-                      void downloadFile(
-                        downloadUrl,
-                        `${(project.name || "render").trim() || "render"}.mp4`,
-                        "lambda",
-                      )
-                    }
-                  >
-                    <Download className="size-4" /> Download MP4
-                  </Button>
+                  <div className="space-y-1">
+                    <Button
+                      variant="outline"
+                      className="w-full gap-2"
+                      onClick={() => downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`)}
+                    >
+                      <Download className="size-4" /> Download MP4
+                    </Button>
+                    <button
+                      className="w-full text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center justify-center gap-1"
+                      onClick={() => downloadFile(downloadUrl, `${(project.name || "render").trim() || "render"}.mp4`, true)}
+                    >
+                      <ExternalLink className="size-3" /> Download not starting? Use the alternate link
+                    </button>
+                  </div>
                 )}
                 {job.status === "failed" && job.error && (
                   <p className="text-xs text-destructive">{job.error}</p>
@@ -887,28 +930,27 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef }
 
             <Button
               onClick={onRender}
-              disabled={
-                !accessCode.trim() || job?.status === "queued" || job?.status === "rendering"
-              }
+              disabled={!accessCode.trim() || busy}
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
             >
               <Video className="size-4" />
-              {job?.status === "rendering" || job?.status === "queued"
-                ? "Rendering on Lambda…"
-                : "Start Server Render"}
+              {busy ? "Rendering on Lambda…" : "Start Server Render"}
             </Button>
 
-            {(job?.status === "rendering" || job?.status === "queued") && (
+            {busy && (
               <Button
-                onClick={killRender}
+                onClick={stopWatching}
                 disabled={cancelling}
-                variant="destructive"
+                variant="outline"
                 className="w-full gap-2"
+                title="AWS cannot abort a render that already started; this just stops watching it here."
               >
                 <Square className="size-4" />
-                {cancelling ? "Cancelling…" : "Kill Render"}
+                {cancelling ? "Stopping…" : "Stop watching (render continues on AWS)"}
               </Button>
             )}
+
+            <RenderHealthPanel compact accessCode={accessCode} />
 
             <div className="text-[10px] text-muted-foreground">
               {listJobs().length} job{listJobs().length === 1 ? "" : "s"} in history

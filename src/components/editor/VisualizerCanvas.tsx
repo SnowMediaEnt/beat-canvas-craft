@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Project } from "@/lib/project/types";
-import { AudioEngine, type AudioData } from "@/lib/visualizer/audioEngine";
-import { drawForegroundLayers, getBlurredBackground } from "@/lib/visualizer/render-shared";
+import { AudioEngine, emptyAudioData, type AudioData } from "@/lib/visualizer/audioEngine";
+import { drawBackgroundLayers, drawForegroundLayers } from "@/lib/visualizer/render-shared";
+import { COLOR_BG_PREFIX } from "@/lib/visualizer/backgrounds";
+import { ensureLyricFontLoaded } from "@/lib/visualizer/fonts";
+import { captureCanvasThumbnail, saveThumbnail } from "@/lib/project/thumbnails";
 
 const ratioToWH = (r: string) => {
   switch (r) {
@@ -13,37 +16,25 @@ const ratioToWH = (r: string) => {
 };
 
 const PREVIEW_DPR_CAP = 1.25;
-const PREVIEW_PARTICLE_CAP = 72;
-const PREVIEW_SNOW_PARTICLE_CAP = 48;
-
-// Preview uses the raw bandCount so what you see matches the render exactly.
-const getPreviewSafeProject = (project: Project): Project => {
-  const particleCap = project.effects.particles.type === "snow"
-    ? PREVIEW_SNOW_PARTICLE_CAP
-    : PREVIEW_PARTICLE_CAP;
-
-  return {
-    ...project,
-    effects: {
-      ...project.effects,
-      noise: false,
-      particles: {
-        ...project.effects.particles,
-        density: Math.min(project.effects.particles.density, particleCap),
-      },
-    },
-  };
-};
-
+/** Capture a dashboard thumbnail at most this often while music plays. */
+const THUMB_INTERVAL_MS = 6000;
+/** …and this long after the last edit while paused. */
+const THUMB_IDLE_MS = 1500;
 
 interface Props {
   project: Project;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   engineRef: React.RefObject<AudioEngine | null>;
   canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+  /**
+   * When set, every preview frame is ALSO painted into this canvas at its own
+   * resolution (used by the in-browser recorder so recordings are full
+   * export size instead of the on-screen preview size).
+   */
+  recordTargetRef?: React.RefObject<HTMLCanvasElement | null>;
 }
 
-export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: externalCanvasRef }: Props) {
+export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: externalCanvasRef, recordTargetRef }: Props) {
   const internalCanvasRef = useRef<HTMLCanvasElement>(null);
   const canvasRef = externalCanvasRef ?? internalCanvasRef;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +45,15 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
   const renderErrorRef = useRef<string | null>(null);
   const [size, setSize] = useState({ w: 800, h: 450 });
   const [renderError, setRenderError] = useState<string | null>(null);
-  const previewProject = useMemo(() => getPreviewSafeProject(project), [project]);
+
+  // The render loop reads the latest project through a ref so slider drags
+  // don't restart the loop (which used to reset the canvas and flash black).
+  const projectRef = useRef(project);
+  const changedAtRef = useRef(performance.now());
+  useEffect(() => {
+    projectRef.current = project;
+    changedAtRef.current = performance.now();
+  }, [project]);
 
   const { w: rw, h: rh } = ratioToWH(project.aspectRatio);
 
@@ -85,17 +84,24 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
   useEffect(() => {
     bgImgRef.current = null; bgVidRef.current = null;
     if (!project.background?.url) return;
+    if (project.background.id.startsWith(COLOR_BG_PREFIX)) return; // solid colour: no bitmap
     if (project.background.type.startsWith("video")) {
       const v = document.createElement("video");
       v.src = project.background.url; v.muted = true; v.loop = true; v.playsInline = true;
       v.play().catch(() => {});
       bgVidRef.current = v;
-    } else {
-      const img = new Image();
-      img.onload = () => { bgImgRef.current = img; };
-      img.src = project.background.url;
+      return () => { v.pause(); v.removeAttribute("src"); v.load(); };
     }
+    const img = new Image();
+    img.onload = () => { bgImgRef.current = img; };
+    img.src = project.background.url;
   }, [project.background]);
+
+  // Make sure the lyric font is available to the canvas (Google fonts load lazily).
+  useEffect(() => {
+    if (!project.lyrics.enabled) return;
+    void ensureLyricFontLoaded(project.lyrics.fontFamily);
+  }, [project.lyrics.enabled, project.lyrics.fontFamily]);
 
   // Render loop
   useEffect(() => {
@@ -110,98 +116,70 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
     renderErrorRef.current = null;
     setRenderError(null);
     let raf = 0;
-    const empty: AudioData = {
-      freq: new Uint8Array(new ArrayBuffer(1024)) as Uint8Array<ArrayBuffer>,
-      wave: new Uint8Array(new ArrayBuffer(2048)) as Uint8Array<ArrayBuffer>,
-      bass: 0, mid: 0, treble: 0, volume: 0, beat: false, time: 0, duration: 0, sampleRate: 48000,
-    };
+    let lastFrameAt = performance.now();
+    let lastThumbAt = 0;
+    let lastThumbChangeAt = -1;
+    const empty: AudioData = emptyAudioData();
 
-    const loop = () => {
+    const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
-      const cfg = previewProject.visualizer;
-      const t = (performance.now() - startRef.current) / 1000 * cfg.animationSpeed;
+      const p = projectRef.current;
+      const cfg = p.visualizer;
+      const dt = Math.max(0.001, Math.min(0.25, (now - lastFrameAt) / 1000));
+      lastFrameAt = now;
+      // Animation clock = audio time once a track has started, so every
+      // time-based motion sits at the same phase as the export and pausing
+      // freezes the picture like a still frame. Wall clock before playback.
+      const el = audioRef.current;
+      const useAudioClock = !!p.audio && !!el && Number.isFinite(el.currentTime) && (el.currentTime > 0 || !el.paused);
+      const t = (useAudioClock ? el!.currentTime : (now - startRef.current) / 1000) * cfg.animationSpeed;
       const audio = engineRef.current
         ? engineRef.current.read({ master: cfg.sensitivity, bass: cfg.bassSensitivity, mid: cfg.midSensitivity, treble: cfg.trebleSensitivity })
         : empty;
 
-      // Background
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, drawWidth, drawHeight);
-      const drawBg = (src: HTMLImageElement | HTMLVideoElement) => {
-        const iw = "videoWidth" in src ? src.videoWidth : src.naturalWidth;
-        const ih = "videoHeight" in src ? src.videoHeight : src.naturalHeight;
-        if (!iw || !ih) return;
-        const scale = Math.max(drawWidth / iw, drawHeight / ih) * cfg.backgroundScale;
-        const dw = iw * scale, dh = ih * scale;
-        const dx = (drawWidth - dw) / 2;
-        const dy = (drawHeight - dh) / 2;
-        // Video frames change every tick — cache only for static images.
-        const isImg = !("videoWidth" in src);
-        if (cfg.backgroundBlur > 0 && isImg) {
-          const blurred = getBlurredBackground(src, cfg.backgroundBlur, dw, dh);
-          if (blurred) {
-            ctx.drawImage(blurred, dx, dy, dw, dh);
-            return;
-          }
-        }
-        ctx.save();
-        if (cfg.backgroundBlur > 0) ctx.filter = `blur(${cfg.backgroundBlur}px)`;
-        ctx.drawImage(src, dx, dy, dw, dh);
-        ctx.restore();
-      };
-      if (bgVidRef.current) drawBg(bgVidRef.current);
-      else if (bgImgRef.current) drawBg(bgImgRef.current);
+      const colorBg = p.background?.id.startsWith(COLOR_BG_PREFIX)
+        ? p.background.id.slice(COLOR_BG_PREFIX.length)
+        : null;
+      const source = bgVidRef.current ?? bgImgRef.current;
 
-      // Background tint
-      if (cfg.backgroundTintOpacity > 0) {
-        ctx.fillStyle = cfg.backgroundTint;
-        ctx.globalAlpha = cfg.backgroundTintOpacity;
-        ctx.fillRect(0, 0, drawWidth, drawHeight);
-        ctx.globalAlpha = 1;
-      }
-
-      // Background pulse
-      if (project.effects.backgroundPulse) {
-        ctx.fillStyle = `rgba(255,255,255,${audio.bass * 0.08})`;
-        ctx.fillRect(0, 0, drawWidth, drawHeight);
-      }
-
-      // Overlay
-      if (cfg.overlayOpacity > 0) {
-        ctx.fillStyle = cfg.overlay;
-        ctx.globalAlpha = cfg.overlayOpacity;
-        ctx.fillRect(0, 0, drawWidth, drawHeight);
-        ctx.globalAlpha = 1;
-      }
-
-      // Foreground (visualizer + logo + effects + lyrics) — scaled to a
-      // 1080p baseline inside `drawForegroundLayers` so the same draw code
-      // produces identical proportions at any export resolution.
-      try {
-        drawForegroundLayers({
-          ctx, w: drawWidth, h: drawHeight, cfg, audio, t,
-          effects: previewProject.effects, lyrics: previewProject.lyrics,
-          logo: logoRef.current,
+      const paintInto = (target: CanvasRenderingContext2D, tw: number, th: number, stateKey: string) => {
+        drawBackgroundLayers({
+          ctx: target, w: tw, h: th, cfg, audio, effects: p.effects,
+          source, cacheable: !bgVidRef.current && !!bgImgRef.current, color: colorBg,
         });
+        drawForegroundLayers({
+          ctx: target, w: tw, h: th, cfg, audio, t,
+          effects: p.effects, lyrics: p.lyrics,
+          logo: logoRef.current, dt, stateKey,
+          title: p.trackTitle || p.name,
+        });
+      };
+
+      // Recording target (export-resolution offscreen canvas), same frame data.
+      const rec = recordTargetRef?.current;
+      if (rec && rec.width > 0 && rec.height > 0) {
+        const rctx = rec.getContext("2d");
+        if (rctx) {
+          try { paintInto(rctx, rec.width, rec.height, "record"); } catch { /* keep recording alive */ }
+        }
+      }
+
+      try {
+        paintInto(ctx, drawWidth, drawHeight, "main");
       } catch (error) {
         if (cfg.presetId !== "circular-spectrum") {
           try {
             drawForegroundLayers({
-              ctx,
-              w: drawWidth,
-              h: drawHeight,
+              ctx, w: drawWidth, h: drawHeight,
               cfg: { ...cfg, presetId: "circular-spectrum" },
-              audio,
-              t,
-              effects: previewProject.effects,
-              lyrics: previewProject.lyrics,
-              logo: logoRef.current,
+              audio, t, effects: p.effects, lyrics: p.lyrics,
+              logo: logoRef.current, dt, stateKey: "main",
+              title: p.trackTitle || p.name,
             });
-            return;
           } catch {
             // fall through to friendly error state below
           }
         }
-
         if (!renderErrorRef.current) {
           const message = error instanceof Error ? error.message : "Visualizer render failed";
           renderErrorRef.current = message;
@@ -209,14 +187,28 @@ export function VisualizerCanvas({ project, audioRef, engineRef, canvasRef: exte
           console.error("[visualizer] preview render failed", error);
         }
       }
+
+      // Dashboard thumbnail: while playing every few seconds, or shortly after
+      // the last edit while paused. Skips frames with no audio loaded.
+      if (p.audio) {
+        const playing = !!audioRef.current && !audioRef.current.paused;
+        const idleEdit = changedAtRef.current !== lastThumbChangeAt && now - changedAtRef.current > THUMB_IDLE_MS;
+        if ((playing && now - lastThumbAt > THUMB_INTERVAL_MS) || (!playing && idleEdit && now - lastThumbAt > THUMB_IDLE_MS)) {
+          lastThumbAt = now;
+          lastThumbChangeAt = changedAtRef.current;
+          const url = captureCanvasThumbnail(canvas);
+          if (url) saveThumbnail(p.id, url);
+        }
+      }
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [previewProject, size.w, size.h, canvasRef, engineRef, project.effects.backgroundPulse]);
+  }, [size.w, size.h, canvasRef, engineRef, audioRef, recordTargetRef]);
 
   // Hidden audio el wired to engine
   useEffect(() => {
     const el = audioRef.current; if (!el || !project.audio?.url) return;
+    el.preload = "metadata";
     el.src = project.audio.url;
     if (!engineRef.current) {
       try { engineRef.current = new AudioEngine(el, project.visualizer.smoothing); } catch { /* will try after user gesture */ }

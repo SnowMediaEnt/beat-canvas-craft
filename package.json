@@ -9,7 +9,10 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "deploy:lambda-site": "remotion lambda sites create src/remotion/index.ts --site-name=${REMOTION_SITE_NAME:-lyrics-viz} --region=${REMOTION_AWS_REGION:-us-east-2}",
+    "deploy:lambda-function": "remotion lambda functions deploy --region=${REMOTION_AWS_REGION:-us-east-2} --memory=3009 --disk=2048 --timeout=900"
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.25.5",

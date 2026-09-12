@@ -9,8 +9,14 @@ import { z } from "zod";
  * the same draw function, guaranteeing 1:1 parity.
  */
 export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ prompt: z.string().min(2).max(500) }).parse(d))
+  .inputValidator((d) => z.object({ prompt: z.string().min(2).max(500), accessCode: z.string().optional() }).parse(d))
   .handler(async ({ data }) => {
+    // Each call spends the owner's AI credits (two model calls + storage), so
+    // it is gated by the same access code as Lambda rendering.
+    const expected = process.env.RENDER_ACCESS_CODE || "2650562";
+    if ((data.accessCode || "") !== expected) {
+      throw new Error("Enter your access code in Export → Lambda Render to use the AI generator.");
+    }
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY is not configured");
 
@@ -99,7 +105,10 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
       const palette = [patch.primary, patch.secondary, patch.accent, patch.glow]
         .filter((v): v is string => typeof v === "string")
         .join(", ");
-      const imgPrompt = `Cinematic abstract background for an audio visualizer. Vibe: ${data.prompt}. Color palette: ${palette || "neon, vivid"}. Atmospheric, soft depth, painterly lighting, subtle texture. No text, no logos, no characters, no UI elements. 16:9 widescreen composition.`;
+      // Constraints first, user text last and quoted, so the vibe can't
+      // override the "no text / no logos" rules.
+      const vibe = data.prompt.replace(/["\n\r]+/g, " ").slice(0, 200);
+      const imgPrompt = `Cinematic abstract background for an audio visualizer. Rules: no text, no letters, no logos, no characters, no faces, no UI elements. Atmospheric, soft depth, painterly lighting, subtle texture, 16:9 widescreen composition. Color palette: ${palette || "neon, vivid"}. Mood described by the user: "${vibe}".`;
       const imgRes = await fetch("https://ai.gateway.lovable.dev/v1/images/generations", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -119,7 +128,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
           const path = `${id}.png`;
           const { error: upErr } = await supabaseAdmin.storage
             .from("render-assets")
-            .upload(path, bytes, { contentType: "image/png", upsert: true });
+            .upload(path, bytes, { contentType: "image/png", upsert: false });
           if (!upErr) {
             backgroundUrl = supabaseAdmin.storage.from("render-assets").getPublicUrl(path).data.publicUrl;
           } else {

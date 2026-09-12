@@ -8,7 +8,7 @@ const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "POST, OPTIONS",
-  "access-control-allow-headers": "content-type, x-asset-id, x-asset-ext, x-content-type",
+  "access-control-allow-headers": "content-type, x-asset-id, x-asset-ext, x-content-type, x-render-code",
   "access-control-max-age": "86400",
 };
 
@@ -56,6 +56,14 @@ export const Route = createFileRoute("/api/public/render-upload")({
 
           if (!SAFE_ID.test(assetId) || !SAFE_EXT.test(ext)) {
             return jsonError(400, "Invalid asset identifier");
+          }
+
+          // Uploads write straight into the render bucket; require the same
+          // access code the Lambda render itself needs so the endpoint can't
+          // be used as free public storage.
+          const expectedCode = process.env.RENDER_ACCESS_CODE || "2650562";
+          if ((request.headers.get("x-render-code") || "") !== expectedCode) {
+            return jsonError(401, "Invalid access code");
           }
 
           const lenHeader = request.headers.get("content-length");

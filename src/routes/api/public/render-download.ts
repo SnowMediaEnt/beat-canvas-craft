@@ -1,19 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AwsClient } from "aws4fetch";
+import { parseBucketAndRegion } from "@/lib/render/lambda-config";
 
-// Proxies a Remotion-lambda S3 render through our origin so the browser can
-// stream it as a real attachment. Direct cross-origin downloads from S3 fail
-// when the bucket has no CORS config — the fetch starts then aborts, which is
-// exactly the "starts then stops" symptom users see. Restricted to
-// remotionlambda-* buckets so this can't be used as an open proxy.
-const ALLOWED_HOST = /^(?:[a-z0-9-]+\.)?s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/i;
-const ALLOWED_KEY_BUCKET = /^remotionlambda-[a-z0-9-]+$/i;
-
+// Proxies a finished render through our origin so the browser can save it as
+// a real attachment when the direct S3 link misbehaves (older objects without
+// Content-Disposition, some mobile browsers). Restricted to the ONE bucket
+// configured in REMOTION_AWS_SERVE_URL and to render output keys, so it can't
+// be used as a relay for anyone else's buckets.
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, OPTIONS",
   "access-control-allow-headers": "content-type",
 };
+
+const RENDER_KEY = /^renders\/[A-Za-z0-9_-]{4,64}\/out\.(mp4|webm)$/;
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-zA-Z0-9._-]+/g, "_") || "render.mp4";
@@ -34,87 +34,42 @@ function encodeObjectKey(key: string) {
     .join("/");
 }
 
+function configuredBucket() {
+  const region = process.env.REMOTION_AWS_REGION || "us-east-1";
+  const serveUrl = process.env.REMOTION_AWS_SERVE_URL || "";
+  const parsed = parseBucketAndRegion(serveUrl, region);
+  if (!parsed) throw new Error("render bucket not configured");
+  return parsed;
+}
+
 function parseS3Target(rawUrl: string) {
-  const defaultRegion = process.env.REMOTION_AWS_REGION || "us-east-1";
-
-  if (rawUrl.startsWith("s3://")) {
-    const parsed = new URL(rawUrl);
-    const bucketName = parsed.hostname;
-    const objectKey = parsed.pathname.replace(/^\/+/, "").split("/").map(decodePathSegment).join("/");
-
-    if (!ALLOWED_KEY_BUCKET.test(bucketName) || !objectKey) {
-      throw new Error("bucket not allowed");
-    }
-
-    return {
-      bucketName,
-      objectKey,
-      region: defaultRegion,
-      hasExplicitRegion: false,
-    };
-  }
-
-  const parsed = new URL(rawUrl);
-  if (parsed.protocol !== "https:" || !ALLOWED_HOST.test(parsed.hostname)) {
-    throw new Error("host not allowed");
-  }
-
-  const pathParts = parsed.pathname.split("/").filter(Boolean).map(decodePathSegment);
-  const regionMatch = parsed.hostname.match(/(?:^|\.)(?:s3[.-]([a-z0-9-]+))\.amazonaws\.com$/i);
-
+  const { bucketName: allowedBucket, region } = configuredBucket();
   let bucketName = "";
   let objectKey = "";
 
-  if (/^s3(?:[.-]|\.)/i.test(parsed.hostname)) {
-    bucketName = pathParts[0] || "";
-    objectKey = pathParts.slice(1).join("/");
+  if (rawUrl.startsWith("s3://")) {
+    const parsed = new URL(rawUrl);
+    bucketName = parsed.hostname;
+    objectKey = parsed.pathname.replace(/^\/+/, "").split("/").map(decodePathSegment).join("/");
   } else {
-    bucketName = parsed.hostname.split(".")[0] || "";
-    objectKey = pathParts.join("/");
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:" || !/\.amazonaws\.com$/i.test(parsed.hostname)) {
+      throw new Error("host not allowed");
+    }
+    const pathParts = parsed.pathname.split("/").filter(Boolean).map(decodePathSegment);
+    if (/^s3(?:[.-]|\.)/i.test(parsed.hostname)) {
+      bucketName = pathParts[0] || "";
+      objectKey = pathParts.slice(1).join("/");
+    } else {
+      bucketName = parsed.hostname.split(".")[0] || "";
+      objectKey = pathParts.join("/");
+    }
   }
 
-  if (!ALLOWED_KEY_BUCKET.test(bucketName) || !objectKey) {
+  if (bucketName !== allowedBucket || !RENDER_KEY.test(objectKey)) {
     throw new Error("bucket not allowed");
   }
-
-  return {
-    bucketName,
-    objectKey,
-    region: regionMatch?.[1] || defaultRegion,
-    hasExplicitRegion: Boolean(regionMatch?.[1]),
-  };
-}
-
-async function resolveBucketRegion(
-  bucketName: string,
-  fallbackRegion: string,
-  accessKeyId: string,
-  secretAccessKey: string,
-  sessionToken?: string,
-) {
-  const awsGlobal = new AwsClient({
-    accessKeyId,
-    secretAccessKey,
-    sessionToken,
-    service: "s3",
-    region: "us-east-1",
-  });
-
-  try {
-    const locRes = await awsGlobal.fetch(`https://s3.amazonaws.com/${bucketName}?location`, {
-      method: "GET",
-    });
-    if (!locRes.ok) return fallbackRegion;
-
-    const locXml = await locRes.text();
-    const loc = locXml.match(/<LocationConstraint[^>]*>([^<]*)<\/LocationConstraint>/)?.[1]?.trim();
-    if (loc) return loc;
-    if (locXml.includes("LocationConstraint")) return "us-east-1";
-  } catch (error) {
-    console.error("[render-download] bucket region lookup failed", { bucketName, error });
-  }
-
-  return fallbackRegion;
+  return { bucketName, objectKey, region };
 }
 
 async function fetchSignedObject(rawUrl: string, filename: string) {
@@ -126,22 +81,12 @@ async function fetchSignedObject(rawUrl: string, filename: string) {
   }
 
   const target = parseS3Target(rawUrl);
-  const region = target.hasExplicitRegion
-    ? target.region
-    : await resolveBucketRegion(
-        target.bucketName,
-        target.region,
-        accessKeyId,
-        secretAccessKey,
-        sessionToken,
-      );
-
   const objectUrl = new URL(
-    `https://${target.bucketName}.s3.${region}.amazonaws.com/${encodeObjectKey(target.objectKey)}`,
+    `https://${target.bucketName}.s3.${target.region}.amazonaws.com/${encodeObjectKey(target.objectKey)}`,
   );
   objectUrl.searchParams.set(
     "response-content-disposition",
-    `attachment; filename=\"${sanitizeFilename(filename)}\"`,
+    `attachment; filename="${sanitizeFilename(filename)}"`,
   );
 
   const client = new AwsClient({
@@ -149,12 +94,10 @@ async function fetchSignedObject(rawUrl: string, filename: string) {
     secretAccessKey,
     sessionToken,
     service: "s3",
-    region,
+    region: target.region,
   });
 
-  return client.fetch(objectUrl.toString(), {
-    method: "GET",
-  });
+  return client.fetch(objectUrl.toString(), { method: "GET" });
 }
 
 export const Route = createFileRoute("/api/public/render-download")({
@@ -171,11 +114,17 @@ export const Route = createFileRoute("/api/public/render-download")({
           parseS3Target(target);
         } catch (error) {
           const message = error instanceof Error ? error.message : "bad url";
-          const status = message === "bad url" ? 400 : message.includes("allowed") ? 403 : 500;
+          const status = message.includes("allowed") ? 403 : message.includes("configured") ? 500 : 400;
           return new Response(message, { status, headers: CORS });
         }
 
-        const upstream = await fetchSignedObject(target, filename);
+        let upstream: Response;
+        try {
+          upstream = await fetchSignedObject(target, filename);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "download failed";
+          return new Response(message, { status: 500, headers: CORS });
+        }
         if (!upstream.ok || !upstream.body) {
           return new Response(`upstream ${upstream.status}`, {
             status: upstream.status === 404 ? 404 : 502,

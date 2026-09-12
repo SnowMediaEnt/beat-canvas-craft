@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Project } from "@/lib/project/types";
+import type { ParticleTrigger, ParticleType, Project } from "@/lib/project/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SliderField, ColorField } from "./SliderField";
@@ -7,7 +7,9 @@ import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -16,6 +18,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useServerFn } from "@tanstack/react-start";
 import { generateVisualizerFromPrompt } from "@/lib/visualizer/ai-generate.functions";
+import { LYRIC_FONTS, type LyricFontCategory } from "@/lib/visualizer/fonts";
+import { BAND_COUNT_OPTIONS, defaultEffects } from "@/lib/project/store";
+import { getStoredAccessCode } from "@/lib/render/access-code";
 import { toast } from "sonner";
 import { Sparkles, Loader2 } from "lucide-react";
 
@@ -35,6 +40,15 @@ const setCustom =
       visualizer: { ...p.visualizer, custom: { ...p.visualizer.custom, [k]: v } },
     }));
 
+const FONT_GROUPS: { label: string; category: LyricFontCategory }[] = [
+  { label: "Bold & headline", category: "display" },
+  { label: "Clean sans", category: "sans" },
+  { label: "Elegant serif", category: "serif" },
+  { label: "Script & handwritten", category: "script" },
+  { label: "Mono & retro", category: "mono" },
+  { label: "System", category: "system" },
+];
+
 export function RightPanel({ project, update }: Props) {
   const V = project.visualizer;
   const L = project.lyrics;
@@ -45,11 +59,19 @@ export function RightPanel({ project, update }: Props) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const setL = <K extends keyof Project["lyrics"]>(k: K, v: Project["lyrics"][K]) =>
+    update((p) => ({ ...p, lyrics: { ...p.lyrics, [k]: v } }));
+
   const runGenerate = async () => {
     if (!prompt.trim()) return;
+    const accessCode = getStoredAccessCode();
+    if (!accessCode) {
+      toast.error("Enter your access code in Export → Lambda Render to use the AI generator.");
+      return;
+    }
     setBusy(true);
     try {
-      const { patch, backgroundUrl } = await generate({ data: { prompt: prompt.trim() } });
+      const { patch, backgroundUrl } = await generate({ data: { prompt: prompt.trim(), accessCode } });
       const customPatch = (patch.custom as { shape?: string } | undefined) || {};
       const shape = customPatch.shape;
       const floorShapes = new Set(["bars", "wave", "triangles", "dots", "mirrored"]);
@@ -104,6 +126,7 @@ export function RightPanel({ project, update }: Props) {
               <Input
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") void runGenerate(); }}
                 placeholder="neon city rain, energetic"
                 className="h-9 bg-elevated/60"
               />
@@ -370,22 +393,23 @@ export function RightPanel({ project, update }: Props) {
         <TabPanel value="motion">
           <Section title="Audio Reactivity">
             <div className="space-y-1.5">
-              <div className="text-xs text-muted-foreground">Bands (equalizer)</div>
+              <div className="text-xs text-muted-foreground">Detail (bands)</div>
               <Select
                 value={String(V.bandCount)}
                 onValueChange={(v) => setV(update, "bandCount")(Number(v))}
               >
                 <SelectTrigger className="h-9 bg-elevated/60">
-                  <SelectValue />
+                  <SelectValue placeholder={`${V.bandCount} bands`} />
                 </SelectTrigger>
                 <SelectContent>
-                  {[32, 48, 64, 96, 128, 192, 256].map((n) => (
+                  {BAND_COUNT_OPTIONS.map((n) => (
                     <SelectItem key={n} value={String(n)}>
                       {n} bands
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <p className="text-[10px] text-muted-foreground">Fewer bands = chunky, more = fine detail. Some visualizers use it as particle or line count.</p>
             </div>
             <SliderField
               label="Sensitivity"
@@ -414,7 +438,16 @@ export function RightPanel({ project, update }: Props) {
             <SliderField
               label="Smoothing"
               value={V.smoothing}
+              max={0.95}
               onChange={(v) => setV(update, "smoothing")(v)}
+              hint="Low = snappy and twitchy, high = slow and silky."
+            />
+            <SliderField
+              label="Reactivity"
+              value={V.reactivity}
+              max={3}
+              onChange={(v) => setV(update, "reactivity")(v)}
+              hint="How far the visualizer moves for the same sound."
             />
           </Section>
           <Section title="Animation">
@@ -436,6 +469,7 @@ export function RightPanel({ project, update }: Props) {
               min={-Math.PI}
               max={Math.PI}
               onChange={(v) => setV(update, "rotation")(v)}
+              format={(n) => `${Math.round((n * 180) / Math.PI)}°`}
             />
             <SliderField
               label="Movement"
@@ -457,159 +491,41 @@ export function RightPanel({ project, update }: Props) {
         </TabPanel>
 
         <TabPanel value="effects">
-          <Section title="Particles">
-            <Toggle
-              label="Enable particles"
-              value={E.particles.enabled}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, enabled: v } },
-                }))
-              }
-            />
-            <div className="space-y-1.5">
-              <div className="text-xs text-muted-foreground">Type</div>
-              <Select
-                value={E.particles.type}
-                onValueChange={(v) =>
-                  update((p) => ({
-                    ...p,
-                    effects: {
-                      ...p.effects,
-                      particles: { ...E.particles, type: v as typeof E.particles.type },
-                    },
-                  }))
-                }
-              >
-                <SelectTrigger className="h-9 bg-elevated/60">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["snow", "dust", "sparks", "bokeh", "lights"] as const).map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <SliderField
-              label="Density"
-              value={E.particles.density}
-              min={0}
-              max={120}
-              step={1}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, density: v } },
-                }))
-              }
-              format={(n) => n.toFixed(0)}
-            />
-
-            <SliderField
-              label="Speed"
-              value={E.particles.speed}
-              max={3}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, speed: v } },
-                }))
-              }
-            />
-            <SliderField
-              label="Opacity"
-              value={E.particles.opacity}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, opacity: v } },
-                }))
-              }
-            />
-            <SliderField
-              label="Reactivity"
-              value={E.particles.reactivity}
-              max={2}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, reactivity: v } },
-                }))
-              }
-            />
-            <ColorField
-              label="Color"
-              value={E.particles.color}
-              onChange={(v) =>
-                update((p) => ({
-                  ...p,
-                  effects: { ...p.effects, particles: { ...E.particles, color: v } },
-                }))
-              }
-            />
-          </Section>
-          <Section title="Atmosphere">
-            <Toggle
-              label="Beat flash"
-              value={E.beatFlash}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, beatFlash: v } }))}
-            />
-            <Toggle
-              label="Vignette"
-              value={E.vignette}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, vignette: v } }))}
-            />
-            <Toggle
-              label="Noise texture"
-              value={E.noise}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, noise: v } }))}
-            />
-            <Toggle
-              label="Lens flare"
-              value={E.lensFlare}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, lensFlare: v } }))}
-            />
-            <Toggle
-              label="Logo pulse"
-              value={E.logoPulse}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, logoPulse: v } }))}
-            />
-            <Toggle
-              label="Logo bounce"
-              value={E.logoBounce}
-              onChange={(v) => update((p) => ({ ...p, effects: { ...p.effects, logoBounce: v } }))}
-            />
-            <Toggle
-              label="Background pulse"
-              value={E.backgroundPulse}
-              onChange={(v) =>
-                update((p) => ({ ...p, effects: { ...p.effects, backgroundPulse: v } }))
-              }
-            />
-          </Section>
+          <EffectsTab effects={E} update={update} />
         </TabPanel>
 
         <TabPanel value="lyrics">
           <Toggle
             label="Enable lyrics"
             value={L.enabled}
-            onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, enabled: v } }))}
+            onChange={(v) => setL("enabled", v)}
           />
+          {L.enabled && L.lines.length === 0 && (
+            <p className="text-[11px] text-muted-foreground -mt-1">
+              No lyrics yet — use the <span className="font-medium text-foreground/90">+ Lyrics</span> button in the bottom bar to paste or auto-sync them.
+            </p>
+          )}
           <Section title="Style">
+            <div className="space-y-1.5">
+              <div className="text-xs text-muted-foreground">Style</div>
+              <Select
+                value={L.style}
+                onValueChange={(v) => setL("style", v as typeof L.style)}
+              >
+                <SelectTrigger className="h-9 bg-elevated/60">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="subtitle">Subtitle</SelectItem>
+                  <SelectItem value="karaoke">Karaoke highlight</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5">
               <div className="text-xs text-muted-foreground">Position</div>
               <Select
                 value={L.position}
-                onValueChange={(v) =>
-                  update((p) => ({
-                    ...p,
-                    lyrics: { ...p.lyrics, position: v as typeof L.position },
-                  }))
-                }
+                onValueChange={(v) => setL("position", v as typeof L.position)}
               >
                 <SelectTrigger className="h-9 bg-elevated/60">
                   <SelectValue />
@@ -624,105 +540,454 @@ export function RightPanel({ project, update }: Props) {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <div className="text-xs text-muted-foreground">Style</div>
-              <Select
-                value={L.style}
-                onValueChange={(v) =>
-                  update((p) => ({ ...p, lyrics: { ...p.lyrics, style: v as typeof L.style } }))
-                }
-              >
-                <SelectTrigger className="h-9 bg-elevated/60">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="subtitle">Subtitle</SelectItem>
-                  <SelectItem value="karaoke">Karaoke</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
               <div className="text-xs text-muted-foreground">Font</div>
               <Select
                 value={L.fontFamily}
-                onValueChange={(v) =>
-                  update((p) => ({ ...p, lyrics: { ...p.lyrics, fontFamily: v } }))
-                }
+                onValueChange={(v) => setL("fontFamily", v)}
               >
-                <SelectTrigger className="h-9 bg-elevated/60">
+                <SelectTrigger className="h-9 bg-elevated/60" style={{ fontFamily: `"${L.fontFamily}", sans-serif` }}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* Restricted to system / Lambda-safe families. Lambda has no
-                        Google Fonts installed, so Google-only families silently fell
-                        back to a default at render time — diverging from the live
-                        preview. Re-add families here only after bundling them via
-                        loadFont() inside src/remotion/. */}
-                  {[
-                    "Arial",
-                    "Helvetica",
-                    "Times New Roman",
-                    "Georgia",
-                    "Courier New",
-                    "Verdana",
-                    "Trebuchet MS",
-                    "Impact",
-                    "Comic Sans MS",
-                  ].map((f) => (
-                    <SelectItem key={f} value={f} style={{ fontFamily: `${f}, sans-serif` }}>
-                      {f}
-                    </SelectItem>
-                  ))}
+                  {FONT_GROUPS.map((g) => {
+                    const fonts = LYRIC_FONTS.filter((f) => f.category === g.category);
+                    if (!fonts.length) return null;
+                    return (
+                      <SelectGroup key={g.category}>
+                        <SelectLabel>{g.label}</SelectLabel>
+                        {fonts.map((f) => (
+                          <SelectItem key={f.family} value={f.family} style={{ fontFamily: `"${f.family}", sans-serif` }}>
+                            {f.family}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    );
+                  })}
                 </SelectContent>
               </Select>
+              <p className="text-[10px] text-muted-foreground">All fonts here render identically in the exported video.</p>
             </div>
             <SliderField
               label="Font size"
               value={L.fontSize}
               min={16}
-              max={120}
+              max={140}
               step={1}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, fontSize: v } }))}
+              onChange={(v) => setL("fontSize", v)}
               format={(n) => `${n.toFixed(0)}px`}
             />
             <ColorField
               label="Color"
               value={L.color}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, color: v } }))}
+              onChange={(v) => setL("color", v)}
             />
+            {L.style === "karaoke" && (
+              <ColorField
+                label="Highlight"
+                value={L.highlightColor || V.glow}
+                onChange={(v) => setL("highlightColor", v)}
+              />
+            )}
+            <Toggle label="Uppercase" value={Boolean(L.uppercase)} onChange={(v) => setL("uppercase", v)} />
+            <Toggle label="Outline" value={L.outline} onChange={(v) => setL("outline", v)} />
+            <Toggle label="Shadow" value={L.shadow} onChange={(v) => setL("shadow", v)} />
+            <Toggle label="Glow" value={L.glow} onChange={(v) => setL("glow", v)} />
+          </Section>
+          <Section title="Motion">
+            <div className="space-y-1.5">
+              <div className="text-xs text-muted-foreground">Line entrance</div>
+              <Select
+                value={L.animation ?? "none"}
+                onValueChange={(v) => setL("animation", v as NonNullable<typeof L.animation>)}
+              >
+                <SelectTrigger className="h-9 bg-elevated/60">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="slide">Slide up</SelectItem>
+                  <SelectItem value="pop">Pop</SelectItem>
+                  <SelectItem value="typewriter">Typewriter</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Toggle label="Fade in / out" value={L.fade} onChange={(v) => setL("fade", v)} />
             <Toggle
-              label="Outline"
-              value={L.outline}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, outline: v } }))}
+              label="Show next line"
+              value={Boolean(L.showNext)}
+              onChange={(v) => setL("showNext", v)}
             />
-            <Toggle
-              label="Shadow"
-              value={L.shadow}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, shadow: v } }))}
-            />
-            <Toggle
-              label="Glow"
-              value={L.glow}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, glow: v } }))}
-            />
-            <Toggle
-              label="Fade"
-              value={L.fade}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, fade: v } }))}
-            />
+            {L.style === "karaoke" && (
+              <Toggle
+                label="Word-by-word highlight"
+                value={L.wordHighlight ?? true}
+                onChange={(v) => setL("wordHighlight", v)}
+              />
+            )}
             <SliderField
               label="Timing offset"
               value={L.timingOffset ?? 0}
               min={-5}
               max={5}
               step={0.05}
-              onChange={(v) => update((p) => ({ ...p, lyrics: { ...p.lyrics, timingOffset: v } }))}
+              onChange={(v) => setL("timingOffset", v)}
               format={(n) => `${n > 0 ? "+" : ""}${n.toFixed(2)}s`}
+              hint="Positive shows lyrics earlier, negative later."
             />
-
           </Section>
         </TabPanel>
       </Tabs>
     </aside>
+  );
+}
+
+// ─── FX tab ──────────────────────────────────────────────────────────────
+
+type Effects = Project["effects"];
+
+// Nested effect objects are optional on saved projects; spread these so an
+// update never produces a half-formed object. Same numbers as the store.
+const FX_DEFAULTS = (() => {
+  const d = defaultEffects();
+  return {
+    particles: d.particles,
+    camera: d.camera ?? { zoom: 0, shake: 0 },
+    reflection: d.reflection ?? { enabled: false, opacity: 0.35, height: 0.35, horizon: 0.78 },
+    trails: d.trails ?? { enabled: false, decay: 0.82 },
+    lightStreaks: d.lightStreaks ?? { enabled: false, intensity: 0.6, color: "#ffffff" },
+    fog: d.fog ?? { enabled: false, density: 0.4, color: "#9fb4ff", speed: 0.4 },
+    gradientWash: d.gradientWash ?? { enabled: false, intensity: 0.5 },
+    ripples: d.ripples ?? { enabled: false, intensity: 0.6 },
+  };
+})();
+
+const PARTICLE_TYPES: { value: ParticleType; label: string }[] = [
+  { value: "snow", label: "Snow" },
+  { value: "dust", label: "Dust" },
+  { value: "sparks", label: "Sparks" },
+  { value: "bokeh", label: "Bokeh" },
+  { value: "lights", label: "Lights" },
+  { value: "embers", label: "Embers" },
+  { value: "stars", label: "Stars" },
+];
+
+const PARTICLE_TRIGGERS: { value: ParticleTrigger; label: string }[] = [
+  { value: "volume", label: "Volume" },
+  { value: "kick", label: "Kick" },
+  { value: "snare", label: "Snare" },
+  { value: "hat", label: "Hi-hat" },
+];
+
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+function EffectsTab({ effects: E, update }: { effects: Effects; update: Props["update"] }) {
+  const patch = (fn: (e: Effects) => Partial<Effects>) =>
+    update((p) => ({ ...p, effects: { ...p.effects, ...fn(p.effects) } }));
+  const setParticles = (v: Partial<Effects["particles"]>) =>
+    patch((e) => ({ particles: { ...FX_DEFAULTS.particles, ...e.particles, ...v } }));
+  const setCamera = (v: Partial<typeof FX_DEFAULTS.camera>) =>
+    patch((e) => ({ camera: { ...FX_DEFAULTS.camera, ...e.camera, ...v } }));
+  const setReflection = (v: Partial<typeof FX_DEFAULTS.reflection>) =>
+    patch((e) => ({ reflection: { ...FX_DEFAULTS.reflection, ...e.reflection, ...v } }));
+  const setTrails = (v: Partial<typeof FX_DEFAULTS.trails>) =>
+    patch((e) => ({ trails: { ...FX_DEFAULTS.trails, ...e.trails, ...v } }));
+  const setStreaks = (v: Partial<typeof FX_DEFAULTS.lightStreaks>) =>
+    patch((e) => ({ lightStreaks: { ...FX_DEFAULTS.lightStreaks, ...e.lightStreaks, ...v } }));
+  const setFog = (v: Partial<typeof FX_DEFAULTS.fog>) =>
+    patch((e) => ({ fog: { ...FX_DEFAULTS.fog, ...e.fog, ...v } }));
+  const setWash = (v: Partial<typeof FX_DEFAULTS.gradientWash>) =>
+    patch((e) => ({ gradientWash: { ...FX_DEFAULTS.gradientWash, ...e.gradientWash, ...v } }));
+  const setRipples = (v: Partial<typeof FX_DEFAULTS.ripples>) =>
+    patch((e) => ({ ripples: { ...FX_DEFAULTS.ripples, ...e.ripples, ...v } }));
+
+  const P = E.particles;
+  const cam = { ...FX_DEFAULTS.camera, ...E.camera };
+  const refl = { ...FX_DEFAULTS.reflection, ...E.reflection };
+  const trails = { ...FX_DEFAULTS.trails, ...E.trails };
+  const streaks = { ...FX_DEFAULTS.lightStreaks, ...E.lightStreaks };
+  const fog = { ...FX_DEFAULTS.fog, ...E.fog };
+  const wash = { ...FX_DEFAULTS.gradientWash, ...E.gradientWash };
+  const ripples = { ...FX_DEFAULTS.ripples, ...E.ripples };
+
+  return (
+    <>
+      <Section title="Particles">
+        <Toggle label="Enable particles" value={P.enabled} onChange={(v) => setParticles({ enabled: v })} />
+        <div className="space-y-1.5">
+          <div className="text-xs text-muted-foreground">Type</div>
+          <Select value={P.type} onValueChange={(v) => setParticles({ type: v as ParticleType })}>
+            <SelectTrigger className="h-9 bg-elevated/60">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PARTICLE_TYPES.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <SliderField
+          label="Density"
+          value={P.density}
+          min={0}
+          max={200}
+          step={1}
+          onChange={(v) => setParticles({ density: v })}
+          format={(n) => n.toFixed(0)}
+          hint="How many particles are on screen."
+        />
+        <SliderField
+          label="Size"
+          value={P.size ?? 1}
+          min={0.3}
+          max={3}
+          onChange={(v) => setParticles({ size: v })}
+          format={(n) => `${n.toFixed(2)}×`}
+          hint="How big each particle is."
+        />
+        <SliderField
+          label="Speed"
+          value={P.speed}
+          max={3}
+          onChange={(v) => setParticles({ speed: v })}
+          hint="How fast the particles drift."
+        />
+        <SliderField
+          label="Jitter"
+          value={P.jitter ?? 0.3}
+          onChange={(v) => setParticles({ jitter: v })}
+          hint="Adds a random wobble to the motion."
+        />
+        <div className="space-y-1.5">
+          <div className="text-xs text-muted-foreground">Reacts to</div>
+          <Select value={P.trigger ?? "volume"} onValueChange={(v) => setParticles({ trigger: v as ParticleTrigger })}>
+            <SelectTrigger className="h-9 bg-elevated/60">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PARTICLE_TRIGGERS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[10px] text-muted-foreground">Which part of the music makes the particles surge.</p>
+        </div>
+        <SliderField
+          label="Reactivity"
+          value={P.reactivity}
+          max={2}
+          onChange={(v) => setParticles({ reactivity: v })}
+          hint="How hard the particles surge forward on that signal."
+        />
+        <SliderField
+          label="Burst"
+          value={P.burst ?? 0}
+          max={2}
+          onChange={(v) => setParticles({ burst: v })}
+          hint="Particles swell and brighten on every hit."
+        />
+        <SliderField label="Opacity" value={P.opacity} onChange={(v) => setParticles({ opacity: v })} />
+        <ColorField label="Color" value={P.color} onChange={(v) => setParticles({ color: v })} />
+      </Section>
+
+      <Section title="Camera & Motion">
+        <SliderField
+          label="Beat zoom"
+          value={cam.zoom}
+          max={0.15}
+          step={0.005}
+          onChange={(v) => setCamera({ zoom: v })}
+          format={pct}
+          hint="Punches the whole picture in on every kick."
+        />
+        <SliderField
+          label="Shake"
+          value={cam.shake}
+          onChange={(v) => setCamera({ shake: v })}
+          hint="Handheld camera wobble on kicks."
+        />
+        <SliderField
+          label="Background zoom pulse"
+          value={E.bgZoomPulse ?? 0}
+          max={0.2}
+          step={0.005}
+          onChange={(v) => patch(() => ({ bgZoomPulse: v }))}
+          format={pct}
+          hint="The background image swells with the bass."
+        />
+        <SliderField
+          label="Beat split"
+          value={E.beatSplit ?? 0}
+          onChange={(v) => patch(() => ({ beatSplit: v }))}
+          hint="Ghost copies split left and right on kicks."
+        />
+      </Section>
+
+      <Section title="Layers">
+        <FxToggle
+          label="Floor reflection"
+          value={refl.enabled}
+          onChange={(v) => setReflection({ enabled: v })}
+          hint="Mirrors the visualizer below a floor line, like a wet stage."
+        />
+        {refl.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField label="Opacity" value={refl.opacity} onChange={(v) => setReflection({ opacity: v })} />
+            <SliderField
+              label="Height"
+              value={refl.height}
+              min={0.05}
+              max={0.8}
+              onChange={(v) => setReflection({ height: v })}
+              hint="How far down the reflection reaches before it fades out."
+            />
+            <SliderField
+              label="Horizon"
+              value={refl.horizon}
+              min={0.3}
+              max={1}
+              onChange={(v) => setReflection({ horizon: v })}
+              hint="Where the floor line sits (1 = bottom edge)."
+            />
+          </div>
+        )}
+
+        <FxToggle
+          label="Trails"
+          value={trails.enabled}
+          onChange={(v) => setTrails({ enabled: v })}
+          hint="Leaves glowing after-images behind anything that moves."
+        />
+        {trails.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField
+              label="Persistence"
+              value={trails.decay}
+              min={0.5}
+              max={0.97}
+              step={0.005}
+              onChange={(v) => setTrails({ decay: v })}
+              hint="Higher = the trails linger longer."
+            />
+          </div>
+        )}
+
+        <FxToggle
+          label="Light streaks"
+          value={streaks.enabled}
+          onChange={(v) => setStreaks({ enabled: v })}
+          hint="Long diagonal beams sweep across on kicks and snares."
+        />
+        {streaks.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField label="Intensity" value={streaks.intensity} onChange={(v) => setStreaks({ intensity: v })} />
+            <ColorField label="Color" value={streaks.color} onChange={(v) => setStreaks({ color: v })} />
+          </div>
+        )}
+
+        <FxToggle
+          label="Fog"
+          value={fog.enabled}
+          onChange={(v) => setFog({ enabled: v })}
+          hint="Slow drifting haze that thickens a little when the song gets loud."
+        />
+        {fog.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField label="Density" value={fog.density} onChange={(v) => setFog({ density: v })} />
+            <SliderField
+              label="Speed"
+              value={fog.speed}
+              max={2}
+              onChange={(v) => setFog({ speed: v })}
+              hint="How quickly the fog drifts."
+            />
+            <ColorField label="Color" value={fog.color} onChange={(v) => setFog({ color: v })} />
+          </div>
+        )}
+
+        <FxToggle
+          label="Colour wash"
+          value={wash.enabled}
+          onChange={(v) => setWash({ enabled: v })}
+          hint="Soft moving colour clouds from your palette; the bass swells them."
+        />
+        {wash.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField label="Intensity" value={wash.intensity} onChange={(v) => setWash({ intensity: v })} />
+          </div>
+        )}
+
+        <FxToggle
+          label="Beat ripples"
+          value={ripples.enabled}
+          onChange={(v) => setRipples({ enabled: v })}
+          hint="Rings ripple out from the visualizer on every kick."
+        />
+        {ripples.enabled && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField label="Intensity" value={ripples.intensity} onChange={(v) => setRipples({ intensity: v })} />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Atmosphere">
+        <Toggle label="Beat flash" value={E.beatFlash} onChange={(v) => patch(() => ({ beatFlash: v }))} />
+        <Toggle label="Vignette" value={E.vignette} onChange={(v) => patch(() => ({ vignette: v }))} />
+        {E.vignette && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField
+              label="Breathing vignette"
+              value={E.breathingVignette ?? 0}
+              onChange={(v) => patch(() => ({ breathingVignette: v }))}
+              hint="The dark edges close in when the music goes quiet and open up on the loud parts."
+            />
+          </div>
+        )}
+        <Toggle label="Film grain" value={E.noise} onChange={(v) => patch(() => ({ noise: v }))} />
+        {E.noise && (
+          <div className="pl-3 border-l border-border/60 space-y-2.5">
+            <SliderField
+              label="Grain amount"
+              value={E.noiseAmount ?? 0.07}
+              max={0.3}
+              onChange={(v) => patch(() => ({ noiseAmount: v }))}
+              hint="How strong the film grain is."
+            />
+          </div>
+        )}
+        <Toggle label="Lens flare" value={E.lensFlare} onChange={(v) => patch(() => ({ lensFlare: v }))} />
+        <Toggle label="Logo pulse" value={E.logoPulse} onChange={(v) => patch(() => ({ logoPulse: v }))} />
+        <Toggle label="Logo bounce" value={E.logoBounce} onChange={(v) => patch(() => ({ logoBounce: v }))} />
+        <Toggle
+          label="Background pulse"
+          value={E.backgroundPulse}
+          onChange={(v) => patch(() => ({ backgroundPulse: v }))}
+        />
+      </Section>
+    </>
+  );
+}
+
+function FxToggle({
+  label,
+  value,
+  onChange,
+  hint,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Toggle label={label} value={value} onChange={onChange} />
+      {hint && <p className="text-[10px] text-muted-foreground leading-snug">{hint}</p>}
+    </div>
   );
 }
 

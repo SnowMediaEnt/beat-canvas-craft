@@ -2,18 +2,21 @@ import { useEffect, useState, useCallback } from "react";
 import { get as idbGet, set as idbSet } from "idb-keyval";
 import { PRESETS } from "@/lib/visualizer/presets";
 import type { Project, RenderJob, VisualizerConfig, LyricsConfig, EffectsConfig, ExportConfig, AssetRef, AspectRatio } from "./types";
-import { hydrateAsset, stripAssetUrl } from "./assets";
+import { hydrateAsset, stripAssetUrl, deleteAsset } from "./assets";
+import { deleteThumbnail } from "./thumbnails";
+import { LYRIC_FONT_FAMILIES } from "@/lib/visualizer/fonts";
 
 const KEY = "mv.projects.v1";
 const JOBS_KEY = "mv.jobs.v1";
 const WINDOW_BACKUP_PREFIX = "__pulse_backup__:";
 const VALID_ASPECT_RATIOS = new Set<AspectRatio>(["16:9", "1:1", "9:16", "4:5"]);
 const VALID_PRESET_IDS = new Set(PRESETS.map((preset) => preset.id));
-const VALID_PARTICLE_TYPES = new Set(["snow", "dust", "sparks", "bokeh", "lights"] as const);
+const VALID_PARTICLE_TYPES = new Set(["snow", "dust", "sparks", "bokeh", "lights", "embers", "stars"] as const);
+const VALID_LYRIC_ANIMATIONS = new Set(["none", "slide", "pop", "typewriter"] as const);
 // Matches the dropdown values in RightPanel exactly. Anything outside this set
-// gets snapped to the default on the next save, which previously stripped any
-// band count above 64 on reload.
-const VALID_BAND_COUNTS = new Set([3, 5, 7, 10, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]);
+// gets snapped to the default on the next save.
+export const BAND_COUNT_OPTIONS = [8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256] as const;
+const VALID_BAND_COUNTS = new Set<number>([3, 5, 7, 10, 20, ...BAND_COUNT_OPTIONS]);
 const VALID_CUSTOM_SHAPES = new Set(["bars", "mirrored", "radial", "ring", "wave", "dots", "triangles"] as const);
 type CustomShape = typeof VALID_CUSTOM_SHAPES extends Set<infer T> ? T : never;
 
@@ -74,12 +77,29 @@ export const defaultLyrics = (): LyricsConfig => ({
   enabled: false, lines: [], style: "subtitle", position: "bottom",
   fontFamily: "Arial", fontSize: 42, color: "#ffffff",
   outline: true, shadow: true, glow: false, fade: true, timingOffset: 0,
+  animation: "none", wordHighlight: true, showNext: false, uppercase: false,
 });
 
 
+export const VALID_PARTICLE_TRIGGERS = new Set(["volume", "kick", "snare", "hat"] as const);
+
 export const defaultEffects = (): EffectsConfig => ({
-  particles: { enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3 },
+  particles: {
+    enabled: true, type: "dust", density: 40, speed: 0.4, color: "#ffffff", opacity: 0.35, reactivity: 0.3,
+    size: 1, jitter: 0.3, trigger: "volume", burst: 0,
+  },
   beatFlash: false, vignette: true, noise: false, lensFlare: false, logoPulse: true, logoBounce: false, backgroundPulse: false,
+  camera: { zoom: 0, shake: 0 },
+  bgZoomPulse: 0,
+  reflection: { enabled: false, opacity: 0.35, height: 0.35, horizon: 0.78 },
+  trails: { enabled: false, decay: 0.82 },
+  beatSplit: 0,
+  noiseAmount: 0.07,
+  lightStreaks: { enabled: false, intensity: 0.6, color: "#ffffff" },
+  fog: { enabled: false, density: 0.4, color: "#9fb4ff", speed: 0.4 },
+  gradientWash: { enabled: false, intensity: 0.5 },
+  ripples: { enabled: false, intensity: 0.6 },
+  breathingVignette: 0,
 });
 
 export const defaultExport = (): ExportConfig => ({ resolution: "1080p", fps: 60, quality: "high" });
@@ -133,12 +153,15 @@ const write = (k: string, v: unknown) => {
   }
 };
 
+// Session-scoped backup (survives an in-tab reload of the Lovable preview
+// when localStorage is unavailable). Origin-bound, unlike the previous
+// window.name channel, which any other website could pre-fill.
 const readWindowBackup = (): WindowBackupState => {
   if (typeof window === "undefined") return {};
-  const raw = window.name;
-  if (!raw || !raw.startsWith(WINDOW_BACKUP_PREFIX)) return {};
   try {
-    return JSON.parse(raw.slice(WINDOW_BACKUP_PREFIX.length)) as WindowBackupState;
+    const raw = window.sessionStorage.getItem(WINDOW_BACKUP_PREFIX);
+    if (!raw) return {};
+    return JSON.parse(raw) as WindowBackupState;
   } catch {
     return {};
   }
@@ -146,18 +169,19 @@ const readWindowBackup = (): WindowBackupState => {
 
 const writeWindowBackup = (partial: WindowBackupState) => {
   if (typeof window === "undefined") return;
-  if (window.name && !window.name.startsWith(WINDOW_BACKUP_PREFIX)) return;
   try {
     const current = readWindowBackup();
-    window.name = `${WINDOW_BACKUP_PREFIX}${JSON.stringify({ ...current, ...partial })}`;
+    window.sessionStorage.setItem(WINDOW_BACKUP_PREFIX, JSON.stringify({ ...current, ...partial }));
   } catch (error) {
-    console.warn("[project-store] Failed to write window backup", error);
+    console.warn("[project-store] Failed to write session backup", error);
   }
 };
 
 const mergeProjects = (primary: Project[], secondary: Project[]) => {
   const merged = new Map<string, Project>();
-  for (const project of [...secondary, ...primary]) {
+  for (const raw of [...secondary, ...primary]) {
+    // Backups/IndexedDB copies are untrusted until migrated.
+    const project = migrateProject(raw);
     const existing = merged.get(project.id);
     if (!existing || (project.updatedAt || 0) >= (existing.updatedAt || 0)) {
       merged.set(project.id, project);
@@ -229,14 +253,56 @@ export const saveProject = (p: Project) => {
   persistProjects(all);
 };
 
-export const deleteProject = (id: string) => {
-  persistProjects(listProjects().filter(p => p.id !== id));
+/** Asset ids referenced by any saved project or render job. */
+export const referencedAssetIds = (): Set<string> => {
+  const ids = new Set<string>();
+  for (const p of listProjects()) {
+    for (const ref of [p.audio, p.logo, p.background]) if (ref?.id) ids.add(ref.id);
+  }
+  for (const j of listJobs()) if (j.localAsset?.id) ids.add(j.localAsset.id);
+  return ids;
 };
 
-export const duplicateProject = (id: string): Project | undefined => {
+export const isAssetReferenced = (assetId: string) => referencedAssetIds().has(assetId);
+
+export const deleteProject = (id: string) => {
+  const victim = getProject(id);
+  persistProjects(listProjects().filter(p => p.id !== id));
+  deleteThumbnail(id);
+  // Drop the project's media blobs unless another project/job still uses them.
+  if (victim) {
+    const stillUsed = referencedAssetIds();
+    for (const ref of [victim.audio, victim.logo, victim.background]) {
+      if (ref && !stillUsed.has(ref.id)) void deleteAsset(ref);
+    }
+  }
+};
+
+/**
+ * Duplicate a project. Media blobs are COPIED under new ids so replacing or
+ * removing a file in one copy can never break the other.
+ */
+export const duplicateProject = async (id: string): Promise<Project | undefined> => {
   const p = getProject(id); if (!p) return;
   const copy: Project = { ...JSON.parse(JSON.stringify(p)), id: crypto.randomUUID(), name: `${p.name} (Copy)`, createdAt: Date.now(), updatedAt: Date.now() };
-  saveProject(copy); return copy;
+  const clone = async (ref: AssetRef | undefined): Promise<AssetRef | undefined> => {
+    if (!ref) return ref;
+    if (ref.id.startsWith("preset:") || ref.id.startsWith("color:")) return ref; // catalogue refs are shared by design
+    try {
+      const blob = await idbGet<Blob>(`asset:${ref.id}`);
+      if (!blob) return ref;
+      const newId = crypto.randomUUID();
+      await idbSet(`asset:${newId}`, blob);
+      return { ...ref, id: newId, url: "" };
+    } catch {
+      return ref;
+    }
+  };
+  copy.audio = await clone(p.audio);
+  copy.logo = await clone(p.logo);
+  copy.background = await clone(p.background);
+  saveProject(copy);
+  return copy;
 };
 
 export const listJobs = (): RenderJob[] => read<RenderJob[]>(JOBS_KEY, []);
@@ -298,6 +364,9 @@ function migrateProject(p: Project): Project {
     ? visualizer.presetId
     : dv.presetId;
 
+  const optionalText = (value: unknown, max = 120) =>
+    typeof value === "string" && value.trim().length > 0 ? value.slice(0, max) : undefined;
+
   return {
     ...p,
     id: sanitizeText(p.id, crypto.randomUUID()),
@@ -308,6 +377,8 @@ function migrateProject(p: Project): Project {
     audio: sanitizeAssetRef(p.audio),
     logo: sanitizeAssetRef(p.logo),
     background: sanitizeAssetRef(p.background),
+    trackTitle: optionalText(p.trackTitle),
+    trackArtist: optionalText(p.trackArtist),
     visualizer: {
       ...dv,
       ...visualizer,
@@ -321,7 +392,7 @@ function migrateProject(p: Project): Project {
       overlayOpacity: clamp(visualizer.overlayOpacity, 0, 1, dv.overlayOpacity),
       glowIntensity: clamp(visualizer.glowIntensity, 0, 3, dv.glowIntensity),
       blur: clamp(visualizer.blur, 0, 24, dv.blur),
-      size: clamp(visualizer.size, 0.1, 2, dv.size),
+      size: clamp(visualizer.size, 0.1, 2.5, dv.size),
       thickness: clamp(visualizer.thickness, 1, 30, dv.thickness),
       position: {
         x: clamp(visualizer.position?.x, -1, 1, dv.position.x),
@@ -333,7 +404,7 @@ function migrateProject(p: Project): Project {
         y: clamp(visualizer.logoPosition?.y, -1, 1, dv.logoPosition.y),
       },
       backgroundScale: clamp(visualizer.backgroundScale, 0.5, 2, dv.backgroundScale),
-      backgroundBlur: clamp(visualizer.backgroundBlur, 0, 24, dv.backgroundBlur),
+      backgroundBlur: clamp(visualizer.backgroundBlur, 0, 40, dv.backgroundBlur),
       backgroundTintOpacity: clamp(visualizer.backgroundTintOpacity, 0, 1, dv.backgroundTintOpacity),
       animationSpeed: clamp(visualizer.animationSpeed, 0.1, 4, dv.animationSpeed),
       sensitivity: clamp(visualizer.sensitivity, 0.1, 3, dv.sensitivity),
@@ -370,40 +441,91 @@ function migrateProject(p: Project): Project {
       enabled: Boolean(lyrics.enabled),
       lines: Array.isArray(lyrics.lines)
         ? lyrics.lines
-            .filter((line): line is { time: number; text: string } => !!line && typeof line.text === "string")
+            .filter((line) => !!line && typeof line.text === "string")
             .slice(0, 400)
-            .map((line) => ({
-              time: clamp(line.time, 0, Number.MAX_SAFE_INTEGER, 0),
-              text: line.text,
-            }))
+            .map((line) => {
+              const rawWords: unknown = (line as { words?: unknown }).words;
+              const words = Array.isArray(rawWords)
+                ? (rawWords as unknown[])
+                    .filter((w): w is { time: number; text: string } =>
+                      !!w && typeof w === "object" && typeof (w as { text?: unknown }).text === "string")
+                    .slice(0, 80)
+                    .map((w) => ({ time: clamp(w.time, 0, Number.MAX_SAFE_INTEGER, 0), text: w.text }))
+                : undefined;
+              return {
+                time: clamp(line.time, 0, Number.MAX_SAFE_INTEGER, 0),
+                text: line.text,
+                ...(words && words.length ? { words } : {}),
+              };
+            })
         : dl.lines,
-      fontFamily: sanitizeText(lyrics.fontFamily, dl.fontFamily),
+      fontFamily: LYRIC_FONT_FAMILIES.includes(lyrics.fontFamily) ? lyrics.fontFamily : sanitizeText(lyrics.fontFamily, dl.fontFamily),
       fontSize: clamp(lyrics.fontSize, 12, 160, dl.fontSize),
       color: sanitizeColor(lyrics.color, dl.color),
+      timingOffset: clamp(lyrics.timingOffset, -30, 30, 0),
+      animation: VALID_LYRIC_ANIMATIONS.has(lyrics.animation as "none") ? lyrics.animation : "none",
+      wordHighlight: typeof lyrics.wordHighlight === "boolean" ? lyrics.wordHighlight : true,
+      showNext: Boolean(lyrics.showNext),
+      uppercase: Boolean(lyrics.uppercase),
+      highlightColor: typeof lyrics.highlightColor === "string" && /^#([0-9a-f]{6})$/i.test(lyrics.highlightColor)
+        ? lyrics.highlightColor
+        : undefined,
     },
-    effects: {
-      ...de,
-      ...effects,
-      particles: {
-        ...de.particles,
-        ...(effects.particles || {}),
-        type: VALID_PARTICLE_TYPES.has(effects.particles?.type as typeof de.particles.type)
-          ? effects.particles!.type
-          : de.particles.type,
-        density: clamp(effects.particles?.density, 0, 120, de.particles.density),
-        speed: clamp(effects.particles?.speed, 0, 3, de.particles.speed),
-        color: sanitizeColor(effects.particles?.color, de.particles.color),
-        opacity: clamp(effects.particles?.opacity, 0, 1, de.particles.opacity),
-        reactivity: clamp(effects.particles?.reactivity, 0, 3, de.particles.reactivity),
-      },
-      beatFlash: Boolean(effects.beatFlash),
-      vignette: Boolean(effects.vignette),
-      noise: Boolean(effects.noise),
-      lensFlare: Boolean(effects.lensFlare),
-      logoPulse: Boolean(effects.logoPulse),
-      logoBounce: Boolean(effects.logoBounce),
-      backgroundPulse: Boolean(effects.backgroundPulse),
-    },
+    effects: (() => {
+      const fx = effects as Partial<EffectsConfig>;
+      const pick = <T extends object>(v: unknown, fallback: T): Partial<T> =>
+        v && typeof v === "object" ? (v as Partial<T>) : fallback;
+      const cam = pick(fx.camera, de.camera!);
+      const refl = pick(fx.reflection, de.reflection!);
+      const trails = pick(fx.trails, de.trails!);
+      const streaks = pick(fx.lightStreaks, de.lightStreaks!);
+      const fog = pick(fx.fog, de.fog!);
+      const wash = pick(fx.gradientWash, de.gradientWash!);
+      const ripples = pick(fx.ripples, de.ripples!);
+      const particles = pick(fx.particles, de.particles);
+      return {
+        ...de,
+        particles: {
+          ...de.particles,
+          ...particles,
+          type: VALID_PARTICLE_TYPES.has(particles.type as typeof de.particles.type)
+            ? (particles.type as typeof de.particles.type)
+            : de.particles.type,
+          density: clamp(particles.density, 0, 200, de.particles.density),
+          speed: clamp(particles.speed, 0, 3, de.particles.speed),
+          color: sanitizeColor(particles.color, de.particles.color),
+          opacity: clamp(particles.opacity, 0, 1, de.particles.opacity),
+          reactivity: clamp(particles.reactivity, 0, 3, de.particles.reactivity),
+          size: clamp(particles.size, 0.3, 3, de.particles.size ?? 1),
+          jitter: clamp(particles.jitter, 0, 1, de.particles.jitter ?? 0.3),
+          trigger: VALID_PARTICLE_TRIGGERS.has(particles.trigger as "volume") ? (particles.trigger as "volume") : "volume",
+          burst: clamp(particles.burst, 0, 2, de.particles.burst ?? 0),
+        },
+        beatFlash: Boolean(fx.beatFlash),
+        vignette: Boolean(fx.vignette),
+        noise: Boolean(fx.noise),
+        lensFlare: Boolean(fx.lensFlare),
+        logoPulse: Boolean(fx.logoPulse),
+        logoBounce: Boolean(fx.logoBounce),
+        backgroundPulse: Boolean(fx.backgroundPulse),
+        camera: { zoom: clamp(cam.zoom, 0, 0.15, 0), shake: clamp(cam.shake, 0, 1, 0) },
+        bgZoomPulse: clamp(fx.bgZoomPulse, 0, 0.2, 0),
+        reflection: {
+          enabled: Boolean(refl.enabled),
+          opacity: clamp(refl.opacity, 0, 1, 0.35),
+          height: clamp(refl.height, 0.05, 0.8, 0.35),
+          horizon: clamp(refl.horizon, 0.3, 1, 0.78),
+        },
+        trails: { enabled: Boolean(trails.enabled), decay: clamp(trails.decay, 0.5, 0.97, 0.82) },
+        beatSplit: clamp(fx.beatSplit, 0, 1, 0),
+        noiseAmount: clamp(fx.noiseAmount, 0, 0.3, 0.07),
+        lightStreaks: { enabled: Boolean(streaks.enabled), intensity: clamp(streaks.intensity, 0, 1, 0.6), color: sanitizeColor(streaks.color, "#ffffff") },
+        fog: { enabled: Boolean(fog.enabled), density: clamp(fog.density, 0, 1, 0.4), color: sanitizeColor(fog.color, "#9fb4ff"), speed: clamp(fog.speed, 0, 2, 0.4) },
+        gradientWash: { enabled: Boolean(wash.enabled), intensity: clamp(wash.intensity, 0, 1, 0.5) },
+        ripples: { enabled: Boolean(ripples.enabled), intensity: clamp(ripples.intensity, 0, 1, 0.6) },
+        breathingVignette: clamp(fx.breathingVignette, 0, 1, 0),
+      } satisfies EffectsConfig;
+    })(),
     export: {
       ...dx,
       ...(p.export || {}),

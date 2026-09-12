@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Plus, Music2, Sparkles, Trash2, Copy, Play } from "lucide-react";
 import { useProjects, newProject, saveProject, deleteProject, duplicateProject, listJobs, listJobsFromStorage } from "@/lib/project/store";
+import { getAllThumbnails, subscribeThumbnails } from "@/lib/project/thumbnails";
+import { PRESETS } from "@/lib/visualizer/presets";
 import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/")({
@@ -21,6 +23,7 @@ function Dashboard() {
   const { projects, refresh } = useProjects();
   const nav = useNavigate();
   const [jobs, setJobs] = useState<ReturnType<typeof listJobs>>([]);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   useEffect(() => {
     let cancelled = false;
     setJobs(listJobs());
@@ -29,6 +32,10 @@ function Dashboard() {
     });
     return () => { cancelled = true; };
   }, [projects]);
+  useEffect(() => {
+    setThumbs(getAllThumbnails());
+    return subscribeThumbnails(() => setThumbs(getAllThumbnails()));
+  }, []);
 
   const create = () => {
     const p = newProject();
@@ -61,8 +68,8 @@ function Dashboard() {
             Make music <span className="text-gradient">move</span>.
           </h1>
           <p className="text-muted-foreground max-w-xl">
-            Upload a track, drop in a logo, choose from 20 reactive presets and export cinematic visualizer videos
-            ready for YouTube, Reels, and TikTok.
+            Upload a track, drop in a logo, choose from {PRESETS.length} beat-reactive visualizers and export cinematic
+            videos in HD or 4K, ready for YouTube, Reels, and TikTok.
           </p>
         </section>
 
@@ -80,37 +87,48 @@ function Dashboard() {
             </Card>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map(p => (
-                <Card key={p.id} className="panel group overflow-hidden hover:border-primary/50 transition-all">
-                  <Link to="/editor/$projectId" params={{ projectId: p.id }} className="block">
-                    <div className="aspect-video relative overflow-hidden"
-                      style={{
-                        background: `linear-gradient(135deg, ${p.visualizer.primary}33, ${p.visualizer.accent}33)`,
-                      }}>
-                      <div className="absolute inset-0 grid place-items-center">
-                        <div className="size-16 rounded-full grid place-items-center backdrop-blur-sm bg-background/40 border border-border group-hover:scale-110 transition-transform">
-                          <Play className="size-6 text-foreground" />
+              {projects.map(p => {
+                const thumb = thumbs[p.id];
+                return (
+                  <Card key={p.id} className="panel group overflow-hidden hover:border-primary/50 transition-all">
+                    <Link to="/editor/$projectId" params={{ projectId: p.id }} className="block">
+                      <div className="aspect-video relative overflow-hidden bg-black"
+                        style={thumb ? undefined : {
+                          background: `linear-gradient(135deg, ${p.visualizer.primary}33, ${p.visualizer.accent}33)`,
+                        }}>
+                        {thumb && (
+                          <img
+                            src={thumb}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                            loading="lazy"
+                          />
+                        )}
+                        <div className="absolute inset-0 grid place-items-center">
+                          <div className="size-16 rounded-full grid place-items-center backdrop-blur-sm bg-background/40 border border-border group-hover:scale-110 transition-transform">
+                            <Play className="size-6 text-foreground" />
+                          </div>
                         </div>
                       </div>
+                    </Link>
+                    <div className="p-4 space-y-2">
+                      <div className="font-medium truncate">{p.name}</div>
+                      <div className="text-xs text-muted-foreground flex items-center justify-between">
+                        <span>{p.aspectRatio} · {p.visualizer.presetId.replace(/-/g, " ")}</span>
+                        <span>{new Date(p.updatedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex gap-1 pt-1">
+                        <Button size="sm" variant="ghost" className="h-7 px-2" title="Duplicate" onClick={(e) => { e.preventDefault(); void duplicateProject(p.id).then(() => refresh()); }}>
+                          <Copy className="size-3.5" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 px-2 hover:text-destructive" title="Delete" onClick={(e) => { e.preventDefault(); if (window.confirm(`Delete "${p.name}"? This cannot be undone.`)) { deleteProject(p.id); refresh(); } }}>
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
                     </div>
-                  </Link>
-                  <div className="p-4 space-y-2">
-                    <div className="font-medium truncate">{p.name}</div>
-                    <div className="text-xs text-muted-foreground flex items-center justify-between">
-                      <span>{p.aspectRatio}</span>
-                      <span>{new Date(p.updatedAt).toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex gap-1 pt-1">
-                      <Button size="sm" variant="ghost" className="h-7 px-2" onClick={(e) => { e.preventDefault(); duplicateProject(p.id); refresh(); }}>
-                        <Copy className="size-3.5" />
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7 px-2 hover:text-destructive" onClick={(e) => { e.preventDefault(); deleteProject(p.id); refresh(); }}>
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </Card>
-              ))}
+                  </Card>
+                );
+              })}
             </div>
           )}
         </section>
@@ -123,10 +141,10 @@ function Dashboard() {
                 <div key={j.id} className="p-4 flex items-center justify-between text-sm">
                   <div>
                     <div className="font-medium">{j.projectName}</div>
-                    <div className="text-xs text-muted-foreground">{j.config.resolution} · {j.config.fps}fps · {j.aspectRatio}</div>
+                    <div className="text-xs text-muted-foreground">{j.config.resolution} · {j.config.fps}fps · {j.aspectRatio} · {j.kind === "lambda" ? "AWS render" : "browser recording"}</div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className={`text-xs px-2 py-1 rounded-md ${j.status === "completed" ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}>{j.status}</span>
+                    <span className={`text-xs px-2 py-1 rounded-md ${j.status === "completed" ? "bg-primary/15 text-primary" : j.status === "failed" ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"}`}>{j.status}</span>
                     {j.downloadUrl && <a href={j.downloadUrl} download className="text-xs text-primary hover:underline">Download</a>}
                   </div>
                 </div>

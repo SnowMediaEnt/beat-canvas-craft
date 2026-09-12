@@ -4,6 +4,8 @@
 // and render time before kicking off a job, especially while AWS account
 // concurrency quotas are low.
 
+import { computeFramesPerLambda } from "./lambda-config";
+
 export interface RenderEstimate {
   totalFrames: number;
   estimatedWorkers: number;
@@ -35,10 +37,11 @@ export function estimateRender(opts: {
   durationSeconds: number;
   fps: number;
   resolution: "720p" | "1080p" | "4k";
-  framesPerLambda: number;
+  /** Defaults to the exact chunk size the render will use. */
+  framesPerLambda?: number;
 }): RenderEstimate {
   const totalFrames = Math.max(1, Math.ceil(opts.durationSeconds * opts.fps));
-  const framesPerWorker = Math.max(1, opts.framesPerLambda);
+  const framesPerWorker = Math.max(1, opts.framesPerLambda ?? computeFramesPerLambda(totalFrames, opts.fps));
   const estimatedWorkers = Math.ceil(totalFrames / framesPerWorker);
 
   // File size: bitrate * duration. Scale a bit with fps above 30.

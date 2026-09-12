@@ -11,6 +11,7 @@ import { alignLyrics } from "@/lib/lyrics/align";
 import { aiAlignLyrics } from "@/lib/lyrics/ai-align.functions";
 import type { Project } from "@/lib/project/types";
 import { ensureTranscription, getEntry } from "@/lib/transcribe/elevenlabs";
+import { getStoredAccessCode } from "@/lib/render/access-code";
 import { TranscriptionStatus } from "./TranscriptionStatus";
 
 const fmt = (s: number) => {
@@ -18,6 +19,20 @@ const fmt = (s: number) => {
   const m = Math.floor(s / 60); const ss = Math.floor(s % 60).toString().padStart(2, "0");
   return `${m}:${ss}`;
 };
+
+// Lyric timestamps keep centiseconds so "Apply" after an auto-sync no longer
+// rounds every line down to whole seconds (which de-synced the whole song).
+const fmtLyric = (s: number) => {
+  if (!isFinite(s) || s < 0) return "0:00.00";
+  const m = Math.floor(s / 60);
+  const rest = s - m * 60;
+  const ss = Math.floor(rest).toString().padStart(2, "0");
+  const cc = Math.round((rest - Math.floor(rest)) * 100).toString().padStart(2, "0");
+  return `${m}:${ss}.${cc === "100" ? "99" : cc}`;
+};
+
+const formatLyricLines = (lines: Project["lyrics"]["lines"]) =>
+  lines.map(l => `[${fmtLyric(l.time)}] ${l.text}`).join("\n");
 
 interface Props {
   project: Project;
@@ -30,7 +45,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [lyricsText, setLyricsText] = useState(project.lyrics.lines.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n"));
+  const [lyricsText, setLyricsText] = useState(formatLyricLines(project.lyrics.lines));
   const [syncing, setSyncing] = useState(false);
   const aiAlign = useServerFn(aiAlignLyrics);
 
@@ -59,15 +74,21 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     const raw = text.split(/\r?\n/).map(l => l.trim());
     const tsRe = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/;
     const sectionRe = /^\[[^\]]+\]$/; // [Verse 1], [Chorus], etc.
-    const parsed: { time: number; text: string }[] = [];
+    const parsed: { time: number; text: string; words?: { time: number; text: string }[] }[] = [];
     let hasTs = false;
+    // Lines whose text is unchanged keep their precise time + word timings.
+    const existing = new Map<string, { time: number; words?: { time: number; text: string }[] }>();
+    for (const l of project.lyrics.lines) existing.set(`${l.text.trim()}@${Math.round(l.time * 100)}`, { time: l.time, words: l.words });
     for (const line of raw) {
       if (!line) continue;
       const m = line.match(tsRe);
       if (m) {
         hasTs = true;
         const t = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3] ? parseFloat("0." + m[3]) : 0);
-        if (m[4]) parsed.push({ time: t, text: m[4] });
+        if (m[4]) {
+          const keep = existing.get(`${m[4].trim()}@${Math.round(t * 100)}`);
+          parsed.push(keep ? { time: keep.time, text: m[4], ...(keep.words ? { words: keep.words } : {}) } : { time: t, text: m[4] });
+        }
         continue;
       }
       if (sectionRe.test(line)) continue; // skip section headers
@@ -93,19 +114,22 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const groupWordsIntoLines = (
     words: { text: string; start: number; end: number }[],
-  ): { time: number; text: string }[] => {
-    const lines: { time: number; text: string; end: number }[] = [];
+  ): { time: number; text: string; words?: { time: number; text: string }[] }[] => {
+    const lines: { time: number; text: string; end: number; words: { time: number; text: string }[] }[] = [];
     const GAP = 0.7; // seconds of silence => new line
     const INSTRUMENTAL_GAP = 8; // seconds of silence => insert instrumental marker
     const MAX_WORDS = 9;
     let buf: { text: string; start: number; end: number }[] = [];
     const flush = () => {
       if (!buf.length) return;
-      lines.push({
-        time: buf[0].start,
-        end: buf[buf.length - 1].end,
-        text: buf.map(w => w.text).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim(),
-      });
+      const text = buf.map(w => w.text).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim();
+      // Keep per-word start times so karaoke can highlight word by word.
+      // Only when the word tokens map 1:1 onto the displayed text.
+      const tokens = text.split(" ").filter(Boolean);
+      const wordTimes = tokens.length === buf.length
+        ? buf.map((w, i) => ({ time: w.start, text: tokens[i] }))
+        : [];
+      lines.push({ time: buf[0].start, end: buf[buf.length - 1].end, text, words: wordTimes });
       buf = [];
     };
     for (let i = 0; i < words.length; i++) {
@@ -119,12 +143,12 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
     // Insert instrumental markers for long silent spans
     const dur = audioRef.current?.duration || 0;
-    const out: { time: number; text: string }[] = [];
+    const out: { time: number; text: string; words?: { time: number; text: string }[] }[] = [];
     if (lines.length && lines[0].time >= INSTRUMENTAL_GAP) {
       out.push({ time: 0.2, text: "♪ instrumental ♪" });
     }
     for (let i = 0; i < lines.length; i++) {
-      out.push({ time: lines[i].time, text: lines[i].text });
+      out.push({ time: lines[i].time, text: lines[i].text, ...(lines[i].words.length ? { words: lines[i].words } : {}) });
       const next = lines[i + 1];
       if (next && next.time - lines[i].end >= INSTRUMENTAL_GAP) {
         out.push({ time: lines[i].end + 0.2, text: "♪ instrumental ♪" });
@@ -181,10 +205,10 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       }
       if (!words || !words.length) throw new Error("No words detected in audio.");
 
-      let aligned: { time: number; text: string }[];
+      let aligned: { time: number; text: string; words?: { time: number; text: string }[] }[];
       if (aiMode && hasUserLyrics) {
         toast.loading("AI-aligning your lyrics…", { id: toastId });
-        const { times } = await aiAlign({ data: { lines: rawLines, words } });
+        const { times } = await aiAlign({ data: { lines: rawLines, words, accessCode: getStoredAccessCode() } });
         aligned = rawLines.map((textLine, i) => ({ time: times[i] ?? 0, text: textLine }));
       } else if (hasUserLyrics) {
         aligned = alignLyrics(rawLines, words);
@@ -194,7 +218,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
 
       update(p => ({ ...p, lyrics: { ...p.lyrics, lines: aligned, enabled: true } }));
-      const formatted = aligned.map(l => `[${fmt(l.time)}] ${l.text}`).join("\n");
+      const formatted = formatLyricLines(aligned);
       setLyricsText(formatted);
       toast.success(
         aiMode
@@ -215,7 +239,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
 
   return (
-    <div className="panel rounded-xl px-4 py-3 flex items-center gap-3">
+    <div className="panel rounded-xl px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
       <Button size="icon" variant="ghost" onClick={() => { const el = audioRef.current; if (el) el.currentTime = 0; }}>
         <SkipBack className="size-4" />
       </Button>
@@ -227,7 +251,7 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         min={0} max={Math.max(0.1, duration)} step={0.01}
         value={[time]}
         onValueChange={(v) => { const el = audioRef.current; if (el) el.currentTime = v[0]; }}
-        className="flex-1"
+        className="flex-1 min-w-[120px]"
       />
       <span className="text-xs font-mono text-muted-foreground tabular-nums w-12 text-right">{fmt(duration)}</span>
 
@@ -237,10 +261,10 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
             <Plus className="size-3.5" /> Lyrics
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[28rem] p-3 panel" align="end">
+        <PopoverContent className="w-[min(28rem,calc(100vw-2rem))] p-3 panel" align="end">
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground">
-              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped. Wrap the whole block in <span className="font-mono">"…"</span> to AI-align your exact lyrics to the audio (best for fixing missing or wrong lines). Otherwise lines are spread across the song. Optional: <span className="font-mono">[0:12] line text</span>
+              Paste lyrics — section markers like <span className="font-mono">[Verse]</span> are skipped. Wrap the whole block in <span className="font-mono">"…"</span> to AI-align your exact lyrics to the audio (best for fixing missing or wrong lines). Otherwise lines are spread across the song. Optional: <span className="font-mono">[0:12.50] line text</span>. Lines you don't edit keep their exact timing.
             </div>
             <Textarea
               value={lyricsText}

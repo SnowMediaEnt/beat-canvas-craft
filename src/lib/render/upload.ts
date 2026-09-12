@@ -1,5 +1,6 @@
 import { get } from "idb-keyval";
 import type { AssetRef } from "@/lib/project/types";
+import { ACCESS_CODE_HEADER } from "./access-code";
 
 const UPLOAD_ENDPOINT = "/api/public/render-upload";
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
@@ -15,17 +16,25 @@ function getSafeExt(name: string) {
     .slice(0, 8) || "bin";
 }
 
+/** Server accepts /^[a-zA-Z0-9_.:-]{1,128}$/ — normalise anything else. */
+export function safeAssetId(id: string) {
+  const cleaned = id.replace(/[^a-zA-Z0-9_.:-]/g, "_").slice(0, 128);
+  return cleaned || "asset";
+}
+
 export async function uploadBlobForRender({
   assetId,
   fileName,
   contentType,
   blob,
+  accessCode,
   onProgress,
 }: {
   assetId: string;
   fileName: string;
   contentType: string;
   blob: Blob;
+  accessCode: string;
   onProgress?: (progress: number) => void;
 }): Promise<string> {
   if (blob.size > MAX_UPLOAD_BYTES) {
@@ -36,25 +45,13 @@ export async function uploadBlobForRender({
 
   const ext = getSafeExt(fileName);
 
-  console.log("[render-upload] upload start", {
-    assetId,
-    name: fileName,
-    type: contentType,
-    size: blob.size,
-  });
-
   // Materialize the blob to an ArrayBuffer before sending. Some browsers
   // (notably Safari) fail with a generic "Load failed" when streaming a
-  // Blob pulled from IndexedDB directly through fetch — reading it into
-  // memory first avoids the streaming path and makes the upload reliable.
+  // Blob pulled from IndexedDB directly through fetch.
   let body: ArrayBuffer;
   try {
     body = await blob.arrayBuffer();
   } catch (err) {
-    // IndexedDB stores File/Blob objects "by reference" to an internal
-    // file handle. If the user moved/renamed/deleted the source file, or
-    // the browser evicted the backing store, reading throws
-    // NotFoundError ("The object can not be found here.").
     const name = err instanceof Error ? err.name : "";
     if (name === "NotFoundError" || name === "NotReadableError") {
       throw new Error(
@@ -68,27 +65,26 @@ export async function uploadBlobForRender({
     method: "POST",
     headers: {
       "content-type": "application/octet-stream",
-      "x-asset-id": assetId,
+      "x-asset-id": safeAssetId(assetId),
       "x-asset-ext": ext,
       "x-content-type": contentType || "application/octet-stream",
+      [ACCESS_CODE_HEADER]: accessCode,
     },
     body,
   });
 
-
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
     console.error("[render-upload] upload error", { status: res.status, body: txt.slice(0, 300) });
+    if (res.status === 401) throw new Error("Upload rejected: invalid access code.");
     throw new Error(`Upload failed: ${res.status}`);
   }
 
   const { url } = (await res.json()) as { url?: string };
   if (!url) {
-    console.error("[render-upload] public URL missing", { assetId, name: fileName });
     throw new Error("Upload succeeded but no file URL was returned");
   }
 
-  console.log("[render-upload] upload success", { assetId, name: fileName, publicUrl: url });
   onProgress?.(100);
   return url;
 }
@@ -100,53 +96,36 @@ async function getBlob(ref: AssetRef): Promise<Blob | null> {
 
 async function getBlobFromUrl(url: string, ref: AssetRef): Promise<Blob | null> {
   if (!url) return null;
-
   try {
     const res = await fetch(url);
     if (!res.ok) {
       console.error("[render-upload] fetch asset url failed", { assetId: ref.id, url, status: res.status });
       return null;
     }
-
-    const blob = await res.blob();
-    console.log("[render-upload] fetched asset from current url", {
-      assetId: ref.id,
-      name: ref.name,
-      url,
-      size: blob.size,
-    });
-    return blob;
+    return await res.blob();
   } catch (error) {
     console.error("[render-upload] fetch asset url error", { assetId: ref.id, url, error });
     return null;
   }
 }
 
-export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<string | null> {
+export async function uploadAssetForRender(ref: AssetRef | undefined, accessCode: string): Promise<string | null> {
   if (!ref) return null;
   const cached = uploadedCache.get(ref.id);
-  if (cached) {
-    console.log("[render-upload] cache hit", { assetId: ref.id, name: ref.name, url: cached });
-    return cached;
-  }
+  if (cached) return cached;
 
   let blob: Blob | null = null;
 
   // Prefer the live object URL from the current editor session when available.
-  // This avoids stale IndexedDB handles after a user replaces the file and
-  // immediately renders again.
   if (ref.url?.startsWith("blob:")) {
     blob = await getBlobFromUrl(ref.url, ref);
   }
-
   if (!blob) {
     blob = await getBlob(ref);
   }
-
   if (!blob && ref.url) {
     blob = await getBlobFromUrl(ref.url, ref);
   }
-
   if (!blob) {
     console.error("[render-upload] missing IndexedDB blob", { assetId: ref.id, name: ref.name, type: ref.type });
     return null;
@@ -155,14 +134,14 @@ export async function uploadAssetForRender(ref: AssetRef | undefined): Promise<s
   const url = await uploadBlobForRender({
     assetId: ref.id,
     fileName: ref.name,
-    contentType: ref.type || "application/octet-stream",
+    contentType: ref.type || blob.type || "application/octet-stream",
     blob,
+    accessCode,
   });
 
   uploadedCache.set(ref.id, url);
   return url;
 }
-
 
 export function assertRenderableAssetUrl(kind: UploadKind, url: string | null | undefined) {
   if (typeof url === "string" && url.trim().length > 0) return url;

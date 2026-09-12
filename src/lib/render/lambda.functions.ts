@@ -1,9 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
+import { renderInputPropsSchema, type RenderInputProps } from "./input-schema";
+import {
+  REMOTION_VERSION, REMOTION_OUTPUT_PREFIX, computeFramesPerLambda,
+  buildPublicRenderUrl, parseBucketAndRegion,
+} from "./lambda-config";
 
-const REMOTION_OUTPUT_PREFIX = "renders/";
-const REMOTION_VERSION = "4.0.465";
 const PROGRESS_CACHE_TTL_MS = 8000;
 const PROGRESS_STALE_FALLBACK_MS = 30000;
 const PROGRESS_WEIGHTS = {
@@ -21,6 +24,8 @@ type AwsEnv = {
   region: string;
   functionName: string;
   serveUrl: string;
+  bucketName: string;
+  bucketRegion: string;
 };
 
 type LambdaProgressResponse = {
@@ -29,6 +34,8 @@ type LambdaProgressResponse = {
   outputFile?: string;
   errors: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[];
   fatalErrorEncountered: boolean;
+  /** Coarse stage label for the UI. */
+  stage?: "starting" | "rendering" | "encoding" | "combining" | "done";
 };
 
 type ProgressJson = {
@@ -57,64 +64,35 @@ type ProgressJson = {
 
 const progressCache = new Map<string, { expiresAt: number; value: LambdaProgressResponse }>();
 const inFlightProgress = new Map<string, Promise<LambdaProgressResponse>>();
+const PROGRESS_CACHE_MAX = 200;
 
-const lyricLineSchema = z.object({ time: z.number(), text: z.string() });
-const visualizerConfigSchema = z.record(z.string(), z.any());
-const effectsConfigSchema = z.record(z.string(), z.any());
-const lyricsConfigSchema = z.object({
-  enabled: z.boolean(),
-  lines: z.array(lyricLineSchema),
-  style: z.string(),
-  position: z.string(),
-  fontFamily: z.string(),
-  fontSize: z.number(),
-  color: z.string(),
-  outline: z.boolean(),
-  shadow: z.boolean(),
-  glow: z.boolean(),
-  fade: z.boolean(),
-});
-
-const RENDER_ACCESS_CODE = "2650562";
-
-const inputPropsSchema = z.object({
-  audioUrl: z.string().url(),
-  durationSeconds: z.number().positive(),
-  fps: z.number(),
-  width: z.number(),
-  height: z.number(),
-  backgroundUrl: z.string().url().nullable(),
-  backgroundType: z.string().nullable(),
-  logoUrl: z.string().url().nullable(),
-  visualizer: visualizerConfigSchema,
-  effects: effectsConfigSchema,
-  lyrics: lyricsConfigSchema,
-});
-
-function buildPublicRenderUrl(region: string, bucketName: string, renderId: string) {
-  return `https://${bucketName}.s3.${region}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
-}
-
-function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): { bucketName: string; region: string } | null {
-  try {
-    const url = new URL(serveUrl);
-    const virtualHosted = url.hostname.match(/^([^.]+)\.s3[.-]([^.]+)\.amazonaws\.com$/);
-    if (virtualHosted) return { bucketName: virtualHosted[1], region: virtualHosted[2] };
-
-    const pathStyle = url.hostname.match(/^s3[.-]([^.]+)\.amazonaws\.com$/);
-    if (pathStyle) {
-      const bucketName = url.pathname.split("/").filter(Boolean)[0];
-      if (bucketName) return { bucketName, region: pathStyle[1] };
-    }
-
-    const bucketName = url.pathname.split("/").filter(Boolean)[0];
-    if (bucketName) return { bucketName, region: fallbackRegion };
-  } catch {
-    /* ignore */
+function rememberProgress(key: string, value: LambdaProgressResponse) {
+  progressCache.set(key, { expiresAt: Date.now() + PROGRESS_CACHE_TTL_MS, value });
+  if (progressCache.size > PROGRESS_CACHE_MAX) {
+    const oldest = progressCache.keys().next().value;
+    if (oldest) progressCache.delete(oldest);
   }
-
-  return null;
 }
+
+/** The render access code lives in the project secrets; the historical
+ *  value stays as a fallback so existing users are not locked out. */
+function getAccessCode(): string {
+  return process.env.RENDER_ACCESS_CODE || "2650562";
+}
+
+function assertAccessCode(code: string | undefined) {
+  if (!code || code !== getAccessCode()) {
+    throw new Error(
+      "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
+    );
+  }
+}
+
+const RENDER_ID_RE = /^[a-zA-Z0-9_-]{4,64}$/;
+const renderRefSchema = z.object({
+  renderId: z.string().regex(RENDER_ID_RE),
+  bucketName: z.string().regex(/^remotionlambda-[a-z0-9-]+$/i),
+});
 
 function getAwsEnv(): AwsEnv {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
@@ -125,25 +103,40 @@ function getAwsEnv(): AwsEnv {
   const serveUrl = process.env.REMOTION_AWS_SERVE_URL;
 
   if (!accessKeyId || !secretAccessKey) {
-    throw new Error("Missing AWS credentials");
+    throw new Error("AWS credentials are not configured (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY). Open Export → AWS connection → Check for details.");
   }
 
   if (!region || !functionName || !serveUrl) {
     throw new Error(
-      "Missing Remotion Lambda env vars (REMOTION_AWS_REGION, REMOTION_AWS_FUNCTION_NAME, REMOTION_AWS_SERVE_URL)",
+      "Missing Remotion Lambda settings (REMOTION_AWS_REGION, REMOTION_AWS_FUNCTION_NAME, REMOTION_AWS_SERVE_URL). Open Export → AWS connection → Check for details.",
     );
   }
 
-  return { accessKeyId, secretAccessKey, sessionToken, region, functionName, serveUrl };
+  const parsed = parseBucketAndRegion(serveUrl, region);
+  if (!parsed) {
+    throw new Error("Could not determine the Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
+  }
+
+  return {
+    accessKeyId, secretAccessKey, sessionToken, region, functionName, serveUrl,
+    bucketName: parsed.bucketName, bucketRegion: parsed.region,
+  };
 }
 
-function createAwsClient(env: AwsEnv) {
+/** Refuse to touch any bucket other than the configured Remotion bucket. */
+function assertOwnBucket(env: AwsEnv, bucketName: string) {
+  if (bucketName !== env.bucketName) {
+    throw new Error("Unknown render bucket.");
+  }
+}
+
+function createS3Client(env: AwsEnv) {
   return new AwsClient({
     accessKeyId: env.accessKeyId,
     secretAccessKey: env.secretAccessKey,
     sessionToken: env.sessionToken,
     service: "s3",
-    region: env.region,
+    region: env.bucketRegion,
   });
 }
 
@@ -198,6 +191,15 @@ function computeOverallProgress(progress: ProgressJson) {
   );
 }
 
+function stageOf(progress: ProgressJson): LambdaProgressResponse["stage"] {
+  const total = getTotalFrames(progress.renderMetadata);
+  if (progress.postRenderData) return "done";
+  if (total > 0 && (progress.combinedFrames ?? 0) > 0) return "combining";
+  if (total > 0 && (progress.framesRendered ?? 0) >= total) return "encoding";
+  if ((progress.framesRendered ?? 0) > 0) return "rendering";
+  return "starting";
+}
+
 function normalizeErrors(
   errors: { message: string; stack?: string; isFatal?: boolean; willRetry?: boolean }[] | undefined | null,
 ) {
@@ -212,7 +214,6 @@ function normalizeErrors(
 
 // Remotion writes retryable chunk errors into progress.errors too. Only count
 // an entry as fatal when it isn't explicitly marked non-fatal or willRetry.
-// Missing flags → treat as fatal (matches prior behavior).
 function isFatalErrorEntry(error: { isFatal?: boolean; willRetry?: boolean }) {
   return error.isFatal !== false && error.willRetry !== true;
 }
@@ -226,6 +227,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
       outputFile: buildPublicRenderUrl(region, bucketName, renderId),
       errors: postErrors,
       fatalErrorEncountered: false,
+      stage: "done",
     };
   }
 
@@ -252,6 +254,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
               "Render timed out on AWS: chunks exceeded the 900s Lambda limit. Try a lower resolution/fps or a lighter preset.",
           }],
       fatalErrorEncountered: true,
+      stage: stageOf(progress),
     };
   }
 
@@ -262,6 +265,7 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
       outputFile: undefined,
       errors,
       fatalErrorEncountered: true,
+      stage: stageOf(progress),
     };
   }
 
@@ -271,13 +275,14 @@ function toLambdaProgressResponse(progress: ProgressJson, region: string, render
     outputFile: undefined,
     errors: [],
     fatalErrorEncountered: false,
+    stage: stageOf(progress),
   };
 }
 
 async function readProgressJson(env: AwsEnv, bucketName: string, renderId: string): Promise<ProgressJson | null> {
-  const aws = createAwsClient(env);
+  const aws = createS3Client(env);
   const key = `${REMOTION_OUTPUT_PREFIX}${renderId}/progress.json`;
-  const url = `https://${bucketName}.s3.${env.region}.amazonaws.com/${key}`;
+  const url = `https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/${key}`;
   const response = await aws.fetch(url, { method: "GET" });
 
   if (response.status === 404) {
@@ -301,22 +306,28 @@ function decodeXmlText(value: string) {
 }
 
 async function deleteRenderPrefix(env: AwsEnv, bucketName: string, renderId: string) {
-  const aws = createAwsClient(env);
+  const aws = createS3Client(env);
   const prefix = `${REMOTION_OUTPUT_PREFIX}${renderId}/`;
-  const listUrl = `https://${bucketName}.s3.${env.region}.amazonaws.com/?list-type=2&prefix=${encodeURIComponent(prefix)}`;
-  const listResponse = await aws.fetch(listUrl, { method: "GET" });
-  if (!listResponse.ok) throw new Error(`Failed to list render files (${listResponse.status})`);
-
-  const xml = await listResponse.text();
-  const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXmlText(match[1]));
-  await Promise.all(
-    keys.map((key) =>
-      aws.fetch(`https://${bucketName}.s3.${env.region}.amazonaws.com/${key}`, { method: "DELETE" }),
-    ),
-  );
+  let continuationToken: string | undefined;
+  do {
+    const params = new URLSearchParams({ "list-type": "2", prefix });
+    if (continuationToken) params.set("continuation-token", continuationToken);
+    const listUrl = `https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/?${params.toString()}`;
+    const listResponse = await aws.fetch(listUrl, { method: "GET" });
+    if (!listResponse.ok) throw new Error(`Failed to list render files (${listResponse.status})`);
+    const xml = await listResponse.text();
+    const keys = [...xml.matchAll(/<Key>([\s\S]*?)<\/Key>/g)].map((match) => decodeXmlText(match[1]));
+    await Promise.all(
+      keys.map((key) =>
+        aws.fetch(`https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/${key.split("/").map(encodeURIComponent).join("/")}`, { method: "DELETE" }),
+      ),
+    );
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+    continuationToken = truncated ? xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/)?.[1] : undefined;
+  } while (continuationToken);
 }
 
-function serializeInputProps(inputProps: z.infer<typeof inputPropsSchema>) {
+function serializeInputProps(inputProps: RenderInputProps) {
   return { type: "payload", payload: JSON.stringify(inputProps) };
 }
 
@@ -346,18 +357,26 @@ async function invokeLambdaJson(env: AwsEnv, payload: Record<string, unknown>, i
   }
 }
 
-async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPropsSchema>) {
-  const parsedServeUrl = parseBucketAndRegion(env.serveUrl, env.region);
-  if (!parsedServeUrl) {
-    throw new Error("Could not determine Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
-  }
+function safeFileName(title: string | undefined) {
+  const base = (title || "visualizer").normalize("NFKD").replace(/[^\w\s.-]+/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
+  return `${base || "visualizer"}.mp4`;
+}
 
+/**
+ * Encoder settings by quality tier. The old start call used ffmpeg defaults:
+ * ~128 kbps AAC (a musician's master transcoded like a podcast), CRF 18 and
+ * JPEG-80 intermediates, with no colour-space tag (players desaturate neon).
+ */
+function encodeSettings(quality: RenderInputProps["quality"]) {
+  return quality === "standard"
+    ? { jpegQuality: 85, crf: 20, audioBitrate: "256k", colorSpace: "bt709" as const }
+    : { jpegQuality: 95, crf: 16, audioBitrate: "320k", colorSpace: "bt709" as const };
+}
+
+async function startRenderViaLambdaApi(env: AwsEnv, data: RenderInputProps) {
   const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-  const step = Math.max(1, Math.round(data.fps / 2));
-  const maxWorkers = 200;
-  const minForCap = Math.ceil(totalFrames / maxWorkers);
-  const rawFramesPerLambda = Math.max(15, minForCap);
-  const framesPerLambda = Math.ceil(rawFramesPerLambda / step) * step;
+  const framesPerLambda = computeFramesPerLambda(totalFrames, data.fps);
+  const enc = encodeSettings(data.quality);
 
   const result = await invokeLambdaJson(
     env,
@@ -371,12 +390,12 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
       inputProps: serializeInputProps(data),
       codec: "h264",
       imageFormat: "jpeg",
-      crf: null,
+      crf: enc.crf,
       envVariables: {},
       pixelFormat: null,
       proResProfile: null,
       x264Preset: null,
-      jpegQuality: 80,
+      jpegQuality: enc.jpegQuality,
       maxRetries: 3,
       privacy: "public",
       logLevel: "info",
@@ -388,11 +407,13 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
       everyNthFrame: 1,
       numberOfGifLoops: null,
       concurrencyPerLambda: 1,
-      downloadBehavior: { type: "play-in-browser" },
+      // S3 serves the MP4 with Content-Disposition: attachment so the
+      // Download button saves a file instead of opening a player tab.
+      downloadBehavior: { type: "download", fileName: safeFileName(data.title) },
       muted: false,
       version: REMOTION_VERSION,
       overwrite: false,
-      audioBitrate: null,
+      audioBitrate: enc.audioBitrate,
       videoBitrate: null,
       encodingBufferSize: null,
       encodingMaxRate: null,
@@ -401,11 +422,11 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
       forceWidth: null,
       forceFps: null,
       forceDurationInFrames: null,
-      bucketName: parsedServeUrl.bucketName,
+      bucketName: env.bucketName,
       audioCodec: null,
       offthreadVideoCacheSizeInBytes: null,
       deleteAfter: null,
-      colorSpace: null,
+      colorSpace: enc.colorSpace,
       preferLossless: false,
       forcePathStyle: false,
       metadata: null,
@@ -424,22 +445,22 @@ async function startRenderViaLambdaApi(env: AwsEnv, data: z.infer<typeof inputPr
   }
 
   const renderId = typeof result?.renderId === "string" ? result.renderId : null;
-  const bucketName = typeof result?.bucketName === "string" ? result.bucketName : parsedServeUrl.bucketName;
+  const bucketName = typeof result?.bucketName === "string" ? result.bucketName : env.bucketName;
   if (!renderId) throw new Error("Lambda did not return a renderId");
 
-  return { renderId, bucketName };
+  return { renderId, bucketName, region: env.bucketRegion, framesPerLambda };
 }
 
 export const startLambdaRender = createServerFn({ method: "POST" })
-  .inputValidator((input) => inputPropsSchema.extend({ accessCode: z.string() }).parse(input))
+  .inputValidator((input) => renderInputPropsSchema.extend({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }) => {
-    if (data.accessCode !== RENDER_ACCESS_CODE) {
-      throw new Error(
-        "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
-      );
-    }
+    assertAccessCode(data.accessCode);
     const { accessCode: _accessCode, ...renderProps } = data;
-    console.log("[lambda-render-server] validated inputProps", renderProps);
+    console.log("[lambda-render-server] start", {
+      preset: (renderProps.visualizer as { presetId?: string }).presetId,
+      fps: renderProps.fps, width: renderProps.width, height: renderProps.height,
+      duration: renderProps.durationSeconds, engineVersion: renderProps.engineVersion,
+    });
     let env: AwsEnv | null = null;
     try {
       env = getAwsEnv();
@@ -461,24 +482,23 @@ export const startLambdaRender = createServerFn({ method: "POST" })
         }
       }
 
-      return { renderId: result.renderId, bucketName: result.bucketName };
+      return result;
     } catch (error) {
-      console.error("[lambda-render-server] renderMediaOnLambda failed", {
+      console.error("[lambda-render-server] start failed", {
         message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : undefined,
-        stack: error instanceof Error ? error.stack : undefined,
         region: env?.region,
         functionName: env?.functionName,
-        serveUrl: env?.serveUrl,
       });
       throw error;
     }
   });
 
 export const getLambdaProgress = createServerFn({ method: "POST" })
-  .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
+  .inputValidator((input) => renderRefSchema.parse(input))
   .handler(async ({ data }) => {
     const env = getAwsEnv();
+    assertOwnBucket(env, data.bucketName);
     const cacheKey = `${data.bucketName}:${data.renderId}`;
     const now = Date.now();
     const cached = progressCache.get(cacheKey);
@@ -500,19 +520,17 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
         try {
           const progress = await readProgressJson(env, data.bucketName, data.renderId);
           const response = progress
-            ? toLambdaProgressResponse(progress, env.region, data.renderId, data.bucketName)
+            ? toLambdaProgressResponse(progress, env.bucketRegion, data.renderId, data.bucketName)
             : {
                 done: false,
                 overallProgress: 0,
                 outputFile: undefined,
                 errors: [],
                 fatalErrorEncountered: false,
+                stage: "starting" as const,
               };
 
-          progressCache.set(cacheKey, {
-            expiresAt: Date.now() + PROGRESS_CACHE_TTL_MS,
-            value: response,
-          });
+          rememberProgress(cacheKey, response);
           return response;
         } catch (error) {
           lastError = error;
@@ -553,16 +571,31 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
     }
   });
 
+/**
+ * Remotion Lambda has no "stop" API: once the chunks are running they finish
+ * (and bill) regardless. "Cancelling" therefore only stops tracking on our
+ * side. The finished file can be removed afterwards with deleteLambdaRender.
+ */
 export const cancelLambdaRender = createServerFn({ method: "POST" })
-  .inputValidator((input) => z.object({ renderId: z.string(), bucketName: z.string() }).parse(input))
+  .inputValidator((input) => renderRefSchema.parse(input))
   .handler(async ({ data }) => {
+    progressCache.delete(`${data.bucketName}:${data.renderId}`);
+    return { cancelled: true, stoppedRemotely: false as const };
+  });
+
+/** Delete a render's files from S3 (requires the access code). */
+export const deleteLambdaRender = createServerFn({ method: "POST" })
+  .inputValidator((input) => renderRefSchema.extend({ accessCode: z.string() }).parse(input))
+  .handler(async ({ data }) => {
+    assertAccessCode(data.accessCode);
     const env = getAwsEnv();
+    assertOwnBucket(env, data.bucketName);
     try {
       await deleteRenderPrefix(env, data.bucketName, data.renderId);
       progressCache.delete(`${data.bucketName}:${data.renderId}`);
-      return { cancelled: true };
+      return { deleted: true };
     } catch (error) {
-      console.error("[lambda-render-server] cancel failed", error);
-      return { cancelled: true };
+      console.error("[lambda-render-server] delete failed", error);
+      throw new Error(error instanceof Error ? error.message : "Failed to delete render files");
     }
   });
