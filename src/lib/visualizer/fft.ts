@@ -87,10 +87,18 @@ export interface AnalyserOptions {
   maxDecibels?: number;          // default -30
 }
 
+/** dB reported for a zero-magnitude bin (AnalyserNode reports -Infinity). */
+export const SILENCE_DB = -160;
+
 /**
  * Compute AnalyserNode-equivalent byte frequency data for the fftSize samples
  * ENDING at `endSample` (AnalyserNode analyses the most recent buffer).
  * Missing samples (before 0 / after the end) are treated as silence.
+ *
+ * `outDb` (optional, length fftSize/2) additionally receives the smoothed
+ * magnitude in dB — the equivalent of getFloatFrequencyData(). The beat
+ * tracker uses it because the byte spectrum clips at maxDecibels (-30 dB),
+ * which hides every kick that lands on top of a sustained bass note.
  */
 export function analyserBytes(
   samples: Float32Array,
@@ -98,6 +106,7 @@ export function analyserBytes(
   opts: AnalyserOptions,
   state: AnalyserState,
   out?: Uint8Array,
+  outDb?: Float32Array,
 ): Uint8Array {
   const n = opts.fftSize;
   const bins = n / 2;
@@ -124,10 +133,11 @@ export function analyserBytes(
     // AnalyserNode smooths the *linear* magnitude, then converts to dB.
     const v = k * sm[i] + (1 - k) * mag;
     sm[i] = Number.isFinite(v) ? v : 0;
-    const db = sm[i] > 0 ? 20 * Math.log10(sm[i]) : -Infinity;
+    const db = sm[i] > 0 ? 20 * Math.log10(sm[i]) : SILENCE_DB;
     let byte = 0;
     if (db > minDb) byte = db >= maxDb ? 255 : Math.round(((db - minDb) / range) * 255);
     result[i] = byte;
+    if (outDb && outDb.length === bins) outDb[i] = db;
   }
   return result;
 }

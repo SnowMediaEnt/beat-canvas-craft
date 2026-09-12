@@ -40,6 +40,14 @@ export const HISTORY_HOP = 0.02;
 export const TRACKER_WARMUP_SECONDS = HISTORY_FRAMES * HISTORY_HOP + 0.2;
 
 const FLUX_BANDS = 24;
+/**
+ * dB window the flux bands are normalised over when the caller supplies the
+ * float (dB) spectrum. The byte spectrum only spans -100..-30 dB and pins at
+ * 255 for any bin louder than -30 dB — i.e. for most bass in mastered music —
+ * so a kick on top of a bass note produced zero flux and was never detected.
+ */
+const DB_FLOOR = -84;
+const DB_RANGE = 84;
 const HISTORY_SECONDS = 1.1;
 const THRESHOLD_FLOOR = 0.012;
 const ENERGY_ATTACK = 0.08;
@@ -48,8 +56,25 @@ const ENERGY_RELEASE = 0.65;
 type Band = { a: number; b: number; weight: number };
 
 interface HitDetector {
-  /** Band indices (into the 24 flux bands) that feed this detector. */
+  /** Band indices (into the 24 flux bands) that feed this detector (broadband onset). */
   bands: number[];
+  /**
+   * Hz ranges feeding this detector (percussive detectors). Resolved to raw
+   * FFT bins in ensureBands(): with a 1024-point FFT a bin is ~43-47 Hz wide,
+   * so log bands below ~150 Hz all collapse onto bins 0-2 (DC + one bass
+   * bin) and a kick's real energy (60-180 Hz) never reached the "kick" bands.
+   */
+  hz: [number, number][];
+  /** FFT bins resolved from `hz` (DC bin excluded). */
+  bins: number[];
+  /**
+   * Optional second Hz group. When present the detector's flux is the
+   * geometric mean of both groups, so it only fires when BOTH move — a snare
+   * has body (200-500 Hz) and crack (2-6 kHz) at once, a kick has no crack
+   * and a hat has no body.
+   */
+  hz2: [number, number][];
+  bins2: number[];
   k: number;           // threshold multiplier (mean + k·std)
   floor: number;       // minimum threshold
   minInterval: number; // seconds between accepted hits
@@ -62,9 +87,23 @@ interface HitDetector {
   env: number;
 }
 
-const makeHit = (bands: number[], k: number, floor: number, minInterval: number, release: number): HitDetector => ({
-  bands, k, floor, minInterval, release, histT: [], histF: [], prevFlux: 0, lastHit: -Infinity, env: 0,
+const makeHit = (
+  bands: number[], hz: [number, number][], k: number, floor: number, minInterval: number, release: number,
+  hz2: [number, number][] = [],
+): HitDetector => ({
+  bands, hz, bins: [], hz2, bins2: [], k, floor, minInterval, release, histT: [], histF: [], prevFlux: 0, lastHit: -Infinity, env: 0,
 });
+
+/** Unique FFT bins (excluding DC) covering the given Hz ranges. */
+function binsForHz(ranges: [number, number][], freqLen: number, sampleRate: number): number[] {
+  const set = new Set<number>();
+  for (const [lo, hi] of ranges) {
+    const a = Math.max(1, Math.floor(hzToBin(lo, freqLen, sampleRate)));
+    const b = Math.min(freqLen - 1, Math.ceil(hzToBin(hi, freqLen, sampleRate)));
+    for (let k = a; k <= Math.max(a, b); k++) set.add(k);
+  }
+  return Array.from(set).sort((x, y) => x - y);
+}
 
 function logBands(count: number, loHz: number, hiHz: number, freqLen: number, sampleRate: number): Band[] {
   const nyquist = sampleRate / 2;
@@ -81,10 +120,7 @@ function logBands(count: number, loHz: number, hiHz: number, freqLen: number, sa
   return out;
 }
 
-function runHit(d: HitDetector, bandFlux: Float32Array, time: number, dt: number): { value: number; hit: boolean; age: number } {
-  let flux = 0;
-  for (const i of d.bands) flux += bandFlux[i];
-  flux /= Math.max(1, d.bands.length);
+function runHit(d: HitDetector, flux: number, time: number, dt: number): { value: number; hit: boolean; age: number } {
   d.histT.push(time);
   d.histF.push(flux);
   while (d.histT.length && time - d.histT[0] > HISTORY_SECONDS) { d.histT.shift(); d.histF.shift(); }
@@ -119,13 +155,16 @@ export class OnsetDetector {
   private fluxBands: Band[] | null = null;
   private histBands: Band[] | null = null;
   private bandsKey = "";
-  // Broadband onset
-  private onset = makeHit([...Array(FLUX_BANDS).keys()], 1.35, THRESHOLD_FLOOR, 0.11, 0.25);
-  // Percussive detectors on band subsets (24 log bands 20 Hz → 16 kHz):
-  //   0-5 ≈ 20–150 Hz (kick), 6-9 ≈ 150–400 Hz + 15-19 ≈ 2–6 kHz (snare body + crack), 20-23 ≈ 6–16 kHz (hats)
-  private kick = makeHit([0, 1, 2, 3, 4, 5], 1.3, 0.02, 0.09, 0.14);
-  private snare = makeHit([6, 7, 8, 9, 15, 16, 17, 18, 19], 1.45, 0.015, 0.08, 0.18);
-  private hat = makeHit([20, 21, 22, 23], 1.4, 0.01, 0.05, 0.07);
+  // Broadband onset over the 24 weighted log bands.
+  private onset = makeHit([...Array(FLUX_BANDS).keys()], [], 1.35, THRESHOLD_FLOOR, 0.11, 0.25);
+  // Percussive detectors on raw FFT bins covering musical ranges:
+  //   kick 40–180 Hz · snare 180–500 Hz body + 2–6 kHz crack · hats 6–16 kHz
+  private kick = makeHit([], [[40, 180]], 1.3, 0.02, 0.09, 0.14);
+  private snare = makeHit([], [[200, 500]], 1.45, 0.015, 0.08, 0.18, [[2000, 6000]]);
+  private hat = makeHit([], [[6000, 16000]], 1.4, 0.01, 0.05, 0.07);
+  private prevLvl: Float32Array | null = null;
+  private prevPeak = 0;
+  private binFlux: Float32Array | null = null;
   /** Ring buffer: HISTORY_FRAMES rows × HISTORY_BANDS bytes, oldest first. */
   readonly history = new Uint8Array(HISTORY_FRAMES * HISTORY_BANDS);
   private historyFilled = 0;
@@ -133,6 +172,8 @@ export class OnsetDetector {
 
   reset() {
     this.prevBands = null;
+    this.prevLvl = null;
+    this.prevPeak = 0;
     this.lastTime = -Infinity;
     this.energyEnv = 0;
     for (const d of [this.onset, this.kick, this.snare, this.hat]) {
@@ -150,6 +191,11 @@ export class OnsetDetector {
     // Kick/snare live low; weight the bottom third ×2 in the broadband flux so drops land harder.
     this.fluxBands.forEach((b, i) => { b.weight = i < FLUX_BANDS / 3 ? 2 : i < (2 * FLUX_BANDS) / 3 ? 1.2 : 0.8; });
     this.histBands = logBands(HISTORY_BANDS, 30, 16000, freqLen, sampleRate);
+    for (const d of [this.kick, this.snare, this.hat]) {
+      d.bins = binsForHz(d.hz, freqLen, sampleRate);
+      d.bins2 = binsForHz(d.hz2, freqLen, sampleRate);
+    }
+    this.prevLvl = null;
     this.bandsKey = key;
   }
 
@@ -157,11 +203,15 @@ export class OnsetDetector {
   get historyRows(): number { return this.historyFilled; }
 
   /**
-   * @param freq   byte spectrum (0..255), AnalyserNode-compatible
+   * @param freq   byte spectrum (0..255), AnalyserNode-compatible — feeds the
+   *               spectral history used by waterfall/terrain presets
    * @param time   seconds on the audio clock
    * @param volume 0..1 loudness estimate for this frame
+   * @param db     optional float spectrum in dB (getFloatFrequencyData /
+   *               analyserBytes' outDb). When present the onset, kick, snare
+   *               and hat detectors read it instead of the clipped bytes.
    */
-  update(freq: Uint8Array, time: number, volume: number, sampleRate = 48000): FeatureFrame {
+  update(freq: Uint8Array, time: number, volume: number, sampleRate = 48000, db?: Float32Array | null): FeatureFrame {
     const len = Math.max(1, freq.length);
     this.ensureBands(len, sampleRate);
     const fluxBands = this.fluxBands!;
@@ -174,17 +224,41 @@ export class OnsetDetector {
     const dt = Number.isFinite(this.lastTime) ? Math.max(0.0005, Math.min(0.5, time - this.lastTime)) : 1 / 60;
     this.lastTime = time;
 
+    // Per-bin level 0..1 (wide-range dB when available, else the bytes) and
+    // its positive change since the previous frame (per-bin spectral flux).
+    const useDb = !!db && db.length === len;
+    const lvl = new Float32Array(len);
+    for (let q = 0; q < len; q++) {
+      const v = useDb ? (db![q] - DB_FLOOR) / DB_RANGE : freq[q] / 255;
+      lvl[q] = v > 0 ? (v < 1 ? v : 1) : 0;
+    }
+    let peak = 0;
+    for (let q = 1; q < len; q++) if (lvl[q] > peak) peak = lvl[q];
+    if (!this.binFlux || this.binFlux.length !== len) this.binFlux = new Float32Array(len);
+    const binFlux = this.binFlux;
+    // The jump out of silence (song start, first frame after a seek) is not a
+    // drum hit; feeding it to the detectors inflated their adaptive thresholds
+    // for the next second and swallowed the first real kicks.
+    const fromSilence = this.prevPeak < 0.05;
+    if (this.prevLvl && this.prevLvl.length === len && !fromSilence) {
+      for (let q = 0; q < len; q++) { const d = lvl[q] - this.prevLvl[q]; binFlux[q] = d > 0 ? d : 0; }
+    } else {
+      binFlux.fill(0);
+    }
+    this.prevLvl = lvl;
+    this.prevPeak = peak;
+
+    // 24 log bands for the broadband onset (bass-weighted).
     const bands = new Float32Array(FLUX_BANDS);
     for (let i = 0; i < FLUX_BANDS; i++) {
       const { a, b } = fluxBands[i];
       let s = 0;
-      for (let k = a; k < b; k++) s += freq[k];
-      bands[i] = s / Math.max(1, b - a) / 255;
+      for (let q = a; q < b; q++) s += lvl[q];
+      bands[i] = s / Math.max(1, b - a);
     }
-
     let flux = 0;
     const bf = this.bandFlux;
-    if (this.prevBands) {
+    if (this.prevBands && !fromSilence) {
       for (let i = 0; i < FLUX_BANDS; i++) {
         const d = bands[i] - this.prevBands[i];
         bf[i] = d > 0 ? d : 0;
@@ -196,10 +270,22 @@ export class OnsetDetector {
     }
     this.prevBands = bands;
 
-    const on = runHit(this.onset, bf, time, dt);
-    const k = runHit(this.kick, bf, time, dt);
-    const s = runHit(this.snare, bf, time, dt);
-    const h = runHit(this.hat, bf, time, dt);
+    const meanBinFlux = (bins: number[]) => {
+      if (!bins.length) return 0;
+      let s = 0;
+      for (const q of bins) s += binFlux[q];
+      return s / bins.length;
+    };
+    let onFlux = 0;
+    for (const i of this.onset.bands) onFlux += bf[i];
+    onFlux /= Math.max(1, this.onset.bands.length);
+
+    const detFlux = (d: HitDetector) =>
+      d.bins2.length ? Math.sqrt(meanBinFlux(d.bins) * meanBinFlux(d.bins2)) : meanBinFlux(d.bins);
+    const on = runHit(this.onset, onFlux, time, dt);
+    const k = runHit(this.kick, detFlux(this.kick), time, dt);
+    const s = runHit(this.snare, detFlux(this.snare), time, dt);
+    const h = runHit(this.hat, detFlux(this.hat), time, dt);
 
     // Loudness envelope with attack/release.
     const v = Math.max(0, Math.min(1, volume));

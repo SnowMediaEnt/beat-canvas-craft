@@ -151,6 +151,8 @@ export class AudioEngine {
   src: MediaElementAudioSourceNode;
   dest: MediaStreamAudioDestinationNode;
   freq: U8;
+  /** Float spectrum in dB (getFloatFrequencyData) for the beat tracker. */
+  db: Float32Array<ArrayBuffer>;
   wave: U8;
   private tracker = new OnsetDetector();
   private lastReadAt = 0;
@@ -173,6 +175,7 @@ export class AudioEngine {
     this.src.connect(this.dest);
     this.analyser.connect(this.ctx.destination);
     this.freq = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount));
+    this.db = new Float32Array(new ArrayBuffer(this.analyser.frequencyBinCount * 4));
     this.wave = new Uint8Array(new ArrayBuffer(this.analyser.fftSize));
   }
 
@@ -182,6 +185,8 @@ export class AudioEngine {
 
   read(sens: Sensitivity = { master: 1, bass: 1, mid: 1, treble: 1 }): AudioData {
     this.analyser.getByteFrequencyData(this.freq);
+    // Wide-range dB spectrum for the beat tracker (bytes clip at -30 dB).
+    this.analyser.getFloatFrequencyData(this.db);
     this.analyser.getByteTimeDomainData(this.wave);
     const sr = this.ctx.sampleRate;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -192,7 +197,7 @@ export class AudioEngine {
 
     // Feature tracking runs on the UNSCALED spectrum so the sensitivity
     // sliders change how big things move, not whether a hit is detected.
-    const f = this.tracker.update(this.freq, this.el.currentTime, m.rawVolume, sr);
+    const f = this.tracker.update(this.freq, this.el.currentTime, m.rawVolume, sr, this.db);
 
     return {
       freq: this.freq, wave: this.wave, bass: m.bass, mid: m.mid, treble: m.treble, volume: m.volume,

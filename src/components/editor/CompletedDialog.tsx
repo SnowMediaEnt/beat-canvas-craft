@@ -303,8 +303,8 @@ export function CompletedDialog({ project }: Props) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
-          <CheckCircle2 className="size-4" /> Completed
+        <Button variant="outline" className="gap-2" title="Completed renders" aria-label="Completed renders">
+          <CheckCircle2 className="size-4" /> <span className="hidden sm:inline">Completed</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="panel max-w-xl">

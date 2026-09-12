@@ -129,7 +129,7 @@ function EditorPage() {
           scroll underneath it, so "move a slider, watch it react" works on a
           phone. Desktop keeps the three-column studio layout. */}
       <div className="flex-1 flex flex-col lg:flex-row gap-2 sm:gap-3 min-h-0 overflow-y-auto lg:overflow-hidden">
-        <main className="flex-1 panel rounded-xl overflow-hidden min-w-0 h-[34dvh] lg:h-auto shrink-0 lg:shrink lg:min-h-0 sticky top-0 z-10 lg:static">
+        <main className="panel rounded-xl overflow-hidden min-w-0 h-[34dvh] shrink-0 sticky top-0 z-10 lg:static lg:flex-1 lg:h-auto lg:shrink lg:min-h-0">
           <VisualizerCanvas project={project} audioRef={audioRef} engineRef={engineRef} canvasRef={canvasRef} recordTargetRef={recordTargetRef} />
         </main>
         {/* LeftPanel carries lg:order-first so desktop reads Left · Preview · Right. */}

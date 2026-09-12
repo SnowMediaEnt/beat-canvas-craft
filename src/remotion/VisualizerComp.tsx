@@ -9,7 +9,7 @@ import {
 } from "../lib/visualizer/audioEngine";
 import type { EffectsConfig, LyricsConfig, VisualizerConfig, LyricLine } from "../lib/project/types";
 import { drawBackgroundLayers, drawForegroundLayers, type BackgroundSource } from "../lib/visualizer/render-shared";
-import { analyserBytes, analyserWaveBytes, mixToMono, type AnalyserState } from "../lib/visualizer/fft";
+import { analyserBytes, analyserWaveBytes, mixToMono, SILENCE_DB, type AnalyserState } from "../lib/visualizer/fft";
 import { OnsetDetector, TRACKER_WARMUP_SECONDS } from "../lib/visualizer/onset";
 import { RENDER_ENGINE_VERSION } from "../lib/visualizer/engine-version";
 import { ensureLyricFontLoaded } from "../lib/visualizer/fonts";
@@ -129,7 +129,12 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
   const analyserStateRef = useRef<AnalyserState>({ smoothed: null });
   const onsetRef = useRef(new OnsetDetector());
   const lastAnalysedFrameRef = useRef<number>(-10);
-  const audioCacheRef = useRef<{ frame: number; audio: AudioData } | null>(null);
+  // The analysis cache and the warm-up state are only valid for the decoded
+  // audio they were computed from: the first paint happens BEFORE
+  // useAudioData resolves, and caching that silent analysis made the first
+  // frame of every render chunk come out flat.
+  const analysedMonoRef = useRef<Float32Array | null>(null);
+  const audioCacheRef = useRef<{ frame: number; mono: Float32Array | null; audio: AudioData } | null>(null);
 
   const analyseFrame = useCallback((f: number): AudioData => {
     const cfg = props.visualizer;
@@ -137,16 +142,20 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     const time = f / fps;
     const freq = new Uint8Array(new ArrayBuffer(ANALYSER_FFT_SIZE / 2)) as U8;
     const wave = new Uint8Array(new ArrayBuffer(ANALYSER_FFT_SIZE)) as U8;
+    // Wide-range dB spectrum for the beat tracker (= getFloatFrequencyData in
+    // the preview); the byte spectrum clips at -30 dB and hides kicks.
+    const db = new Float32Array(new ArrayBuffer((ANALYSER_FFT_SIZE / 2) * 4));
     if (mono && mono.length) {
       const endSample = Math.round(time * sr);
       analyserBytes(
         mono, endSample,
         { fftSize: ANALYSER_FFT_SIZE, smoothingTimeConstant: clamp(cfg.smoothing ?? 0.5, 0, 0.95) },
-        analyserStateRef.current, freq,
+        analyserStateRef.current, freq, db,
       );
       analyserWaveBytes(mono, endSample, ANALYSER_FFT_SIZE, wave);
     } else {
       wave.fill(128);
+      db.fill(SILENCE_DB);
     }
 
     const master = cfg.sensitivity ?? 1;
@@ -154,7 +163,7 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
       master, bass: cfg.bassSensitivity ?? 1, mid: cfg.midSensitivity ?? 1, treble: cfg.trebleSensitivity ?? 1,
     });
     const tracker = onsetRef.current;
-    const feat = tracker.update(freq, time, m.rawVolume, sr);
+    const feat = tracker.update(freq, time, m.rawVolume, sr, db);
 
     return {
       freq, wave, bass: m.bass, mid: m.mid, treble: m.treble, volume: m.volume, beat: feat.beat,
@@ -174,8 +183,17 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
    */
   const audioForFrame = useCallback((f: number): AudioData => {
     const cached = audioCacheRef.current;
-    if (cached && cached.frame === f) return cached.audio;
-    if (lastAnalysedFrameRef.current !== f - 1) {
+    if (cached && cached.frame === f && cached.mono === mono) return cached.audio;
+    if (!mono) {
+      // Audio not decoded yet: draw the silent frame but keep no state, so
+      // the real analysis starts cold once the samples arrive.
+      analyserStateRef.current = { smoothed: null };
+      onsetRef.current.reset();
+      lastAnalysedFrameRef.current = -10;
+      analysedMonoRef.current = null;
+      return analyseFrame(f);
+    }
+    if (lastAnalysedFrameRef.current !== f - 1 || analysedMonoRef.current !== mono) {
       analyserStateRef.current = { smoothed: null };
       onsetRef.current.reset();
       const k = clamp(props.visualizer.smoothing ?? 0.5, 0, 0.95);
@@ -187,9 +205,10 @@ export const VisualizerComp: React.FC<VisualizerProps> = (props) => {
     }
     const audio = analyseFrame(f);
     lastAnalysedFrameRef.current = f;
-    audioCacheRef.current = { frame: f, audio };
+    analysedMonoRef.current = mono;
+    audioCacheRef.current = { frame: f, mono, audio };
     return audio;
-  }, [analyseFrame, props.visualizer.smoothing, fps]);
+  }, [analyseFrame, mono, props.visualizer.smoothing, fps]);
 
   // ── Assets: logo + background image, gated by delayRender so Lambda waits.
   const [logoImg, setLogoImg] = useState<HTMLImageElement | null>(null);

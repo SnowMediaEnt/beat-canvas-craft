@@ -41,8 +41,8 @@ export const hasPreset = (id: string): boolean => byId.has(id);
 
 /** Category order for the picker (unknown categories sort last, alphabetically). */
 export const PRESET_CATEGORY_ORDER = [
-  "Groove", "Logo", "Typography", "Circular", "Bars", "Wave", "3D", "Ambient", "Morph",
-  "Shapes", "Particles", "Organic", "Retro", "Unconventional", "Custom",
+  "Logo", "Typography", "Circular", "Bars", "Grid", "Wave", "3D", "Ambient", "Morph",
+  "Shapes", "Particles", "Organic", "Sacred", "Retro", "Unconventional", "Custom",
 ];
 
 export function presetCategories(): string[] {
