@@ -48,6 +48,15 @@ REMOTION_SITE_NAME=lyrics-viz REMOTION_AWS_REGION=us-east-2 npm run deploy:lambd
 
 The health panel prints the exact `sites create` command with your site name and region.
 
+### Automatic redeploy (recommended)
+
+`.github/workflows/deploy-lambda-site.yml` runs the same upload on GitHub's servers
+whenever drawing code lands on `main`, so nobody has to run a terminal. One-time setup on
+GitHub: **Settings → Secrets and variables → Actions → New repository secret**, add
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` (the same IAM user Lovable uses). To run it
+by hand, open the **Actions** tab, pick **Deploy Lambda site**, and press **Run workflow**.
+The run's summary shows the serve URL, which must match `REMOTION_AWS_SERVE_URL` in Lovable.
+
 ## Cost & time
 
 The Export dialog estimates workers, file size and time from the same chunking math the
