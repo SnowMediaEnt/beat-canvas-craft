@@ -11,9 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as EditorProjectIdRouteImport } from './routes/editor.$projectId'
-import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
-import { Route as ApiPublicRenderDownloadRouteImport } from './routes/api/public/render-download'
 import { Route as ApiPublicRenderUploadRouteImport } from './routes/api/public/render-upload'
+import { Route as ApiPublicRenderDownloadRouteImport } from './routes/api/public/render-download'
+import { Route as ApiPublicElevenlabsKeyRouteImport } from './routes/api/public/elevenlabs-key'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -25,9 +25,9 @@ const EditorProjectIdRoute = EditorProjectIdRouteImport.update({
   path: '/editor/$projectId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
-  id: '/api/public/elevenlabs-key',
-  path: '/api/public/elevenlabs-key',
+const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
+  id: '/api/public/render-upload',
+  path: '/api/public/render-upload',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicRenderDownloadRoute = ApiPublicRenderDownloadRouteImport.update({
@@ -35,9 +35,9 @@ const ApiPublicRenderDownloadRoute = ApiPublicRenderDownloadRouteImport.update({
   path: '/api/public/render-download',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicRenderUploadRoute = ApiPublicRenderUploadRouteImport.update({
-  id: '/api/public/render-upload',
-  path: '/api/public/render-upload',
+const ApiPublicElevenlabsKeyRoute = ApiPublicElevenlabsKeyRouteImport.update({
+  id: '/api/public/elevenlabs-key',
+  path: '/api/public/elevenlabs-key',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -111,11 +111,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EditorProjectIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/elevenlabs-key': {
-      id: '/api/public/elevenlabs-key'
-      path: '/api/public/elevenlabs-key'
-      fullPath: '/api/public/elevenlabs-key'
-      preLoaderRoute: typeof ApiPublicElevenlabsKeyRouteImport
+    '/api/public/render-upload': {
+      id: '/api/public/render-upload'
+      path: '/api/public/render-upload'
+      fullPath: '/api/public/render-upload'
+      preLoaderRoute: typeof ApiPublicRenderUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/render-download': {
@@ -125,11 +125,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicRenderDownloadRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/render-upload': {
-      id: '/api/public/render-upload'
-      path: '/api/public/render-upload'
-      fullPath: '/api/public/render-upload'
-      preLoaderRoute: typeof ApiPublicRenderUploadRouteImport
+    '/api/public/elevenlabs-key': {
+      id: '/api/public/elevenlabs-key'
+      path: '/api/public/elevenlabs-key'
+      fullPath: '/api/public/elevenlabs-key'
+      preLoaderRoute: typeof ApiPublicElevenlabsKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
