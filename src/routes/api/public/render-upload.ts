@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AwsClient } from "aws4fetch";
 
 const MAX_BYTES = 200 * 1024 * 1024; // 200MB cap
+/** SigV4 maximum. The URL only has to outlive the render that uses it. */
+const SIGNED_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 const SAFE_EXT = /^[a-z0-9]{1,8}$/;
 const SAFE_ID = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
@@ -115,7 +117,20 @@ export const Route = createFileRoute("/api/public/render-upload")({
             return jsonError(500, "Upload failed", `S3 ${res.status}`);
           }
 
-          return new Response(JSON.stringify({ url: objectUrl }), {
+          // Hand back a PRESIGNED url. Remotion's browser on Lambda fetches
+          // the song with no AWS credentials of its own, and the bucket only
+          // grants public read to Remotion's own sites/ and renders/ prefixes
+          // — a plain URL to render-assets/ answers 403 and every render dies
+          // fetching the audio. Signed for 7 days (the SigV4 maximum), which
+          // outlives any render.
+          const signable = new URL(objectUrl);
+          signable.searchParams.set("X-Amz-Expires", String(SIGNED_URL_TTL_SECONDS));
+          const signed = await client.sign(signable.toString(), {
+            method: "GET",
+            aws: { signQuery: true },
+          });
+
+          return new Response(JSON.stringify({ url: signed.url }), {
             status: 200,
             headers: { ...JSON_HEADERS, "cache-control": "no-store" },
           });
