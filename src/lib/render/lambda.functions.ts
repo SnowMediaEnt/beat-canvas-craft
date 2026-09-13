@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { renderInputPropsSchema, type RenderInputProps } from "./input-schema";
+import { buildStartPayload } from "./start-payload";
 import {
   REMOTION_VERSION, REMOTION_OUTPUT_PREFIX, computeFramesPerLambda,
   buildPublicRenderUrl, parseBucketAndRegion,
@@ -419,10 +420,6 @@ async function deleteRenderPrefix(env: AwsEnv, bucketName: string, renderId: str
   } while (continuationToken);
 }
 
-function serializeInputProps(inputProps: RenderInputProps) {
-  return { type: "payload", payload: JSON.stringify(inputProps) };
-}
-
 async function invokeLambdaJson(env: AwsEnv, payload: Record<string, unknown>, invocationType: "RequestResponse" | "Event") {
   const lambda = createLambdaClient(env);
   const url = `https://lambda.${env.region}.amazonaws.com/2015-03-31/functions/${encodeURIComponent(env.functionName)}/invocations`;
@@ -449,88 +446,9 @@ async function invokeLambdaJson(env: AwsEnv, payload: Record<string, unknown>, i
   }
 }
 
-function safeFileName(title: string | undefined) {
-  const base = (title || "visualizer").normalize("NFKD").replace(/[^\w\s.-]+/g, "").trim().replace(/\s+/g, "-").slice(0, 80);
-  return `${base || "visualizer"}.mp4`;
-}
-
-/**
- * Encoder settings by quality tier. The old start call used ffmpeg defaults:
- * ~128 kbps AAC (a musician's master transcoded like a podcast), CRF 18 and
- * JPEG-80 intermediates, with no colour-space tag (players desaturate neon).
- */
-function encodeSettings(quality: RenderInputProps["quality"]) {
-  return quality === "standard"
-    ? { jpegQuality: 85, crf: 20, audioBitrate: "256k", colorSpace: "bt709" as const }
-    : { jpegQuality: 95, crf: 16, audioBitrate: "320k", colorSpace: "bt709" as const };
-}
-
 async function startRenderViaLambdaApi(env: AwsEnv, data: RenderInputProps) {
-  const totalFrames = Math.ceil(data.durationSeconds * data.fps);
-  const framesPerLambda = computeFramesPerLambda(totalFrames, data.fps);
-  const enc = encodeSettings(data.quality);
-
-  const result = await invokeLambdaJson(
-    env,
-    {
-      type: "start",
-      rendererFunctionName: null,
-      framesPerLambda,
-      concurrency: null,
-      composition: "Visualizer",
-      serveUrl: env.serveUrl,
-      inputProps: serializeInputProps(data),
-      codec: "h264",
-      imageFormat: "jpeg",
-      crf: enc.crf,
-      envVariables: {},
-      pixelFormat: null,
-      proResProfile: null,
-      x264Preset: null,
-      jpegQuality: enc.jpegQuality,
-      maxRetries: 3,
-      privacy: "public",
-      logLevel: "info",
-      frameRange: null,
-      outName: null,
-      timeoutInMilliseconds: 120000,
-      chromiumOptions: {},
-      scale: 1,
-      everyNthFrame: 1,
-      numberOfGifLoops: null,
-      concurrencyPerLambda: 1,
-      // S3 serves the MP4 with Content-Disposition: attachment so the
-      // Download button saves a file instead of opening a player tab.
-      downloadBehavior: { type: "download", fileName: safeFileName(data.title) },
-      muted: false,
-      version: REMOTION_VERSION,
-      overwrite: false,
-      audioBitrate: enc.audioBitrate,
-      videoBitrate: null,
-      encodingBufferSize: null,
-      encodingMaxRate: null,
-      webhook: null,
-      forceHeight: null,
-      forceWidth: null,
-      forceFps: null,
-      forceDurationInFrames: null,
-      bucketName: env.bucketName,
-      audioCodec: null,
-      offthreadVideoCacheSizeInBytes: null,
-      deleteAfter: null,
-      colorSpace: enc.colorSpace,
-      preferLossless: false,
-      forcePathStyle: false,
-      metadata: null,
-      licenseKey: null,
-      offthreadVideoThreads: null,
-      mediaCacheSizeInBytes: null,
-      storageClass: null,
-      isProduction: null,
-      sampleRate: 48000,
-    },
-    "RequestResponse",
-  );
+  const { payload, framesPerLambda } = buildStartPayload(env.serveUrl, env.bucketName, data);
+  const result = await invokeLambdaJson(env, payload, "RequestResponse");
 
   if (result?.type === "error") {
     throw new Error(typeof result.message === "string" ? result.message : "Lambda render failed");

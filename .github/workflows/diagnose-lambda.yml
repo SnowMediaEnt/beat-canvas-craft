@@ -92,6 +92,18 @@ jobs:
             --function-name="$FN" --region="$REMOTION_AWS_REGION" \
             --props=/tmp/props.json --log=info 2>&1 | tail -25
 
+      - name: Replay the app's own render request
+        continue-on-error: true
+        env:
+          REMOTION_AWS_FUNCTION_NAME: remotion-render-4-0-465-mem3008mb-disk2048mb-900sec
+        run: |
+          BUCKET=$(aws s3 ls | grep "remotionlambda-useast2" | awk '{print $3}' | head -1)
+          export REMOTION_AWS_SERVE_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/sites/lyrics-viz/index.html"
+          export DIAG_AUDIO_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/render-assets/diag.wav"
+          npx esbuild scripts/diagnose-app-render.ts --bundle --platform=node --format=esm \
+            --outfile=/tmp/diag-app.mjs --log-level=error
+          node /tmp/diag-app.mjs
+
       - name: Clean up the test asset
         if: always()
         continue-on-error: true
