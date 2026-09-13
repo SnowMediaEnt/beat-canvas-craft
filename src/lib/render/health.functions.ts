@@ -203,6 +203,23 @@ export const getRenderHealth = createServerFn({ method: "POST" })
     }
   }
 
+  // 6b. Region agreement. REMOTION_AWS_REGION picks the Lambda function while
+  // the bucket comes from the serve URL. When they disagree the render runs in
+  // one region and its files land in another, and progress polling looks at
+  // the wrong place.
+  if (region && bucketRegion && region !== bucketRegion) {
+    push({
+      id: "region",
+      label: "Region agreement",
+      status: "fail",
+      detail:
+        `The Lambda function is in ${region} but REMOTION_AWS_SERVE_URL points at a bucket in ${bucketRegion}. ` +
+        "Renders will run in one region and store their files in the other. Set REMOTION_AWS_REGION and the serve URL to the same region.",
+    });
+  } else if (region) {
+    push({ id: "region", label: "Region agreement", status: "ok", detail: `Function and bucket are both in ${region}.` });
+  }
+
   // 7. Same-account check. The Lambda function can only write renders into a
   // bucket its own account owns. Deploying the site with keys from a second
   // AWS account silently produces a render that never starts, so compare the

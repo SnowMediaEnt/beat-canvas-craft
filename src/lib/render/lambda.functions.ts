@@ -138,11 +138,29 @@ function getAwsEnv(): AwsEnv {
   };
 }
 
-/** Refuse to touch any bucket other than the configured Remotion bucket. */
-function assertOwnBucket(env: AwsEnv, bucketName: string) {
-  if (bucketName !== env.bucketName) {
-    throw new Error("Unknown render bucket.");
+/**
+ * Which bucket a render's files live in.
+ *
+ * Normally this is the bucket from REMOTION_AWS_SERVE_URL. But Remotion's
+ * launcher reports the bucket it actually used, and when the configured
+ * serve URL and function are in different regions that is NOT the configured
+ * one. The old code threw "Unknown render bucket" on every poll in that case,
+ * which the UI could only show as a render that starts and then never moves,
+ * even though AWS was rendering it fine.
+ *
+ * So: take the bucket the render reported (the schema already restricts it to
+ * a remotionlambda-* name, and these credentials can only reach this
+ * account's own buckets), and fall back to the configured one.
+ */
+function ownBucket(env: AwsEnv, clientBucket: string) {
+  if (clientBucket && clientBucket !== env.bucketName) {
+    console.warn("[lambda-render-server] render lives in a different bucket than the serve URL", {
+      renderBucket: clientBucket,
+      configuredBucket: env.bucketName,
+    });
+    return clientBucket;
   }
+  return env.bucketName;
 }
 
 function createS3Client(env: AwsEnv) {
@@ -324,6 +342,14 @@ async function readProgressJson(env: AwsEnv, bucketName: string, renderId: strin
   }
 
   return (await response.json()) as ProgressJson;
+}
+
+/** Does the finished video already exist? Proof a render completed. */
+async function headRenderOutput(env: AwsEnv, bucketName: string, renderId: string) {
+  const aws = createS3Client(env);
+  const url = `https://${bucketName}.s3.${env.bucketRegion}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`;
+  const res = await aws.fetch(url, { method: "HEAD" });
+  return res.ok;
 }
 
 /**
@@ -508,8 +534,8 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
   .inputValidator((input) => renderRefSchema.parse(input))
   .handler(async ({ data }) => {
     const env = getAwsEnv();
-    assertOwnBucket(env, data.bucketName);
-    const cacheKey = `${data.bucketName}:${data.renderId}`;
+    const bucketName = ownBucket(env, data.bucketName);
+    const cacheKey = `${bucketName}:${data.renderId}`;
     const now = Date.now();
     const cached = progressCache.get(cacheKey);
 
@@ -528,17 +554,30 @@ export const getLambdaProgress = createServerFn({ method: "POST" })
 
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         try {
-          const progress = await readProgressJson(env, data.bucketName, data.renderId);
+          const progress = await readProgressJson(env, bucketName, data.renderId);
           let response: LambdaProgressResponse;
           if (progress) {
-            response = toLambdaProgressResponse(progress, env.bucketRegion, data.renderId, data.bucketName);
+            response = toLambdaProgressResponse(progress, env.bucketRegion, data.renderId, bucketName);
           } else {
             // No progress file yet: either AWS is still booting the launcher,
             // or the launcher failed and only left error files behind.
             const [fromFiles, fromLambda] = await Promise.all([
-              readRenderErrors(env, data.bucketName, data.renderId).catch(() => []),
-              readStatusViaLambda(env, data.bucketName, data.renderId).catch(() => ({ errors: [], fatal: false })),
+              readRenderErrors(env, bucketName, data.renderId).catch(() => []),
+              readStatusViaLambda(env, bucketName, data.renderId).catch(() => ({ errors: [], fatal: false })),
             ]);
+            const finished = await headRenderOutput(env, bucketName, data.renderId).catch(() => false);
+            if (finished) {
+              const doneResponse: LambdaProgressResponse = {
+                done: true,
+                overallProgress: 1,
+                outputFile: buildPublicRenderUrl(env.bucketRegion, bucketName, data.renderId),
+                errors: [],
+                fatalErrorEncountered: false,
+                stage: "done",
+              };
+              rememberProgress(cacheKey, doneResponse);
+              return doneResponse;
+            }
             const errors = [...fromFiles, ...fromLambda.errors];
             response = {
               done: false,
@@ -617,10 +656,10 @@ export const deleteLambdaRender = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     assertAccessCode(data.accessCode);
     const env = getAwsEnv();
-    assertOwnBucket(env, data.bucketName);
+    const bucketName = ownBucket(env, data.bucketName);
     try {
-      await deleteRenderPrefix(env, data.bucketName, data.renderId);
-      progressCache.delete(`${data.bucketName}:${data.renderId}`);
+      await deleteRenderPrefix(env, bucketName, data.renderId);
+      progressCache.delete(`${bucketName}:${data.renderId}`);
       return { deleted: true };
     } catch (error) {
       console.error("[lambda-render-server] delete failed", error);

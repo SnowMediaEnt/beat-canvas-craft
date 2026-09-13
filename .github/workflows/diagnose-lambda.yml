@@ -92,6 +92,14 @@ jobs:
             --function-name="$FN" --region="$REMOTION_AWS_REGION" \
             --props=/tmp/props.json --log=info 2>&1 | tail -25
 
+      - name: Lambda concurrency the account allows
+        continue-on-error: true
+        run: |
+          aws lambda get-account-settings --query 'AccountLimit.ConcurrentExecutions' --output text \
+            | awk '{print "concurrent executions limit: " $1; if ($1 < 100) print "::warning::A long song asks for up to 200 workers. This account allows " $1 ", so real renders will be throttled and crawl even though a short test render succeeds."}'
+          aws lambda get-account-settings --query 'AccountLimit.UnreservedConcurrentExecutions' --output text \
+            | awk '{print "unreserved concurrent executions: " $1}'
+
       - name: Replay the app's own render request
         continue-on-error: true
         env:
