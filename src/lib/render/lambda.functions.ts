@@ -5,7 +5,7 @@ import { renderInputPropsSchema, type RenderInputProps } from "./input-schema";
 import { buildStartPayload } from "./start-payload";
 import {
   REMOTION_VERSION, REMOTION_OUTPUT_PREFIX, computeFramesPerLambda,
-  buildPublicRenderUrl, parseBucketAndRegion,
+  buildPublicRenderUrl, parseBucketAndRegion, regionForBucket,
 } from "./lambda-config";
 
 const PROGRESS_CACHE_TTL_MS = 8000;
@@ -152,15 +152,20 @@ function getAwsEnv(): AwsEnv {
  * a remotionlambda-* name, and these credentials can only reach this
  * account's own buckets), and fall back to the configured one.
  */
-function ownBucket(env: AwsEnv, clientBucket: string) {
+function ownBucket(env: AwsEnv, clientBucket: string): AwsEnv {
   if (clientBucket && clientBucket !== env.bucketName) {
+    // Sign for the region that bucket is actually in — its own name says so.
+    // Signing the right bucket with the wrong region is rejected by S3, which
+    // would leave the poll failing just as silently as before.
+    const bucketRegion = regionForBucket(clientBucket, env.bucketRegion);
     console.warn("[lambda-render-server] render lives in a different bucket than the serve URL", {
       renderBucket: clientBucket,
+      renderRegion: bucketRegion,
       configuredBucket: env.bucketName,
     });
-    return clientBucket;
+    return { ...env, bucketName: clientBucket, bucketRegion };
   }
-  return env.bucketName;
+  return env;
 }
 
 function createS3Client(env: AwsEnv) {
@@ -533,8 +538,8 @@ export const startLambdaRender = createServerFn({ method: "POST" })
 export const getLambdaProgress = createServerFn({ method: "POST" })
   .inputValidator((input) => renderRefSchema.parse(input))
   .handler(async ({ data }) => {
-    const env = getAwsEnv();
-    const bucketName = ownBucket(env, data.bucketName);
+    const env = ownBucket(getAwsEnv(), data.bucketName);
+    const bucketName = env.bucketName;
     const cacheKey = `${bucketName}:${data.renderId}`;
     const now = Date.now();
     const cached = progressCache.get(cacheKey);
@@ -655,8 +660,8 @@ export const deleteLambdaRender = createServerFn({ method: "POST" })
   .inputValidator((input) => renderRefSchema.extend({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }) => {
     assertAccessCode(data.accessCode);
-    const env = getAwsEnv();
-    const bucketName = ownBucket(env, data.bucketName);
+    const env = ownBucket(getAwsEnv(), data.bucketName);
+    const bucketName = env.bucketName;
     try {
       await deleteRenderPrefix(env, bucketName, data.renderId);
       progressCache.delete(`${bucketName}:${data.renderId}`);

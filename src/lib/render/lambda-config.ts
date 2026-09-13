@@ -51,6 +51,37 @@ export function parseBucketAndRegion(serveUrl: string, fallbackRegion: string): 
   return null;
 }
 
+/**
+ * Every AWS region Remotion Lambda supports. Remotion names its bucket
+ * `remotionlambda-<region with the dashes removed>-<random>`, so this is what
+ * lets us turn a bucket name back into the region needed to sign requests
+ * against it.
+ */
+const REMOTION_REGIONS = [
+  "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+  "af-south-1", "ap-east-1", "ap-south-1",
+  "ap-northeast-1", "ap-northeast-2", "ap-northeast-3",
+  "ap-southeast-1", "ap-southeast-2", "ap-southeast-3", "ap-southeast-4", "ap-southeast-5",
+  "ca-central-1", "eu-central-1", "eu-central-2",
+  "eu-north-1", "eu-south-1", "eu-south-2",
+  "eu-west-1", "eu-west-2", "eu-west-3",
+  "il-central-1", "me-central-1", "me-south-1", "sa-east-1",
+];
+
+/**
+ * The region a Remotion bucket lives in, read from its own name.
+ *
+ * Signing an S3 request for the right bucket with the wrong region fails, so
+ * when a render turns out to live somewhere other than the configured bucket
+ * we have to sign for that bucket's region, not the configured one.
+ */
+export function regionForBucket(bucketName: string, fallbackRegion: string): string {
+  const m = bucketName.match(/^remotionlambda-([a-z0-9]+)-/i);
+  if (!m) return fallbackRegion;
+  const squashed = m[1].toLowerCase();
+  return REMOTION_REGIONS.find((r) => r.replace(/-/g, "") === squashed) ?? fallbackRegion;
+}
+
 /** Region of an S3 object URL, when the hostname carries it. */
 export function regionFromS3Url(url: string | undefined | null): string | null {
   if (!url) return null;

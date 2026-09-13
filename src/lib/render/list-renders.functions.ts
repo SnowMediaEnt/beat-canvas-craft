@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
-import { REMOTION_OUTPUT_PREFIX, parseBucketAndRegion } from "./lambda-config";
+import { REMOTION_OUTPUT_PREFIX, parseBucketAndRegion, regionForBucket } from "./lambda-config";
 
 export interface CloudRender {
   renderId: string;
@@ -28,7 +28,29 @@ function extractTag(block: string, tag: string): string | undefined {
 }
 
 /**
- * Lists finished renders in the configured Remotion bucket. Requires the
+ * Every Remotion bucket this account owns, so a finished video is findable
+ * even when it landed somewhere other than the configured bucket (which
+ * happens when the function's region and the serve URL's region differ).
+ * Falls back to just the configured bucket when the IAM user may not list
+ * buckets.
+ */
+async function remotionBuckets(aws: AwsClient, fallback: { bucketName: string; region: string }) {
+  try {
+    const res = await aws.fetch("https://s3.amazonaws.com/", { method: "GET" });
+    if (!res.ok) return [fallback];
+    const xml = await res.text();
+    const names = parseXmlTags(xml, "Name").filter((n) => /^remotionlambda-[a-z0-9-]+$/i.test(n));
+    if (!names.length) return [fallback];
+    const buckets = names.map((bucketName) => ({ bucketName, region: regionForBucket(bucketName, fallback.region) }));
+    if (!buckets.some((b) => b.bucketName === fallback.bucketName)) buckets.push(fallback);
+    return buckets;
+  } catch {
+    return [fallback];
+  }
+}
+
+/**
+ * Lists finished renders across the account's Remotion buckets. Requires the
  * render access code: every visitor used to be able to enumerate (and
  * download) every render in the AWS account.
  */
@@ -51,38 +73,55 @@ export const listLambdaRenders = createServerFn({ method: "POST" })
     if (!parsed) throw new Error("Could not determine the Remotion S3 bucket from REMOTION_AWS_SERVE_URL");
     const { bucketName, region } = parsed;
 
-    const aws = new AwsClient({ accessKeyId, secretAccessKey, sessionToken, service: "s3", region });
+    const lister = new AwsClient({ accessKeyId, secretAccessKey, sessionToken, service: "s3", region });
+    const buckets = await remotionBuckets(lister, { bucketName, region });
     const results: CloudRender[] = [];
-    let continuationToken: string | undefined;
-    do {
-      const params = new URLSearchParams({ "list-type": "2", prefix: REMOTION_OUTPUT_PREFIX });
-      if (continuationToken) params.set("continuation-token", continuationToken);
-      const url = `https://${bucketName}.s3.${region}.amazonaws.com/?${params.toString()}`;
-      const res = await aws.fetch(url, { method: "GET" });
-      if (!res.ok) {
-        throw new Error(`Could not list renders (S3 ${res.status}). Check the IAM policy allows s3:ListBucket on ${bucketName}.`);
+    const failures: string[] = [];
+
+    for (const bucket of buckets) {
+      const aws = new AwsClient({ accessKeyId, secretAccessKey, sessionToken, service: "s3", region: bucket.region });
+      let continuationToken: string | undefined;
+      try {
+        do {
+          const params = new URLSearchParams({ "list-type": "2", prefix: REMOTION_OUTPUT_PREFIX });
+          if (continuationToken) params.set("continuation-token", continuationToken);
+          const url = `https://${bucket.bucketName}.s3.${bucket.region}.amazonaws.com/?${params.toString()}`;
+          const res = await aws.fetch(url, { method: "GET" });
+          if (!res.ok) {
+            failures.push(`${bucket.bucketName} (S3 ${res.status})`);
+            break;
+          }
+          const xml = await res.text();
+          for (const c of parseXmlTags(xml, "Contents")) {
+            const key = extractTag(c, "Key") || "";
+            const match = key.match(/^renders\/([^/]+)\/out\.(mp4|webm)$/);
+            if (!match) continue;
+            const size = Number(extractTag(c, "Size") || "0");
+            const lastModified = extractTag(c, "LastModified");
+            results.push({
+              renderId: match[1],
+              bucketName: bucket.bucketName,
+              key,
+              url: `https://${bucket.bucketName}.s3.${bucket.region}.amazonaws.com/${key}`,
+              sizeBytes: size,
+              lastModified: lastModified ? new Date(lastModified).getTime() : 0,
+              fileFormat: match[2] as "mp4" | "webm",
+              region: bucket.region,
+            });
+          }
+          const isTruncated = extractTag(xml, "IsTruncated") === "true";
+          continuationToken = isTruncated ? extractTag(xml, "NextContinuationToken") : undefined;
+        } while (continuationToken);
+      } catch (e) {
+        failures.push(`${bucket.bucketName} (${e instanceof Error ? e.message : String(e)})`);
       }
-      const xml = await res.text();
-      for (const c of parseXmlTags(xml, "Contents")) {
-        const key = extractTag(c, "Key") || "";
-        const match = key.match(/^renders\/([^/]+)\/out\.(mp4|webm)$/);
-        if (!match) continue;
-        const size = Number(extractTag(c, "Size") || "0");
-        const lastModified = extractTag(c, "LastModified");
-        results.push({
-          renderId: match[1],
-          bucketName,
-          key,
-          url: `https://${bucketName}.s3.${region}.amazonaws.com/${key}`,
-          sizeBytes: size,
-          lastModified: lastModified ? new Date(lastModified).getTime() : 0,
-          fileFormat: match[2] as "mp4" | "webm",
-          region,
-        });
-      }
-      const isTruncated = extractTag(xml, "IsTruncated") === "true";
-      continuationToken = isTruncated ? extractTag(xml, "NextContinuationToken") : undefined;
-    } while (continuationToken);
+    }
+
+    // Only complain when nothing at all could be listed — one unreadable
+    // bucket must not hide the renders sitting in another.
+    if (!results.length && failures.length) {
+      throw new Error(`Could not list renders: ${failures.join(", ")}. Check the IAM policy allows s3:ListBucket.`);
+    }
 
     results.sort((a, b) => b.lastModified - a.lastModified);
     return results;
