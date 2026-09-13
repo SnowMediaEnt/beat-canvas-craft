@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { Activity, AlertTriangle, CheckCircle2, Copy, Loader2, XCircle } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Copy, Loader2, Play, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getRenderHealth, type HealthCheck, type RenderHealth } from "@/lib/render/health.functions";
+import { runRenderSelfTest, type SelfTestResult } from "@/lib/render/selftest.functions";
 import { getStoredAccessCode } from "@/lib/render/access-code";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -21,8 +22,11 @@ function StatusIcon({ status }: { status: HealthCheck["status"] }) {
  */
 export function RenderHealthPanel({ compact = false, accessCode }: { compact?: boolean; accessCode?: string }) {
   const check = useServerFn(getRenderHealth);
+  const selfTest = useServerFn(runRenderSelfTest);
   const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
   const [health, setHealth] = useState<RenderHealth | null>(null);
+  const [test, setTest] = useState<SelfTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = async () => {
@@ -40,6 +44,24 @@ export function RenderHealthPanel({ compact = false, accessCode }: { compact?: b
       setError(e instanceof Error ? e.message : "Health check failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const runTest = async () => {
+    const code = (accessCode ?? "").trim() || getStoredAccessCode();
+    if (!code) {
+      setError("Enter your access code above first.");
+      return;
+    }
+    setTesting(true);
+    setError(null);
+    setTest(null);
+    try {
+      setTest(await selfTest({ data: { accessCode: code } }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Test render failed to start");
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -71,11 +93,45 @@ export function RenderHealthPanel({ compact = false, accessCode }: { compact?: b
             </span>
           )}
         </div>
-        <Button size="sm" variant="outline" className="h-7 px-2 gap-1.5 bg-background/40" onClick={run} disabled={busy}>
-          {busy ? <Loader2 className="size-3 animate-spin" /> : <Activity className="size-3" />}
-          {health ? "Re-check" : "Check"}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="outline" className="h-7 px-2 gap-1.5 bg-background/40" onClick={run} disabled={busy || testing}>
+            {busy ? <Loader2 className="size-3 animate-spin" /> : <Activity className="size-3" />}
+            {health ? "Re-check" : "Check"}
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 px-2 gap-1.5 bg-background/40" onClick={runTest} disabled={busy || testing} title="Runs a real two-second render on AWS and reports exactly where it stops">
+            {testing ? <Loader2 className="size-3 animate-spin" /> : <Play className="size-3" />}
+            Test render
+          </Button>
+        </div>
       </div>
+
+      {testing && (
+        <p className="text-muted-foreground">Rendering two seconds of video on AWS — this takes up to a minute…</p>
+      )}
+
+      {test && (
+        <div className="rounded bg-background/60 p-2 space-y-1.5">
+          <div className="font-medium text-foreground/90">
+            {test.ok ? "Test render succeeded — exports work" : "Test render stopped here:"}
+          </div>
+          <ul className="space-y-1.5">
+            {test.steps.map((s) => (
+              <li key={s.id} className="flex gap-2">
+                <StatusIcon status={s.status === "skip" ? "skip" : s.status} />
+                <div className="min-w-0">
+                  <div className="text-foreground/90 font-medium">{s.label}</div>
+                  <div className="text-muted-foreground break-words leading-relaxed">{s.detail}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {test.outputUrl && (
+            <a href={test.outputUrl} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all">
+              Watch the test video
+            </a>
+          )}
+        </div>
+      )}
 
       {!health && !error && !compact && (
         <p className="text-muted-foreground">
