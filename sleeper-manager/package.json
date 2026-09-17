@@ -1,0 +1,23 @@
+{
+  "name": "sleeper-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Automated fantasy football manager for a Sleeper team.",
+  "scripts": {
+    "check": "node src/cli.js check",
+    "lineup": "node src/cli.js lineup",
+    "lineup:apply": "node src/cli.js lineup --apply",
+    "waivers": "node src/cli.js waivers",
+    "waivers:apply": "node src/cli.js waivers --apply",
+    "capture": "node src/capture.js",
+    "start": "node src/scheduler.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "nodemailer": "^6.9.14",
+    "node-cron": "^3.0.3",
+    "playwright": "^1.47.0"
+  }
+}

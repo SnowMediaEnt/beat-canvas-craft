@@ -1,0 +1,60 @@
+{
+  "_README": [
+    "These are the CSS selectors the bot uses to find things on sleeper.com.",
+    "They are best guesses and almost certainly need correcting once, because",
+    "Sleeper's site could not be inspected from the machine that wrote this.",
+    "",
+    "To fix them, run `npm run capture` on a machine that can reach sleeper.com.",
+    "It logs in, saves screenshots and the page HTML into ./debug, and prints",
+    "the likely candidates for each field. Paste the correct ones in here.",
+    "",
+    "Each entry is a LIST. The bot tries them in order and uses the first that",
+    "matches, so leaving extra guesses in place is harmless."
+  ],
+
+  "login": {
+    "url": "https://sleeper.com/login",
+    "emailInput": [
+      "input[name='email']",
+      "input[type='email']",
+      "input[autocomplete='username']",
+      "input[placeholder*='mail' i]"
+    ],
+    "passwordInput": [
+      "input[name='password']",
+      "input[type='password']",
+      "input[autocomplete='current-password']"
+    ],
+    "submitButton": [
+      "button[type='submit']",
+      "button:has-text('Log In')",
+      "button:has-text('Sign In')"
+    ],
+    "successIndicator": [
+      "[class*='avatar']",
+      "[class*='league-nav']",
+      "nav [class*='user']"
+    ],
+    "errorMessage": [
+      "[class*='error']",
+      "[role='alert']"
+    ]
+  },
+
+  "team": {
+    "urlTemplate": "https://sleeper.com/leagues/{leagueId}/team",
+    "starterSlot": ["[class*='starter'] [class*='player-slot']"],
+    "benchSlot": ["[class*='bench'] [class*='player-slot']"],
+    "playerRow": ["[class*='player-item']"],
+    "playerNameText": ["[class*='player-name']"],
+    "saveButton": ["button:has-text('Save')", "button:has-text('Done')"]
+  },
+
+  "waivers": {
+    "urlTemplate": "https://sleeper.com/leagues/{leagueId}/players",
+    "searchInput": ["input[placeholder*='Search' i]"],
+    "claimButton": ["button:has-text('Claim')", "button:has-text('Add')"],
+    "bidInput": ["input[name='bid']", "input[type='number']"],
+    "confirmButton": ["button:has-text('Confirm')", "button:has-text('Submit')"]
+  }
+}

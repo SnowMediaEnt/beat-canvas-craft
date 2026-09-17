@@ -30,3 +30,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets / local env
+.env
+.env.*
+!.env.example
+sleeper-manager/.auth/
+sleeper-manager/.cache/
+sleeper-manager/debug/
