@@ -23,8 +23,10 @@
 | Nov 30 | Fluid Lines & Fittings + Materials | Quiz |
 | Dec 7 | Materials & Processes + NDT | Quiz |
 | Dec 14 | Ground Ops & Servicing + Corrosion Control | **Mock #3 (80%+)** |
-| Dec 21 | Regulations, Records & Publications | Quiz |
-| Dec 28 | Inspection + Human Factors | Quiz |
+| Dec 21 | Regulations, Records & Publications (campus closed, self-study) | Quiz |
+| Dec 28 | Inspection + Human Factors (campus closed, lighter holiday week) | Quiz |
+
+> **Campus is closed Dec 18 – Jan 1.** The plan keeps going at home with lighter topics. Short daily sessions over the break keep you from losing momentum before the practice phase.
 
 ## Phase 2: Practice (Jan 4 – Jan 24)
 | Week of | Focus | Saturday |
