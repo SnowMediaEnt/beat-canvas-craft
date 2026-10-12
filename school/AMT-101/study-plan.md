@@ -6,6 +6,7 @@
 > Assumes AMT 101 follows the FAA **General** knowledge areas. Send the syllabus and the order will be matched to class.
 
 ## How each week works
+- **Use the TI-30Xa for everything.** It's the exam calculator. See [supplies-and-tools.md](supplies-and-tools.md).
 - **Mon:** New topic starts. Read the chapter in the FAA *Aviation Maintenance Technician Handbook – General* (FAA-H-8083-30B, free on faa.gov) and your class notes.
 - **During the week:** 20–30 min a day. Send class screenshots to Claude for notes and flashcards.
 - **Sat:** Practice quiz. Tell Claude "quiz me on [topic]." Goal 80%+. Every missed question goes on the "missed" list.
