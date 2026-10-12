@@ -17,6 +17,8 @@
 - If you do use AI: **explain why**, keep notes, and **save your prompts and the responses** in a document faculty can review.
 - Faculty are "very adept at identifying when AI has been used."
 
+**Our ground rules (agreed Oct 12):** this chat is for **studying, explaining, grading, correcting and the like. It is never for writing your papers or assignments.** You write your own work.
+
 **How this applies to our chat:** I'm an AI, so keep it to studying: explaining concepts, quizzing you, organizing your notes. **Never submit anything I wrote as your own work.** Because the rules are strict, ask the librarian or your instructors whether using AI for study help (explanations, practice questions) is OK.
 
 ---
@@ -72,6 +74,7 @@
 
 **Links:**
 - Database list (A to Z): https://calaero.libguides.com/az/databases
+- Library guide page (sent Oct 12, contents not checked yet): https://calaero.libguides.com/c.php?g=1106890&p=8076882
 - Ebook Central (library "caaerouniv"): open it from **Canvas > LIRN Library**. The link you sent was a temporary sign-in link, so it may stop working.
 - **Gale Virtual Reference Library (GVRL):** reference books and encyclopedias in the Gale databases. Open it from **Canvas > LIRN Library** (look for Gale). The link you sent also went through a temporary sign-in, so I didn't save it. Gale is also where the **Topic Finder** tool lives, and the librarian recommends **Gale in Context** for learning the basics of a new topic.
 
