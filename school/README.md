@@ -4,6 +4,9 @@ Notes, important dates, and study materials for school at CAU.
 
 ## General (all classes)
 - [Library orientation (ULRO): to do](general/library-orientation-ULRO.md)
+- [Library, research & AI policy notes](general/research/library-and-research-notes.md) (CRAAP, LIRN, search tips)
+- [Cornell note-taking system](general/research/cornell-note-taking.md)
+- [Student resources & eCHECKUP programs](general/student-resources.md)
 
 ## Classes
 - [AMT 101](AMT-101/) (Mr. Aguilera, Team Umi-Zoomie)
