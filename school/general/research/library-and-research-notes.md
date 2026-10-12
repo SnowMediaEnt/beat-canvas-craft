@@ -125,14 +125,29 @@
 
 ---
 
-## 9. Contact
+## 9. Academic writing at CAU
+([screenshot](images/2026-10-12-academic-writing.webp))
+
+- **Purpose:** scholarly writing shows **original thought**, uses **evidence**, and keeps a **formal tone**.
+- **Evidence:** support your arguments with credible sources. Use **in-text citations and reference pages**.
+- **Tone and language:** write objectively. Avoid slang, bias and informal phrases.
+- **Original thought:** go beyond summarizing. Share your own insights based on research and analysis.
+- **Tips for success:**
+  - Start with a **clear thesis**
+  - **Limit "I" statements** early on
+  - Organize ideas into **structured paragraphs**
+  - **Avoid online summarizers.** Quote or paraphrase accurately instead.
+
+---
+
+## 10. Contact
 Rachel Kelly, MLIS, Librarian (Learning Resource Center)
 rachelk@calaero.edu, (661) 615-5915 ext. 1842
 Remote hours: Mon to Fri, 10am to 3pm (hours may vary). Appointments: contact her.
 
 ---
 
-## 10. Likely ULRO quiz topics (self-check)
+## 11. Likely ULRO quiz topics (self-check)
 - [ ] What does CRAAP stand for? Can I explain each letter?
 - [ ] Why are peer-reviewed articles more authoritative?
 - [ ] Database vs. internet: name 3 differences
@@ -141,3 +156,4 @@ Remote hours: Mon to Fri, 10am to 3pm (hours may vary). Appointments: contact he
 - [ ] Which database do I use if I can't decide?
 - [ ] Is using AI to write a paper allowed at CAU? (No: plagiarism)
 - [ ] Why does every assignment have a 20-point APA section?
+- [ ] What are the tone and style rules for academic writing? (Objective, formal, no slang, limit "I", clear thesis)
