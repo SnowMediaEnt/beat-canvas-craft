@@ -1,13 +1,13 @@
 # Library Orientation (ULRO): TO DO ASAP
 
 **Received:** Oct 12, 2026 (letter from the CAU librarian)
-**Status:** ⬜ Not started
+**Status:** ✅ Canvas invitation accepted (Oct 12). ⬜ Course and quiz not done yet.
 
 ## What it is
 The **Undergraduate Learning Resource Orientation (ULRO)**. It teaches you how to use the CAU **LIRN databases** and the **Virtual Library**, and covers APA formatting and avoiding plagiarism.
 
 ## How to complete it
-1. Accept the invitation sent to your **student email**.
+1. ✅ ~~Accept the invitation sent to your **student email**.~~ Done Oct 12. The invite email is titled "Course Invitation" ([screenshot](images/2026-10-12-ulro-course-invitation.png)).
 2. Open **Canvas**, go to your dashboard, and select the **ULRO** course.
 3. Complete each item in order. Each one unlocks the next, starting with "Welcome to the Learning Resource Orientation Center! (START HERE)".
 4. Finish every required section **before** the final quiz.
