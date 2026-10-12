@@ -73,6 +73,7 @@
 **Links:**
 - Database list (A to Z): https://calaero.libguides.com/az/databases
 - Ebook Central (library "caaerouniv"): open it from **Canvas > LIRN Library**. The link you sent was a temporary sign-in link, so it may stop working.
+- **Gale Virtual Reference Library (GVRL):** reference books and encyclopedias in the Gale databases. Open it from **Canvas > LIRN Library** (look for Gale). The link you sent also went through a temporary sign-in, so I didn't save it. Gale is also where the **Topic Finder** tool lives, and the librarian recommends **Gale in Context** for learning the basics of a new topic.
 
 ---
 
