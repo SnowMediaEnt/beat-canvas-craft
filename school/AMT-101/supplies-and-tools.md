@@ -2,6 +2,7 @@
 
 ## Calculator: TI-30Xa (Texas Instruments)
 - **This is the exact calculator used on our exams.** Highly recommended to get one ([photo](images/2026-10-12-ti-30xa-calculator.jpg)).
+- **Price (checked Oct 12, 2026):** about $12–$15 new (Staples ~$13.99, CDW ~$14.99). Anything over ~$20 is overpriced.
 - Do **all** homework and practice tests with it so you're fast and comfortable on test day.
 
 ### Quick guide to the keys you'll use most
