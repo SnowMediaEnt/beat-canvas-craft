@@ -140,14 +140,39 @@
 
 ---
 
-## 10. Contact
+## 10. Plagiarism and when to cite
+([screenshot](images/2026-10-12-plagiarism-and-citing.webp); the page continues below the cut-off, so I'll add the rest if you send it)
+
+**Definition (APA 7th edition, p. 254):** plagiarism "is the act of presenting the words, ideas, or images of another as your own; it denies authors or creators of content the credit they are due."
+- It violates ethical standards in education. Consequences include a **failed grade or expulsion**.
+- Read the CAU **academic integrity policy** in your student handbook (Student Hub course on your Canvas dashboard): **pages 11 to 13 of the AZ handbook, pages 13 to 15 of the CA handbook.**
+
+**Common knowledge does not have to be cited.**
+- Example: the Declaration of Independence was approved July 4, 1776 (known). The temperature in the room at Independence Hall is **not** common knowledge, so you'd need to say where you found it.
+- Use that as your guide for the ideas and resources you use.
+
+**Self-plagiarism is real.**
+- You can reuse work from other classes **only with permission from your past and current instructor.**
+- You must also **cite yourself** and have a good reason (for example, you further developed your theory or hypothesis).
+- Submitting without permission and without citing yourself is an **ethics violation and counts as plagiarism.**
+
+> **You avoid plagiarism by giving credit where it is due. If in doubt, cite!**
+
+**When should you cite?** (citation usage varies; examples from the slide)
+- **Direct quotes:** words pulled straight from the source, **including AI**. Put them in **quotation marks**, then add the in-text citation.
+- **Paraphrases or summaries:** in your own words, but using the same knowledge or information from the work. Add an in-text citation at the end, or use a starting phrase like "According to..." or "In...".
+- **If you take it from a source and it's not widely known, cite it.** Data and statistics can be found easily, but your reader may want the source.
+
+---
+
+## 11. Contact
 Rachel Kelly, MLIS, Librarian (Learning Resource Center)
 rachelk@calaero.edu, (661) 615-5915 ext. 1842
 Remote hours: Mon to Fri, 10am to 3pm (hours may vary). Appointments: contact her.
 
 ---
 
-## 11. Likely ULRO quiz topics (self-check)
+## 12. Likely ULRO quiz topics (self-check)
 - [ ] What does CRAAP stand for? Can I explain each letter?
 - [ ] Why are peer-reviewed articles more authoritative?
 - [ ] Database vs. internet: name 3 differences
@@ -156,4 +181,6 @@ Remote hours: Mon to Fri, 10am to 3pm (hours may vary). Appointments: contact he
 - [ ] Which database do I use if I can't decide?
 - [ ] Is using AI to write a paper allowed at CAU? (No: plagiarism)
 - [ ] Why does every assignment have a 20-point APA section?
+- [ ] What is plagiarism (APA definition) and what are the consequences? What is self-plagiarism?
+- [ ] What is common knowledge, and does it need a citation? When do I cite a quote vs. a paraphrase?
 - [ ] What are the tone and style rules for academic writing? (Objective, formal, no slang, limit "I", clear thesis)
