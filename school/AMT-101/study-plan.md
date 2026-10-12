@@ -31,7 +31,7 @@
 ## Phase 2: Practice (Jan 4 – Jan 24)
 | Week of | Focus | Saturday |
 |---|---|---|
-| Jan 4 | Full review, rework all missed questions | **Practice test #4 (85%+)** |
+| Jan 4 | Back in class. Full review, rework all missed questions | **Practice test #4 (85%+)** |
 | Jan 11 | Your 3 weakest topics only | **Practice test #5 (88%+)** |
 | Jan 18 | Full review, timed | **Practice test #6 (90%+)** |
 
@@ -42,4 +42,4 @@
 ## Reminders in the calendar
 - **Oct 19:** Ask Mr. Aguilera how to reserve a proctored slot, when sign-up opens, retake rules, and which test bank to study.
 - **Jan 15:** Book your proctored exam slot.
-- Make-up days (Nov 13, Dec 4, Jan 3), holidays, and both exam windows.
+- Make-up days (Nov 13, Dec 4), campus closure (Dec 18 – Jan 1), back in class (Jan 4), and both exam windows.
