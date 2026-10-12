@@ -8,7 +8,7 @@
 
 | Dates | What | Notes |
 |---|---|---|
-| Thu Feb 4 – Wed Mar 3, 2027 | **Proctored exam** | Need **90%** |
+| Thu Feb 4 – Wed Mar 3, 2027 | **Proctored exam** | Need **90%**. **First come, first served**: sign up / take it early in the window |
 | Thu Mar 4 – Thu Mar 11, 2027 | **FAA written test** | |
 
 ## Schedule changes
@@ -25,6 +25,8 @@
 | Jan 3, 2027 | **Sun** | In-class (make-up hours; falls on a Sunday, double-check this date) |
 
 ## Open questions to confirm with Mr. Aguilera
+- How do you reserve a proctored exam slot, and when does sign-up open?
+- If you don't hit 90%, can you retake it inside the Feb 4 – Mar 3 window?
 - Are the in-class make-up days required, and which hours do they make up?
 - What does "Campus X" on Dec 18 mean?
 - Jan 3, 2027 is a Sunday. Is that the right date?
