@@ -15,7 +15,8 @@
 | Powers | number `yˣ` power `=` | 2 `yˣ` 3 `=` → 8 |
 | Pi | `π` | Area of a circle: `π` × 3 `x²` `=` |
 | Fractions | `a b/c` between numbers | 3 `a b/c` 8 → 3/8 |
-| Fraction ↔ decimal | `2nd` then `a b/c` (F↔D) | 3/8 → 0.375 |
+| Fraction ↔ decimal | `2nd` then `←` (F↔D, printed above the `←` key) | 3/8 → 0.375 |
+| Mixed ↔ improper fraction | `2nd` then `a b/c` (d/c, printed above the `a b/c` key) | 2 3/8 → 19/8 |
 | Reciprocal | number, then `1/x` | Parallel resistors |
 | Negative number | number, then `+/-` (not the minus key) | |
 | Scientific notation | `EE` | 4.7 `EE` 3 → 4,700 |
