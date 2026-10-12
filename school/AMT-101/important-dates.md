@@ -13,16 +13,19 @@
 
 ## Schedule changes
 
+"In-class" days are believed to be **make-up hours** (likely making up the time lost to the holidays/closures). Confirm with Mr. Aguilera whether they are required.
+
 | Date | Day | What |
 |---|---|---|
 | Nov 11, 2026 | Wed | Holiday (Veterans Day), no class |
-| Nov 13, 2026 | Fri | In-class |
+| Nov 13, 2026 | Fri | In-class (make-up hours) |
 | Nov 26, 2026 | Thu | Holiday (Thanksgiving), no class |
-| Dec 4, 2026 | Fri | In-class |
+| Dec 4, 2026 | Fri | In-class (make-up hours) |
 | Dec 18, 2026 | Fri | Campus X (confirm what this means: campus closed?) |
-| Jan 3, 2027 | **Sun** | In-class (falls on a Sunday; double-check this date) |
+| Jan 3, 2027 | **Sun** | In-class (make-up hours; falls on a Sunday, double-check this date) |
 
 ## Open questions to confirm with Mr. Aguilera
+- Are the in-class make-up days required, and which hours do they make up?
 - What does "Campus X" on Dec 18 mean?
 - Jan 3, 2027 is a Sunday. Is that the right date?
 - Is the 90% on the proctored exam a minimum passing score to qualify for the FAA written?
