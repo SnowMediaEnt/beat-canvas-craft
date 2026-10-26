@@ -17,7 +17,7 @@ Both use the **same drawing code** (`src/lib/visualizer/*`), so the video is wha
 | `REMOTION_AWS_REGION` | e.g. `us-east-2` |
 | `REMOTION_AWS_FUNCTION_NAME` | e.g. `remotion-render-4-0-465-mem2048mb-disk2048mb-900sec` (must be the same Remotion version as `package.json`: 4.0.465) |
 | `REMOTION_AWS_SERVE_URL` | The URL printed by `remotion lambda sites create`, e.g. `https://remotionlambda-useast2-xxxx.s3.us-east-2.amazonaws.com/sites/lyrics-viz/index.html` |
-| `RENDER_ACCESS_CODE` | The code you type in Export → Lambda Render. Set your own long random value; the built-in fallback only exists so old links keep working. |
+| `RENDER_ACCESS_CODE` | The code you type in Export → Lambda Render. Set a long random value. There is no built-in fallback: if this secret is missing, every render, upload and AI call is refused. This repository is public, so never write the code in it. |
 | `LOVABLE_API_KEY` | AI generator / AI lyric alignment (also gated by the access code) |
 | `ELEVENLABS_API_KEY` | Lyric auto-sync transcription |
 

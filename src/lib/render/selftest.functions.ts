@@ -3,6 +3,7 @@ import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { buildStartPayload, type RenderInputProps } from "./start-payload";
 import { REMOTION_OUTPUT_PREFIX, parseBucketAndRegion } from "./lambda-config";
+import { isValidAccessCode } from "./access-check";
 
 /**
  * End-to-end render self-test, run from the SERVER the app is deployed on.
@@ -69,8 +70,7 @@ function testProps(audioUrl: string): RenderInputProps {
 export const runRenderSelfTest = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }): Promise<SelfTestResult> => {
-    const expectedCode = process.env.RENDER_ACCESS_CODE || "2650562";
-    if (data.accessCode !== expectedCode) throw new Error("Invalid access code");
+    if (!isValidAccessCode(data.accessCode)) throw new Error("Invalid access code");
 
     const steps: SelfTestStep[] = [];
     const push = (s: SelfTestStep) => steps.push(s);

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { REMOTION_OUTPUT_PREFIX, parseBucketAndRegion, regionForBucket } from "./lambda-config";
+import { isValidAccessCode } from "./access-check";
 
 export interface CloudRender {
   renderId: string;
@@ -57,8 +58,7 @@ async function remotionBuckets(aws: AwsClient, fallback: { bucketName: string; r
 export const listLambdaRenders = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }): Promise<CloudRender[]> => {
-    const expected = process.env.RENDER_ACCESS_CODE || "2650562";
-    if (data.accessCode !== expected) {
+    if (!isValidAccessCode(data.accessCode)) {
       throw new Error("Invalid access code.");
     }
     const accessKeyId = process.env.AWS_ACCESS_KEY_ID;

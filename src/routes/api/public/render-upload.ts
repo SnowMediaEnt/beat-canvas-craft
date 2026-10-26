@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AwsClient } from "aws4fetch";
+import { isValidAccessCode } from "@/lib/render/access-check";
 
 const MAX_BYTES = 200 * 1024 * 1024; // 200MB cap
 /** SigV4 maximum. The URL only has to outlive the render that uses it. */
@@ -63,8 +64,7 @@ export const Route = createFileRoute("/api/public/render-upload")({
           // Uploads write straight into the render bucket; require the same
           // access code the Lambda render itself needs so the endpoint can't
           // be used as free public storage.
-          const expectedCode = process.env.RENDER_ACCESS_CODE || "2650562";
-          if ((request.headers.get("x-render-code") || "") !== expectedCode) {
+          if (!isValidAccessCode(request.headers.get("x-render-code"))) {
             return jsonError(401, "Invalid access code");
           }
 

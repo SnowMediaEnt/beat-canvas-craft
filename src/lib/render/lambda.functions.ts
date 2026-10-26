@@ -3,6 +3,7 @@ import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { renderInputPropsSchema, type RenderInputProps } from "./input-schema";
 import { buildStartPayload } from "./start-payload";
+import { isValidAccessCode } from "./access-check";
 import {
   REMOTION_VERSION, REMOTION_OUTPUT_PREFIX, computeFramesPerLambda,
   buildPublicRenderUrl, parseBucketAndRegion, regionForBucket,
@@ -89,14 +90,8 @@ function rememberProgress(key: string, value: LambdaProgressResponse) {
   }
 }
 
-/** The render access code lives in the project secrets; the historical
- *  value stays as a fallback so existing users are not locked out. */
-function getAccessCode(): string {
-  return process.env.RENDER_ACCESS_CODE || "2650562";
-}
-
 function assertAccessCode(code: string | undefined) {
-  if (!code || code !== getAccessCode()) {
+  if (!isValidAccessCode(code)) {
     throw new Error(
       "Invalid access code. Lambda rendering requires an access code — use the free Browser Recording export instead.",
     );

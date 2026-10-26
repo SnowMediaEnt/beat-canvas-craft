@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { isValidAccessCode } from "@/lib/render/access-check";
 
 /**
  * AI-driven lyric alignment. Sends the user's lyric lines + the
@@ -31,8 +32,7 @@ export const aiAlignLyrics = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const expected = process.env.RENDER_ACCESS_CODE || "2650562";
-    if ((data.accessCode || "") !== expected) {
+    if (!isValidAccessCode(data.accessCode)) {
       throw new Error("AI lyric alignment needs your access code (Export → Lambda Render). Plain auto-sync still works without it.");
     }
     const apiKey = process.env.LOVABLE_API_KEY;

@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { AwsClient } from "aws4fetch";
 import { z } from "zod";
 import { REMOTION_VERSION, parseBucketAndRegion } from "./lambda-config";
+import { isValidAccessCode } from "./access-check";
 
 // One-click AWS diagnostics for the Export dialog. Every check is read-only
 // (no Lambda invocations, no S3 writes) so it is safe to run repeatedly.
@@ -62,8 +63,7 @@ export const getRenderHealth = createServerFn({ method: "POST" })
   .inputValidator((input) => z.object({ accessCode: z.string() }).parse(input))
   .handler(async ({ data }): Promise<RenderHealth> => {
   // The report names the function, bucket and site, so it is owner-only.
-  const expectedCode = process.env.RENDER_ACCESS_CODE || "2650562";
-  if (data.accessCode !== expectedCode) {
+  if (!isValidAccessCode(data.accessCode)) {
     throw new Error("Enter your render access code to run the AWS check.");
   }
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID || "";

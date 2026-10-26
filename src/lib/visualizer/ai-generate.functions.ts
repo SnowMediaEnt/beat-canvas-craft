@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { isValidAccessCode } from "@/lib/render/access-check";
 
 /**
  * AI-driven preset generator. Takes a free-text prompt and returns a partial
@@ -13,8 +14,7 @@ export const generateVisualizerFromPrompt = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     // Each call spends the owner's AI credits (two model calls + storage), so
     // it is gated by the same access code as Lambda rendering.
-    const expected = process.env.RENDER_ACCESS_CODE || "2650562";
-    if ((data.accessCode || "") !== expected) {
+    if (!isValidAccessCode(data.accessCode)) {
       throw new Error("Enter your access code in Export → Lambda Render to use the AI generator.");
     }
     const apiKey = process.env.LOVABLE_API_KEY;
