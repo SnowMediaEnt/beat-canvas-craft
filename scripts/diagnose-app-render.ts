@@ -13,6 +13,11 @@ const region = process.env.REMOTION_AWS_REGION || "us-east-2";
 const functionName = process.env.REMOTION_AWS_FUNCTION_NAME || "";
 const serveUrl = process.env.REMOTION_AWS_SERVE_URL || "";
 const audioUrl = process.env.DIAG_AUDIO_URL || "";
+const seconds = Number(process.env.DIAG_SECONDS || 2);
+const width = Number(process.env.DIAG_WIDTH || 640);
+const height = Number(process.env.DIAG_HEIGHT || 360);
+const fps = Number(process.env.DIAG_FPS || 30);
+const label = process.env.DIAG_LABEL || "render";
 
 const parsed = parseBucketAndRegion(serveUrl, region);
 if (!functionName || !serveUrl || !parsed) {
@@ -34,7 +39,7 @@ const s3 = new AwsClient({ ...creds, service: "s3", region: bucketRegion });
 
 const data = {
   audioUrl,
-  durationSeconds: 2, fps: 30, width: 640, height: 360,
+  durationSeconds: seconds, fps, width, height,
   backgroundUrl: null, backgroundType: null, backgroundColor: "#0a0612", logoUrl: null,
   visualizer: { presetId: "circular-spectrum", primary: "#22e3ff", secondary: "#b14bff", accent: "#ff4bd1", glow: "#22e3ff", overlay: "#000000", overlayOpacity: 0.35, glowIntensity: 0.8, blur: 0, size: 1, thickness: 4, position: { x: 0, y: 0 }, logoSize: 0.35, logoPosition: { x: 0, y: 0 }, backgroundScale: 1, backgroundBlur: 0, backgroundTint: "#0a0612", backgroundTintOpacity: 0, animationSpeed: 1, sensitivity: 1.2, bassSensitivity: 1.3, midSensitivity: 1, trebleSensitivity: 1, smoothing: 0.5, rotation: 0, movement: 0, shadow: 0, border: 0, blendMode: "source-over", reactivity: 1, bandCount: 48, stationary: true, custom: { shape: "bars", count: 48, spacing: 0.25, amplitude: 1, thickness: 0, rounded: true, symmetric: false, reactivity: 1, innerRadius: 0.35 } },
   effects: { particles: { enabled: false, type: "dust", density: 10, speed: 0.4, color: "#ffffff", opacity: 0.3, reactivity: 0.3 }, beatFlash: false, vignette: true, noise: false, lensFlare: false },
@@ -68,7 +73,7 @@ console.log(`renderId=${renderId}`);
 // Poll progress.json exactly like the app does.
 const key = `${REMOTION_OUTPUT_PREFIX}${renderId}/progress.json`;
 const progressUrl = `https://${bucketName}.s3.${bucketRegion}.amazonaws.com/${key}`;
-for (let i = 0; i < 40; i++) {
+for (let i = 0; i < 160; i++) {
   await new Promise((r) => setTimeout(r, 3000));
   const p = await s3.fetch(progressUrl, { method: "GET" });
   if (p.status === 404) {
@@ -87,8 +92,12 @@ for (let i = 0; i < 40; i++) {
     `framesRendered=${j.framesRendered ?? 0} errors=${errors.length}${j.postRenderData ? " DONE" : ""}`,
   );
   for (const e of errors.slice(0, 3)) console.log(`     error: ${String(e.message).slice(0, 300)}`);
-  if (j.postRenderData) { console.log("RENDER COMPLETED"); process.exit(0); }
+  if (j.postRenderData) {
+    console.log("RENDER COMPLETED");
+    console.log(`OUT_URL[${label}]=https://${bucketName}.s3.${bucketRegion}.amazonaws.com/${REMOTION_OUTPUT_PREFIX}${renderId}/out.mp4`);
+    process.exit(0);
+  }
   if (errors.length) { console.log("RENDER FAILED"); process.exit(1); }
 }
-console.log("gave up after 120s — this is the hang the app reports");
+console.log("gave up waiting — this is the hang the app reports");
 process.exit(1);

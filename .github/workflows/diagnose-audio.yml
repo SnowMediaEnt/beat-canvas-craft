@@ -1,0 +1,82 @@
+# Does a LONG song survive a real Lambda render? Builds a two-minute test track
+# (steady 440 Hz tone + a click every 0.5 s), renders it on the real AWS
+# function with the app's own request — which cuts it into one-second chunks and
+# stitches them back — then measures pitch, timing and dropouts at every seam.
+name: Diagnose audio
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/diagnose-audio.yml", "scripts/analyze-audio.py", "scripts/diagnose-app-render.ts"]
+  workflow_dispatch:
+
+concurrency:
+  group: diagnose-audio
+  cancel-in-progress: true
+
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: us-east-2
+      REMOTION_AWS_REGION: us-east-2
+      REMOTION_AWS_FUNCTION_NAME: remotion-render-4-0-465-mem3008mb-disk2048mb-900sec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
+      - run: pip install numpy
+
+      - name: Build the test track
+        run: |
+          python3 - <<'PY'
+          import numpy as np, wave
+          sr, secs = 44100, 120
+          t = np.arange(sr * secs) / sr
+          ph = t % 0.5
+          x = np.sin(2*np.pi*80*ph) * np.exp(-ph*18) * 0.8 + 0.12*np.sin(2*np.pi*440*t)
+          x[ph < 0.002] += 0.9
+          x = np.clip(x, -1, 1)
+          pcm = (x * 30000).astype("<i2")
+          st = np.repeat(pcm, 2)
+          with wave.open("src.wav", "wb") as w:
+              w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes(st.tobytes())
+          PY
+          ffmpeg -y -v error -i src.wav -c:a libmp3lame -q:a 2 src_vbr.mp3
+          ffprobe -v error -show_entries format=duration -of csv=p=0 src.wav src_vbr.mp3
+
+      - name: Upload the tracks
+        run: |
+          BUCKET=$(aws s3 ls | grep "remotionlambda-useast2" | awk '{print $3}' | head -1)
+          echo "BUCKET=$BUCKET" >> "$GITHUB_ENV"
+          aws s3 cp src.wav "s3://$BUCKET/render-assets/_diag-long.wav" --content-type audio/wav --only-show-errors
+          aws s3 cp src_vbr.mp3 "s3://$BUCKET/render-assets/_diag-long.mp3" --content-type audio/mpeg --only-show-errors
+
+      - name: Render both on the real Lambda function
+        run: |
+          export REMOTION_AWS_SERVE_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/sites/lyrics-viz/index.html"
+          npx esbuild scripts/diagnose-app-render.ts --bundle --platform=node --format=esm --outfile=/tmp/diag-app.mjs --log-level=error
+          for kind in wav mp3; do
+            echo "##### rendering the $kind version"
+            DIAG_LABEL=$kind DIAG_SECONDS=120 DIAG_WIDTH=1280 DIAG_HEIGHT=720 \
+              DIAG_AUDIO_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/render-assets/_diag-long.$kind" \
+              node /tmp/diag-app.mjs | tee render-$kind.log | grep -E "framesPerLambda|renderId|DONE|COMPLETED|FAILED|gave up|OUT_URL|error" | tail -8
+            URL=$(grep -oE 'OUT_URL\[[a-z0-9]+\]=.*' render-$kind.log | sed 's/^[^=]*=//')
+            curl -sS -o out-$kind.mp4 "$URL" && ls -la out-$kind.mp4 | awk '{print "downloaded", $5, "bytes"}'
+          done
+
+      - name: Measure pitch, timing and dropouts across the whole song
+        run: |
+          python3 scripts/analyze-audio.py src.wav out-wav.mp4 "WAV upload (what the app sends now)"
+          python3 scripts/analyze-audio.py src.wav out-mp3.mp4 "VBR MP3 upload (what it sent before)"
+
+      - name: Clean up the test files
+        if: always()
+        run: |
+          aws s3 rm "s3://$BUCKET/render-assets/_diag-long.wav" --only-show-errors || true
+          aws s3 rm "s3://$BUCKET/render-assets/_diag-long.mp3" --only-show-errors || true
