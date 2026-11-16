@@ -1,14 +1,22 @@
 import { get, set, del } from "idb-keyval";
 import type { TranscribedWord } from "@/lib/lyrics/types";
 
+export const MAX_ANALYSIS_BYTES = 100 * 1024 * 1024;
+
 export type TranscribeStatus = "idle" | "uploading" | "transcribing" | "ready" | "error";
 
-interface Entry {
+export interface TranscribeEntry {
   status: TranscribeStatus;
   words?: TranscribedWord[];
   error?: string;
   promise?: Promise<TranscribedWord[]>;
+  /** When the current analysis started (ms), for the elapsed timer. */
+  startedAt?: number;
+  /** True when the transcript came from an earlier analysis of the same song. */
+  reused?: boolean;
+  fingerprint?: string;
 }
+type Entry = TranscribeEntry;
 
 const cache = new Map<string, Entry>();
 const listeners = new Set<() => void>();
@@ -17,6 +25,22 @@ let cachedKey: string | null = null;
 let keyPromise: Promise<string> | null = null;
 
 const idbKey = (assetId: string) => `transcript:v2:${assetId}`;
+const fpKey = (fp: string) => `transcript:v2:fp:${fp}`;
+
+/**
+ * A short fingerprint of the song's bytes. Uploading the same file again
+ * gets a new asset id, which used to mean paying to transcribe it again; the
+ * fingerprint lets the earlier transcript be reused.
+ */
+export async function fingerprintBlob(blob: Blob): Promise<string | undefined> {
+  try {
+    if (!globalThis.crypto?.subtle) return undefined;
+    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return Array.from(new Uint8Array(digest).slice(0, 12)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return undefined;
+  }
+}
 
 function notify() {
   for (const l of listeners) l();
@@ -27,7 +51,7 @@ export function subscribe(fn: () => void) {
   return () => listeners.delete(fn);
 }
 
-export function getEntry(assetId: string | undefined): Entry | undefined {
+export function getEntry(assetId: string | undefined): TranscribeEntry | undefined {
   if (!assetId) return undefined;
   const existing = cache.get(assetId);
   if (existing) return existing;
@@ -175,9 +199,20 @@ export function transcribeInBackground(assetId: string, file: Blob, filename: st
   if (existing?.status === "ready" && existing.words) return Promise.resolve(existing.words);
   if (existing?.promise) return existing.promise;
 
-  const entry: Entry = { status: "uploading" };
+  const entry: Entry = { status: "uploading", startedAt: Date.now() };
   cache.set(assetId, entry);
   notify();
+
+  // Same ceiling the lyric tools enforce, surfaced here as a readable status
+  // instead of a failure later.
+  if (file.size > MAX_ANALYSIS_BYTES) {
+    entry.status = "error";
+    entry.error = `This song is ${(file.size / 1024 / 1024).toFixed(0)} MB; lyric analysis supports up to ${MAX_ANALYSIS_BYTES / 1024 / 1024} MB. Lyrics can still be typed in by hand.`;
+    notify();
+    const tooBig = Promise.reject(new Error(entry.error));
+    tooBig.catch(() => {});
+    return tooBig;
+  }
 
   const promise = (async () => {
     try {
@@ -191,13 +226,31 @@ export function transcribeInBackground(assetId: string, file: Blob, filename: st
         console.log(`[elevenlabs-direct] reused ${stored.length} cached words for ${assetId}`);
         return stored;
       }
+      // The same song uploaded before (new asset id, identical bytes)?
+      const fp = await fingerprintBlob(file);
+      entry.fingerprint = fp;
+      if (fp) {
+        const sameSong = await get<TranscribedWord[]>(fpKey(fp)).catch(() => undefined);
+        if (sameSong && Array.isArray(sameSong) && sameSong.length) {
+          entry.status = "ready";
+          entry.words = sameSong;
+          entry.reused = true;
+          entry.error = undefined;
+          try { await set(idbKey(assetId), sameSong); } catch { /* cache only */ }
+          notify();
+          console.log(`[elevenlabs-direct] reused ${sameSong.length} words from an earlier upload of this song`);
+          return sameSong;
+        }
+      }
       entry.status = "transcribing";
+      entry.startedAt = Date.now();
       notify();
       const words = await runTranscription(file, filename);
       entry.status = "ready";
       entry.words = words;
       entry.error = undefined;
       try { await set(idbKey(assetId), words); } catch (e) { console.warn("[elevenlabs-direct] idb persist failed", e); }
+      if (fp && words.length) { try { await set(fpKey(fp), words); } catch { /* cache only */ } }
       notify();
       return words;
     } catch (e) {
@@ -217,9 +270,11 @@ export function transcribeInBackground(assetId: string, file: Blob, filename: st
   return promise;
 }
 
-export function retryTranscription(assetId: string, file: Blob, filename: string) {
+export async function retryTranscription(assetId: string, file: Blob, filename: string) {
+  const fp = cache.get(assetId)?.fingerprint ?? (await fingerprintBlob(file));
   cache.delete(assetId);
   del(idbKey(assetId)).catch(() => {});
+  if (fp) del(fpKey(fp)).catch(() => {});
   notify();
   return transcribeInBackground(assetId, file, filename);
 }

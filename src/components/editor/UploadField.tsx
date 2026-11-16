@@ -5,6 +5,7 @@ import { storeAsset, deleteAsset } from "@/lib/project/assets";
 import { isAssetReferenced } from "@/lib/project/store";
 import type { AssetRef } from "@/lib/project/types";
 import { toast } from "sonner";
+import { transcribeInBackground } from "@/lib/transcribe/elevenlabs";
 
 interface Props {
   label: string;
@@ -52,8 +53,13 @@ export function UploadField({ label, accept, value, onChange }: Props) {
       const asset = await storeAsset(file);
       const previous = value;
       onChange(asset);
-      // Transcription for lyric sync now starts lazily from "Auto-sync"
-      // instead of on every upload (each run is billed).
+      // Analyse the song for lyric sync right away so it is ready when the
+      // user gets to the lyrics. The status shows under the upload; the same
+      // song uploaded again reuses its earlier transcript instead of being
+      // transcribed (and billed) twice.
+      if (accept.startsWith("audio/") || file.type.startsWith("audio/")) {
+        void transcribeInBackground(asset.id, file, file.name).catch(() => {});
+      }
       // Defer the cleanup so the project save (which drops the old reference) lands first.
       setTimeout(() => releaseAsset(previous), 500);
     } catch (err) {
