@@ -50,7 +50,7 @@ jobs:
               w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr); w.writeframes(st.tobytes())
           PY
           ffmpeg -y -v error -i src.wav -c:a libmp3lame -q:a 2 src_vbr.mp3
-          ffprobe -v error -show_entries format=duration -of csv=p=0 src.wav src_vbr.mp3
+          for f in src.wav src_vbr.mp3; do printf '%s duration: ' $f; ffprobe -v error -show_entries format=duration -of csv=p=0 $f; done
 
       - name: Upload the tracks
         run: |
