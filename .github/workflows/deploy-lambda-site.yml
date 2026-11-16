@@ -50,7 +50,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install --no-package-lock --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Upload the visualizer bundle to S3
         run: |

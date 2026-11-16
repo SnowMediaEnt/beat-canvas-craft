@@ -32,6 +32,7 @@ import {
 import {
   assertRenderableAssetUrl,
   uploadAssetForRender,
+  uploadAudioForRender,
   uploadBlobForRender,
 } from "@/lib/render/upload";
 import { buildProxyDownloadUrl, triggerDownload } from "@/lib/render/download";
@@ -454,13 +455,16 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
       const isColorBg = !!project.background?.id.startsWith(COLOR_BG_PREFIX);
       const backgroundColor = isColorBg ? project.background!.id.slice(COLOR_BG_PREFIX.length) : null;
 
-      const [audioUrl, backgroundUrl, logoUrl] = await Promise.all([
-        uploadAssetForRender(project.audio, code),
+      const [audioUpload, backgroundUrl, logoUrl] = await Promise.all([
+        uploadAudioForRender(project.audio, code, setStage),
         isColorBg ? Promise.resolve(null) : uploadAssetForRender(project.background, code),
         uploadAssetForRender(project.logo, code),
       ]);
 
-      const resolvedAudioUrl = assertRenderableAssetUrl("audio", audioUrl);
+      const resolvedAudioUrl = assertRenderableAssetUrl("audio", audioUpload.url);
+      // The decoded length is the truth; the file header (and so the browser's
+      // duration) can be short for variable-bitrate MP3s, which cut the end off.
+      const renderSeconds = audioUpload.durationSeconds > 0 ? audioUpload.durationSeconds : duration;
       const resolvedBackgroundUrl = project.background && !isColorBg
         ? assertRenderableAssetUrl("background", backgroundUrl)
         : null;
@@ -471,7 +475,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
       setStage("Starting Lambda render…");
       const inputProps = {
         audioUrl: resolvedAudioUrl,
-        durationSeconds: duration,
+        durationSeconds: renderSeconds,
         fps: project.export.fps,
         width: w,
         height: h,

@@ -73,3 +73,64 @@ export function isAacLike(asset: { type?: string; name?: string } | undefined): 
   const n = (asset.name || "").toLowerCase();
   return t.includes("m4a") || t.includes("aac") || t.includes("mp4") || t.includes("x-m4a") || n.endsWith(".m4a") || n.endsWith(".aac");
 }
+
+/**
+ * A WAV above this size is not worth uploading: the upload goes through a
+ * server with limited memory, so a very long song falls back to the original
+ * file instead of risking a failed upload.
+ */
+export const MAX_RENDER_WAV_BYTES = 90 * 1024 * 1024;
+
+export interface PreparedRenderAudio {
+  /** What to upload: a clean WAV, or the original file when conversion is not possible. */
+  file: File;
+  /** True length of the song as decoded — not the header guess. 0 when it could not be decoded. */
+  durationSeconds: number;
+  /** Whether `file` is a freshly written WAV. */
+  converted: boolean;
+}
+
+function looksLikeWav(blob: Blob, fileName: string) {
+  const t = (blob.type || "").toLowerCase();
+  return t.includes("wav") || t.includes("wave") || /\.wav$/i.test(fileName);
+}
+
+/**
+ * Get a song ready for the cloud renderer.
+ *
+ * Measured against a real render: an MP3 saved as variable bitrate without a
+ * header reports itself as ~1.2 s shorter than it is (more on a full song), so
+ * both the browser and Remotion cut the ending off; and every MP3's decoder
+ * delay puts the sound 40-70 ms behind the visuals, which are driven by the
+ * browser's trimmed decode. Decoding once here and uploading the PCM gives
+ * the renderer exactly the samples the preview plays and the visuals follow.
+ */
+export async function prepareAudioForRender(
+  blob: Blob,
+  fileName: string,
+  onProgress?: (stage: string) => void,
+): Promise<PreparedRenderAudio> {
+  const original = new File([blob], fileName || "audio", { type: blob.type || "application/octet-stream" });
+  const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const ctx = new Ctx();
+  try {
+    onProgress?.("Reading the audio…");
+    const decoded = await ctx.decodeAudioData((await blob.arrayBuffer()).slice(0));
+    const durationSeconds = decoded.length / decoded.sampleRate;
+    if (looksLikeWav(blob, fileName)) return { file: original, durationSeconds, converted: false };
+
+    const channels = Math.min(2, decoded.numberOfChannels);
+    const wavBytes = 44 + decoded.length * channels * 2;
+    if (wavBytes > MAX_RENDER_WAV_BYTES) return { file: original, durationSeconds, converted: false };
+
+    onProgress?.("Preparing a clean copy of the audio…");
+    const wav = audioBufferToWav(decoded, 2);
+    const base = (fileName || "audio").replace(/\.[^.]+$/, "") || "audio";
+    return { file: new File([wav], `${base}.wav`, { type: "audio/wav" }), durationSeconds, converted: true };
+  } catch {
+    // Not decodable here (rare): let the renderer try the original.
+    return { file: original, durationSeconds: 0, converted: false };
+  } finally {
+    try { await ctx.close(); } catch { /* ignore */ }
+  }
+}

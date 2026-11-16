@@ -1,6 +1,7 @@
 import { get } from "idb-keyval";
 import type { AssetRef } from "@/lib/project/types";
 import { ACCESS_CODE_HEADER } from "./access-code";
+import { prepareAudioForRender } from "@/lib/audio/convert-wav";
 
 const UPLOAD_ENDPOINT = "/api/public/render-upload";
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB
@@ -109,11 +110,7 @@ async function getBlobFromUrl(url: string, ref: AssetRef): Promise<Blob | null> 
   }
 }
 
-export async function uploadAssetForRender(ref: AssetRef | undefined, accessCode: string): Promise<string | null> {
-  if (!ref) return null;
-  const cached = uploadedCache.get(ref.id);
-  if (cached) return cached;
-
+async function loadAssetBlob(ref: AssetRef): Promise<Blob | null> {
   let blob: Blob | null = null;
 
   // Prefer the live object URL from the current editor session when available.
@@ -130,6 +127,48 @@ export async function uploadAssetForRender(ref: AssetRef | undefined, accessCode
     console.error("[render-upload] missing IndexedDB blob", { assetId: ref.id, name: ref.name, type: ref.type });
     return null;
   }
+  return blob;
+}
+
+const audioCache = new Map<string, { url: string; durationSeconds: number }>();
+
+/**
+ * Upload the song for a cloud render as a clean WAV and report its true
+ * length. See prepareAudioForRender for why the original MP3 is not sent.
+ */
+export async function uploadAudioForRender(
+  ref: AssetRef | undefined,
+  accessCode: string,
+  onStage?: (stage: string) => void,
+): Promise<{ url: string | null; durationSeconds: number }> {
+  if (!ref) return { url: null, durationSeconds: 0 };
+  const cached = audioCache.get(ref.id);
+  if (cached) return cached;
+
+  const blob = await loadAssetBlob(ref);
+  if (!blob) return { url: null, durationSeconds: 0 };
+
+  const prepared = await prepareAudioForRender(blob, ref.name, onStage);
+  onStage?.("Uploading assets…");
+  const url = await uploadBlobForRender({
+    assetId: prepared.converted ? `${ref.id}_render` : ref.id,
+    fileName: prepared.file.name,
+    contentType: prepared.file.type || ref.type || "application/octet-stream",
+    blob: prepared.file,
+    accessCode,
+  });
+  const result = { url, durationSeconds: prepared.durationSeconds };
+  audioCache.set(ref.id, result);
+  return result;
+}
+
+export async function uploadAssetForRender(ref: AssetRef | undefined, accessCode: string): Promise<string | null> {
+  if (!ref) return null;
+  const cached = uploadedCache.get(ref.id);
+  if (cached) return cached;
+
+  const blob = await loadAssetBlob(ref);
+  if (!blob) return null;
 
   const url = await uploadBlobForRender({
     assetId: ref.id,

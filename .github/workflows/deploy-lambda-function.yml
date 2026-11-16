@@ -56,7 +56,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install --no-package-lock --no-audit --no-fund
+      - run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Deploy the function
         run: |
