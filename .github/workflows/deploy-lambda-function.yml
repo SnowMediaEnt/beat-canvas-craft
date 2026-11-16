@@ -1,0 +1,86 @@
+# Deploys (or re-deploys) the Remotion Lambda FUNCTION with the memory, disk and
+# timeout you pick. Run it from the Actions tab: "Run workflow".
+#
+# Needs the AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY repository secrets.
+#
+# The function name encodes its settings (e.g. ...-mem6144mb-disk2048mb-900sec),
+# so changing memory creates a NEW function next to the old one. Afterwards set
+# REMOTION_AWS_FUNCTION_NAME in Lovable to the name printed in the run summary,
+# then Publish > Update. The old function can stay or be deleted.
+name: Deploy Lambda function
+
+on:
+  workflow_dispatch:
+    inputs:
+      memory:
+        description: "Memory in MB (512-10240). More memory = faster, costs more per second."
+        default: "6144"
+      disk:
+        description: "Disk in MB (512-10240)"
+        default: "2048"
+      timeout:
+        description: "Timeout in seconds (max 900)"
+        default: "900"
+
+concurrency:
+  group: deploy-lambda-function
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      REMOTION_AWS_REGION: ${{ vars.REMOTION_AWS_REGION || 'us-east-2' }}
+      MEMORY: ${{ inputs.memory }}
+      DISK: ${{ inputs.disk }}
+      TIMEOUT: ${{ inputs.timeout }}
+    steps:
+      - name: Check the AWS secrets and inputs
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Missing AWS_ACCESS_KEY_ID and/or AWS_SECRET_ACCESS_KEY repository secrets."
+            exit 1
+          fi
+          for v in "$MEMORY" "$DISK" "$TIMEOUT"; do
+            case "$v" in ''|*[!0-9]*) echo "::error::Inputs must be whole numbers, got '$v'"; exit 1;; esac
+          done
+          [ "$MEMORY" -ge 512 ] && [ "$MEMORY" -le 10240 ] || { echo "::error::memory must be 512-10240"; exit 1; }
+          [ "$DISK" -ge 512 ] && [ "$DISK" -le 10240 ] || { echo "::error::disk must be 512-10240"; exit 1; }
+          [ "$TIMEOUT" -ge 15 ] && [ "$TIMEOUT" -le 900 ] || { echo "::error::timeout must be 15-900"; exit 1; }
+          echo "region=$REMOTION_AWS_REGION memory=$MEMORY disk=$DISK timeout=$TIMEOUT"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Deploy the function
+        run: |
+          npx remotion lambda functions deploy \
+            --memory="$MEMORY" --disk="$DISK" --timeout="$TIMEOUT" \
+            --region="$REMOTION_AWS_REGION" --log=info | tee deploy.log
+
+      - name: Show the function name to use
+        run: |
+          NAME=$(npx remotion lambda functions ls --region="$REMOTION_AWS_REGION" --quiet 2>/dev/null \
+                 | awk '{print $1}' | grep "mem${MEMORY}mb-disk${DISK}mb-${TIMEOUT}sec" | head -1)
+          {
+            echo "### Lambda function deployed"
+            echo ""
+            if [ -n "$NAME" ]; then
+              echo "Set \`REMOTION_AWS_FUNCTION_NAME\` in Lovable to:"
+              echo ""
+              echo '```'
+              echo "$NAME"
+              echo '```'
+              echo ""
+              echo "Then Publish > Update in Lovable."
+            else
+              echo "Deployed, but the name was not found in the listing. Run \`npx remotion lambda functions ls --region=$REMOTION_AWS_REGION\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "function name: ${NAME:-<not found>}"
