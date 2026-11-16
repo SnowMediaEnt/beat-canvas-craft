@@ -220,18 +220,38 @@ export function getCurrentLyric(L: LyricsConfig, audioTime: number): CurrentLyri
   if (idx < 0) return null;
   const cur = lines[idx];
   const next = lines[idx + 1];
-  const lineEnd = next ? next.time : cur.time + 4;
-  const lineDuration = Math.max(0.25, lineEnd - cur.time);
+  // A line that knows when its last word is sung stays up for a short hold
+  // after that, then leaves, rather than lingering until the next line. A line
+  // without an end time keeps the old rule: it stays until the next one starts.
+  const nextStart = next ? next.time : Number.POSITIVE_INFINITY;
+  const sungEnd = cur.end !== undefined && cur.end > cur.time ? cur.end : (next ? next.time : cur.time + 4);
+  const lineEnd = cur.end !== undefined && cur.end > cur.time
+    ? Math.min(nextStart, cur.end + LYRIC_HOLD_SECONDS)
+    : (next ? next.time : cur.time + 4);
+  const lineDuration = Math.max(0.25, sungEnd - cur.time);
+  // Gone before the next line even starts? Then it is on its own and may
+  // fade out. Otherwise the next line replaces it with a clean cut.
+  if (time >= lineEnd && lineEnd < nextStart) return null;
+  const prev = idx > 0 ? lines[idx - 1] : undefined;
+  const prevHideAt = prev
+    ? (prev.end !== undefined && prev.end > prev.time ? Math.min(cur.time, prev.end + LYRIC_HOLD_SECONDS) : cur.time)
+    : Number.NEGATIVE_INFINITY;
   return {
     text: cur.text,
     index: idx,
     progress: clamp01((time - cur.time) / lineDuration),
     lineStart: cur.time,
     lineEnd,
+    sungEnd,
+    cutsToNext: !!next && lineEnd >= next.time - 0.02,
+    followsPrevious: !!prev && prevHideAt >= cur.time - 0.02,
     age: Math.max(0, time - cur.time),
     nextText: next?.text,
   };
 }
+
+/** How long a line stays after its last word is sung, when nothing follows right away. */
+export const LYRIC_HOLD_SECONDS = 0.9;
 
 // ─── Trails buffer (phosphor after-images) ───────────────────────────────
 const trailBuffers = new Map<string, { canvas: HTMLCanvasElement; lastTime: number }>();
@@ -461,15 +481,18 @@ export function drawLyrics(
   if (!cur) return;
   const time = audioTime + (L.timingOffset ?? 0);
   const dev = deviceScale(ctx);
-  const lineDuration = Math.max(0.25, cur.lineEnd - cur.lineStart);
+  const lineDuration = Math.max(0.25, cur.sungEnd - cur.lineStart);
 
-  // Fade: 250ms ease in / out. When `fade` is off, alpha is always 1.
+  // Fade. The old version faded EVERY line out over its last quarter-second,
+  // which dimmed it exactly while the last word was being sung, so sentences
+  // looked cut off, and then faded the next one in from nothing. Now a line
+  // fades in quickly, stays fully visible while it is sung, and only fades out
+  // when nothing follows it; when the next line follows, it is a clean cut.
   let alpha = 1;
   if (L.fade) {
-    const fadeDur = 0.25;
-    const fadeIn = Math.min(1, cur.age / fadeDur);
-    const fadeOut = Math.min(1, (cur.lineEnd - time) / fadeDur);
-    alpha = clamp01(Math.min(1, fadeIn) * Math.min(1, fadeOut));
+    const fadeIn = cur.followsPrevious ? 1 : Math.min(1, cur.age / 0.15);
+    const fadeOut = cur.cutsToNext ? 1 : Math.min(1, (cur.lineEnd - time) / 0.3);
+    alpha = clamp01(fadeIn * fadeOut);
     if (alpha <= 0.001) return;
   }
 
@@ -606,7 +629,7 @@ export function drawLyrics(
         const wi = idxs[k];
         const wordW = ctx.measureText(lineWords[k]).width;
         const start = wordTimes[wi];
-        const end = wi + 1 < wordTimes.length ? wordTimes[wi + 1] : cur.lineEnd;
+        const end = wi + 1 < wordTimes.length ? wordTimes[wi + 1] : cur.sungEnd;
         if (time >= end) revealW = cx0 + wordW;
         else if (time >= start) {
           const p = clamp01((time - start) / Math.max(0.05, end - start));

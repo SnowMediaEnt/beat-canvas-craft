@@ -75,6 +75,11 @@ export interface LyricLine {
   text: string;
   /** Optional per-word start times (from auto-sync) for word-level karaoke. */
   words?: LyricWord[];
+  /**
+   * When the last word of the line has been sung (from auto-sync). The line
+   * stays up until then, plus a short hold, instead of until the next line.
+   */
+  end?: number;
 }
 
 export type LyricAnimation = "none" | "slide" | "pop" | "typewriter";

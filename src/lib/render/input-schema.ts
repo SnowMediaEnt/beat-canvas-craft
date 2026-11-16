@@ -11,6 +11,7 @@ export const lyricLineSchema = z.object({
   time: z.number(),
   text: z.string(),
   words: z.array(lyricWordSchema).optional(),
+  end: z.number().optional(),
 });
 
 export const lyricsInputSchema = z.object({

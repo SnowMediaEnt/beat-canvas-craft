@@ -11,6 +11,7 @@ import { alignLyrics } from "@/lib/lyrics/align";
 import { aiAlignLyrics } from "@/lib/lyrics/ai-align.functions";
 import type { Project } from "@/lib/project/types";
 import { ensureTranscription, getEntry } from "@/lib/transcribe/elevenlabs";
+import { groupWordsIntoLines as groupWords, attachSungEnds, applyLeadIn } from "@/lib/lyrics/group";
 import { getStoredAccessCode } from "@/lib/render/access-code";
 import { TranscriptionStatus } from "./TranscriptionStatus";
 
@@ -74,11 +75,11 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
     const raw = text.split(/\r?\n/).map(l => l.trim());
     const tsRe = /^\[(\d+):(\d{2})(?:\.(\d+))?\]\s*(.*)$/;
     const sectionRe = /^\[[^\]]+\]$/; // [Verse 1], [Chorus], etc.
-    const parsed: { time: number; text: string; words?: { time: number; text: string }[] }[] = [];
+    const parsed: { time: number; text: string; words?: { time: number; text: string }[]; end?: number }[] = [];
     let hasTs = false;
-    // Lines whose text is unchanged keep their precise time + word timings.
-    const existing = new Map<string, { time: number; words?: { time: number; text: string }[] }>();
-    for (const l of project.lyrics.lines) existing.set(`${l.text.trim()}@${Math.round(l.time * 100)}`, { time: l.time, words: l.words });
+    // Lines whose text is unchanged keep their precise time, word timings and end time.
+    const existing = new Map<string, { time: number; words?: { time: number; text: string }[]; end?: number }>();
+    for (const l of project.lyrics.lines) existing.set(`${l.text.trim()}@${Math.round(l.time * 100)}`, { time: l.time, words: l.words, end: l.end });
     for (const line of raw) {
       if (!line) continue;
       const m = line.match(tsRe);
@@ -87,7 +88,9 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
         const t = parseInt(m[1]) * 60 + parseInt(m[2]) + (m[3] ? parseFloat("0." + m[3]) : 0);
         if (m[4]) {
           const keep = existing.get(`${m[4].trim()}@${Math.round(t * 100)}`);
-          parsed.push(keep ? { time: keep.time, text: m[4], ...(keep.words ? { words: keep.words } : {}) } : { time: t, text: m[4] });
+          parsed.push(keep
+            ? { time: keep.time, text: m[4], ...(keep.words ? { words: keep.words } : {}), ...(keep.end !== undefined ? { end: keep.end } : {}) }
+            : { time: t, text: m[4] });
         }
         continue;
       }
@@ -114,41 +117,25 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
 
   const groupWordsIntoLines = (
     words: { text: string; start: number; end: number }[],
-  ): { time: number; text: string; words?: { time: number; text: string }[] }[] => {
-    const lines: { time: number; text: string; end: number; words: { time: number; text: string }[] }[] = [];
-    const GAP = 0.7; // seconds of silence => new line
+  ): { time: number; text: string; end?: number; words?: { time: number; text: string }[] }[] => {
     const INSTRUMENTAL_GAP = 8; // seconds of silence => insert instrumental marker
-    const MAX_WORDS = 9;
-    let buf: { text: string; start: number; end: number }[] = [];
-    const flush = () => {
-      if (!buf.length) return;
-      const text = buf.map(w => w.text).join(" ").replace(/\s+([,.;:!?])/g, "$1").trim();
-      // Keep per-word start times so karaoke can highlight word by word.
-      // Only when the word tokens map 1:1 onto the displayed text.
-      const tokens = text.split(" ").filter(Boolean);
-      const wordTimes = tokens.length === buf.length
-        ? buf.map((w, i) => ({ time: w.start, text: tokens[i] }))
-        : [];
-      lines.push({ time: buf[0].start, end: buf[buf.length - 1].end, text, words: wordTimes });
-      buf = [];
-    };
-    for (let i = 0; i < words.length; i++) {
-      const w = words[i];
-      const prev = words[i - 1];
-      const gap = prev ? w.start - prev.end : 0;
-      if (buf.length >= MAX_WORDS || (prev && gap > GAP)) flush();
-      buf.push(w);
-    }
-    flush();
+    // Break points are chosen for the whole song at once (sentence ends,
+    // breaths, readable length) — see lib/lyrics/group.ts.
+    const lines = groupWords(words);
 
     // Insert instrumental markers for long silent spans
     const dur = audioRef.current?.duration || 0;
-    const out: { time: number; text: string; words?: { time: number; text: string }[] }[] = [];
+    const out: { time: number; text: string; end?: number; words?: { time: number; text: string }[] }[] = [];
     if (lines.length && lines[0].time >= INSTRUMENTAL_GAP) {
       out.push({ time: 0.2, text: "♪ instrumental ♪" });
     }
     for (let i = 0; i < lines.length; i++) {
-      out.push({ time: lines[i].time, text: lines[i].text, ...(lines[i].words.length ? { words: lines[i].words } : {}) });
+      out.push({
+        time: lines[i].time,
+        text: lines[i].text,
+        end: lines[i].end,
+        ...(lines[i].words.length ? { words: lines[i].words } : {}),
+      });
       const next = lines[i + 1];
       if (next && next.time - lines[i].end >= INSTRUMENTAL_GAP) {
         out.push({ time: lines[i].end + 0.2, text: "♪ instrumental ♪" });
@@ -205,13 +192,14 @@ export function Transport({ project, update, audioRef, onPlayToggle }: Props) {
       }
       if (!words || !words.length) throw new Error("No words detected in audio.");
 
-      let aligned: { time: number; text: string; words?: { time: number; text: string }[] }[];
+      let aligned: { time: number; text: string; end?: number; words?: { time: number; text: string }[] }[];
       if (aiMode && hasUserLyrics) {
         toast.loading("AI-aligning your lyrics…", { id: toastId });
         const { times } = await aiAlign({ data: { lines: rawLines, words, accessCode: getStoredAccessCode() } });
-        aligned = rawLines.map((textLine, i) => ({ time: times[i] ?? 0, text: textLine }));
+        // Work out when each line finishes being sung, then show it slightly early.
+        aligned = applyLeadIn(attachSungEnds(rawLines.map((textLine, i) => ({ time: times[i] ?? 0, text: textLine })), words));
       } else if (hasUserLyrics) {
-        aligned = alignLyrics(rawLines, words);
+        aligned = applyLeadIn(attachSungEnds(alignLyrics(rawLines, words), words));
       } else {
         aligned = groupWordsIntoLines(words);
       }

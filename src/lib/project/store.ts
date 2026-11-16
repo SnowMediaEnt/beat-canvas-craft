@@ -452,10 +452,14 @@ function migrateProject(p: Project): Project {
                     .slice(0, 80)
                     .map((w) => ({ time: clamp(w.time, 0, Number.MAX_SAFE_INTEGER, 0), text: w.text }))
                 : undefined;
+              const rawEnd = (line as { end?: unknown }).end;
+              const time = clamp(line.time, 0, Number.MAX_SAFE_INTEGER, 0);
+              const end = typeof rawEnd === "number" && Number.isFinite(rawEnd) && rawEnd > time ? rawEnd : undefined;
               return {
-                time: clamp(line.time, 0, Number.MAX_SAFE_INTEGER, 0),
+                time,
                 text: line.text,
                 ...(words && words.length ? { words } : {}),
+                ...(end !== undefined ? { end } : {}),
               };
             })
         : dl.lines,

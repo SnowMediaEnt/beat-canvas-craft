@@ -10,5 +10,7 @@
  *  1 – original Lovable build (33 presets, 5 particle types)
  *  2 – glow-layer batching, new preset packs, onset-driven audio data,
  *      new effects, Google-font lyrics, chunk warm-up
+ *  3 – lyric lines carry an end time; lines stay up until sung, cut to the
+ *      next line instead of fading out, and fade in only after a gap
  */
-export const RENDER_ENGINE_VERSION = 2;
+export const RENDER_ENGINE_VERSION = 3;

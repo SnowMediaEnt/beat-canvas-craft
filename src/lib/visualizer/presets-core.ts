@@ -44,7 +44,14 @@ export interface CurrentLyric {
   /** 0..1 progress through the line's duration. */
   progress: number;
   lineStart: number;
+  /** When the line leaves the screen. */
   lineEnd: number;
+  /** When the last word has been sung (= lineEnd when the line has no end time). */
+  sungEnd: number;
+  /** True when the next line follows straight away, so this one should cut, not fade out. */
+  cutsToNext: boolean;
+  /** True when this line took over from the previous one without a gap, so it should not fade in from nothing. */
+  followsPrevious: boolean;
   /** Seconds since the line started. */
   age: number;
   nextText?: string;
