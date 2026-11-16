@@ -878,7 +878,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
                     <SelectItem value="30">30 fps</SelectItem>
                     <SelectItem value="45">45 fps</SelectItem>
                     <SelectItem value="60">60 fps</SelectItem>
-                    <SelectItem value="120">120 fps</SelectItem>
+                    <SelectItem value="120">120 fps (not recommended)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -904,6 +904,23 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
                 </Select>
               </div>
             </div>
+
+            {project.export.fps === 120 && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200 space-y-1">
+                <div className="font-medium">120 fps can play back badly</div>
+                <p className="text-amber-200/80 leading-relaxed">
+                  The sound leaves the cloud render clean, but a 1080p 120 fps video is too heavy for many players and
+                  phones. They drop frames and then skip or stretch the audio to catch up. It also costs about twice as
+                  much as 60 fps with no visible gain for a music visualizer. Use 60 fps for anything you share.
+                </p>
+                <button
+                  className="underline underline-offset-2 hover:text-amber-100"
+                  onClick={() => update((pp) => ({ ...pp, export: { ...pp.export, fps: 60 } }))}
+                >
+                  Switch to 60 fps
+                </button>
+              </div>
+            )}
 
             {!est ? (
               <div className="rounded-lg border border-border bg-elevated/40 p-3 text-xs text-muted-foreground space-y-1">
