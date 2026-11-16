@@ -107,6 +107,8 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
   const [accessCode, setAccessCode] = useState<string>("");
   const pollRef = useRef<number | null>(null);
   const cancelledRef = useRef(false);
+  /** The song the job on screen was started for, so a new upload can clear it. */
+  const jobAudioIdRef = useRef<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
   const [converting, setConverting] = useState<string | null>(null);
@@ -445,6 +447,7 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
     };
     setJob(j);
     persistJob(j);
+    jobAudioIdRef.current = project.audio?.id ?? null;
     setProgress(0);
     setDownloadUrl(null);
     setInlineError(null);
@@ -689,6 +692,31 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
     : null;
 
   const busy = job?.status === "queued" || job?.status === "rendering";
+
+  /** Clear the finished render from the dialog so the next one can start. */
+  const resetFinishedRender = () => {
+    setJob(null);
+    setDownloadUrl(null);
+    setProgress(0);
+    setStage("");
+    setInlineError(null);
+  };
+
+  // A different song means the finished render on screen (and its Download
+  // button) belongs to the old one. Clear it so the new song can be rendered
+  // straight away instead of needing a page reload. An in-flight render is
+  // left alone and cleared once it ends.
+  const audioId = project.audio?.id ?? null;
+  const recordAudioIdRef = useRef<string | null>(audioId);
+  useEffect(() => {
+    if (job && !busy && jobAudioIdRef.current !== audioId) resetFinishedRender();
+    if (!recording && recordAudioIdRef.current !== audioId) {
+      recordAudioIdRef.current = audioId;
+      setRecordUrl(null);
+      setRecordProgress(0);
+      setRecordStage("");
+    }
+  }, [audioId, busy, recording, job]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -939,6 +967,11 @@ export function ExportDialog({ project, update, audioRef, canvasRef, engineRef, 
                 )}
                 {job.status === "failed" && job.error && (
                   <p className="text-xs text-destructive">{job.error}</p>
+                )}
+                {(job.status === "completed" || job.status === "failed") && (
+                  <Button variant="secondary" className="w-full gap-2" onClick={resetFinishedRender}>
+                    <Video className="size-4" /> Start a new render
+                  </Button>
                 )}
               </div>
             )}
