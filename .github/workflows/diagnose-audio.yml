@@ -1,4 +1,4 @@
-# Does a LONG song survive a real Lambda render? Builds a two-minute test track
+# Does a LONG song survive a real Lambda render at 60 and 120 fps? Builds a two-minute test track
 # (steady 440 Hz tone + a click every 0.5 s), renders it on the real AWS
 # function with the app's own request — which cuts it into one-second chunks and
 # stitches them back — then measures pitch, timing and dropouts at every seam.
@@ -59,23 +59,27 @@ jobs:
           aws s3 cp src.wav "s3://$BUCKET/render-assets/_diag-long.wav" --content-type audio/wav --only-show-errors
           aws s3 cp src_vbr.mp3 "s3://$BUCKET/render-assets/_diag-long.mp3" --content-type audio/mpeg --only-show-errors
 
-      - name: Render both on the real Lambda function
+      - name: Render at 60 and 120 fps on the real Lambda function
         run: |
           export REMOTION_AWS_SERVE_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/sites/lyrics-viz/index.html"
           npx esbuild scripts/diagnose-app-render.ts --bundle --platform=node --format=esm --outfile=/tmp/diag-app.mjs --log-level=error
-          for kind in wav mp3; do
-            echo "##### rendering the $kind version"
-            DIAG_LABEL=$kind DIAG_SECONDS=120 DIAG_WIDTH=1280 DIAG_HEIGHT=720 \
-              DIAG_AUDIO_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/render-assets/_diag-long.$kind" \
-              node /tmp/diag-app.mjs | tee render-$kind.log | grep -E "framesPerLambda|renderId|DONE|COMPLETED|FAILED|gave up|OUT_URL|error" | tail -8
-            URL=$(grep -oE 'OUT_URL\[[a-z0-9]+\]=.*' render-$kind.log | sed 's/^[^=]*=//')
-            curl -sS -o out-$kind.mp4 "$URL" && ls -la out-$kind.mp4 | awk '{print "downloaded", $5, "bytes"}'
+          for fps in 60 120; do
+            echo "##### rendering the WAV at $fps fps, 1920x1080"
+            DIAG_LABEL=fps$fps DIAG_FPS=$fps DIAG_SECONDS=120 DIAG_WIDTH=1920 DIAG_HEIGHT=1080 \
+              DIAG_AUDIO_URL="https://$BUCKET.s3.us-east-2.amazonaws.com/render-assets/_diag-long.wav" \
+              node /tmp/diag-app.mjs | tee render-$fps.log | grep -E "framesPerLambda|renderId|COMPLETED|FAILED|gave up|OUT_URL|error:" | tail -8
+            URL=$(grep -oE 'OUT_URL\[[a-z0-9]+\]=.*' render-$fps.log | sed 's/^[^=]*=//')
+            [ -n "$URL" ] && curl -sS -o out-$fps.mp4 "$URL" && ls -la out-$fps.mp4 | awk '{print "downloaded", $5, "bytes"}'
           done
 
-      - name: Measure pitch, timing and dropouts across the whole song
+      - name: Measure pitch, timing and dropouts at each frame rate
         run: |
-          python3 scripts/analyze-audio.py src.wav out-wav.mp4 "WAV upload (what the app sends now)"
-          python3 scripts/analyze-audio.py src.wav out-mp3.mp4 "VBR MP3 upload (what it sent before)"
+          for fps in 60 120; do
+            [ -f out-$fps.mp4 ] || { echo "no output for $fps fps"; continue; }
+            echo "--- container facts at $fps fps"
+            ffprobe -v error -show_entries stream=codec_type,codec_name,r_frame_rate,nb_frames,duration,start_time,profile,level -of compact out-$fps.mp4
+            python3 scripts/analyze-audio.py src.wav out-$fps.mp4 "$fps fps (1920x1080)"
+          done
 
       - name: Clean up the test files
         if: always()
